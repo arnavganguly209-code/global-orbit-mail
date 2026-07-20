@@ -4,51 +4,45 @@ import { cn } from "@/lib/utils";
 import { brand } from "@/config/brand";
 
 export interface BrandLogoProps {
-  href?: string;
-  showWordmark?: boolean;
+  href?: string | null;
   className?: string;
-  markClassName?: string;
+  /** Pixel width. Header default is brand.logoWidth (240). */
+  width?: number;
   priority?: boolean;
 }
 
 /**
- * Swappable brand mark — replace assets in /public/brand without redesigning UI.
+ * Official GLOBAL ORBIT logo — never stretch; maintain aspect ratio.
  */
 export function BrandLogo({
   href = "/",
-  showWordmark = true,
   className,
-  markClassName,
+  width = brand.logoWidth,
   priority = false,
 }: BrandLogoProps) {
-  const content = (
-    <span className={cn("inline-flex items-center gap-3", className)}>
-      <Image
-        src={brand.assets.logoMark}
-        alt={`${brand.name} mark`}
-        width={36}
-        height={36}
-        priority={priority}
-        className={cn("size-9 rounded-xl", markClassName)}
-      />
-      {showWordmark ? (
-        <span className="flex flex-col leading-none">
-          <span className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
-            {brand.name}
-          </span>
-          <span className="mt-1 font-display text-lg font-semibold tracking-tight text-foreground">
-            MAIL
-          </span>
-        </span>
-      ) : null}
-    </span>
+  const image = (
+    <Image
+      src={brand.assets.logo}
+      alt={`${brand.company} logo`}
+      width={width * 2}
+      height={Math.round(width * 0.72)}
+      priority={priority}
+      className={cn("h-auto w-auto object-contain", className)}
+      style={{ width, maxWidth: "100%", height: "auto" }}
+    />
   );
 
-  if (!href) return content;
+  if (href === null || href === undefined) {
+    return image;
+  }
 
   return (
-    <Link href={href} className="outline-none transition-opacity hover:opacity-90">
-      {content}
+    <Link
+      href={href}
+      className="inline-flex shrink-0 outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+      aria-label={`${brand.name} home`}
+    >
+      {image}
     </Link>
   );
 }

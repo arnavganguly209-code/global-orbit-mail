@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -8,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { loginSchema, type LoginInput } from "@/lib/validations/auth";
+import { external } from "@/config/routes";
 
 export function LoginFormShell({ surface }: { surface: "user" | "admin" }) {
   const form = useForm<LoginInput>({
@@ -19,13 +21,15 @@ export function LoginFormShell({ surface }: { surface: "user" | "admin" }) {
     },
   });
 
+  const portalUrl = surface === "admin" ? external.admin : external.webmail;
+
   function onSubmit(_values: LoginInput) {
-    toast.message("Authentication architecture ready", {
-      description:
-        surface === "admin"
-          ? "Super Admin login will be connected in Phase 2."
-          : "User portal login will be connected in Phase 2.",
+    toast.message("Opening production portal", {
+      description: `Redirecting to ${portalUrl.replace("https://", "")}`,
     });
+    window.setTimeout(() => {
+      window.location.href = portalUrl;
+    }, 600);
   }
 
   return (
@@ -44,7 +48,15 @@ export function LoginFormShell({ surface }: { surface: "user" | "admin" }) {
         ) : null}
       </div>
       <div className="space-y-2">
-        <Label htmlFor={`${surface}-password`}>Password</Label>
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor={`${surface}-password`}>Password</Label>
+          <Link
+            href={portalUrl}
+            className="text-xs text-muted-foreground transition-colors hover:text-gold"
+          >
+            Forgot Password
+          </Link>
+        </div>
         <Input
           id={`${surface}-password`}
           type="password"
@@ -65,11 +77,15 @@ export function LoginFormShell({ surface }: { surface: "user" | "admin" }) {
           onCheckedChange={(checked) => form.setValue("remember", checked === true)}
         />
         <Label htmlFor={`${surface}-remember`} className="font-normal">
-          Keep me signed in
+          Remember Me
         </Label>
       </div>
-      <Button type="submit" className="w-full" size="lg">
-        Continue
+      <Button
+        type="submit"
+        className={`w-full ${surface === "admin" ? "gradient-blue-gold border-0 text-white" : "gradient-blue border-0"}`}
+        size="lg"
+      >
+        Sign In
       </Button>
     </form>
   );

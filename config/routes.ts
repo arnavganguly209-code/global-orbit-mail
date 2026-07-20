@@ -1,28 +1,45 @@
 /**
- * GLOBAL ORBIT MAIL — Site Routes
- * Central route map for marketing, auth, portal, and admin surfaces.
+ * GLOBAL ORBIT MAIL — Site Routes & External Portals
  */
+
+import { brand } from "@/config/brand";
+
+export const external = {
+  webmail: `https://${brand.portals.user}`,
+  admin: `https://${brand.portals.admin}`,
+  company: brand.companyUrl,
+} as const;
 
 export const routes = {
   home: "/",
   login: "/login",
   adminLogin: "/admin/login",
+  sections: {
+    features: "/#features",
+    solutions: "/#solutions",
+    enterprise: "/#enterprise",
+    pricing: "/#pricing",
+    resources: "/#resources",
+    documentation: "/#documentation",
+    contact: "/#contact",
+    faq: "/#faq",
+    howItWorks: "/#how-it-works",
+    why: "/#why",
+  },
+  legal: {
+    privacy: "/privacy",
+    terms: "/terms",
+    refund: "/refund",
+    cookies: "/cookies",
+  },
   portal: {
     root: "/portal",
-    inbox: "/portal/inbox",
-    settings: "/portal/settings",
   },
   admin: {
     root: "/admin",
-    organizations: "/admin/organizations",
-    domains: "/admin/domains",
-    users: "/admin/users",
-    settings: "/admin/settings",
-    analytics: "/admin/analytics",
   },
   api: {
     health: "/api/health",
-    auth: "/api/auth",
   },
 } as const;
 

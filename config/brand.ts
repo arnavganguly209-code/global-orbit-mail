@@ -1,25 +1,29 @@
 /**
  * GLOBAL ORBIT MAIL — Brand Identity
- * Logo assets live in /public/brand and can be swapped without UI redesign.
+ * Official logo lives in /public/brand/logo.png (swap without UI redesign).
  */
 
 export const brand = {
   company: "GLOBAL ORBIT PVT. LTD.",
   name: "GLOBAL ORBIT",
   product: "GLOBAL ORBIT MAIL",
-  tagline: "Enterprise Mail Platform",
+  tagline: "Enterprise Email Hosting",
   shortName: "Orbit Mail",
   domain: "theglobalorbit.com",
+  siteHost: "mail.theglobalorbit.com",
+  companyUrl: "https://theglobalorbit.com/",
   portals: {
     user: "webmail.theglobalorbit.com",
-    admin: "orbit.theglobalorbit.com",
+    admin: "admin.theglobalorbit.com",
   },
   assets: {
-    logoMark: "/brand/logo-mark.svg",
-    logoWordmark: "/brand/logo-wordmark.svg",
+    logo: "/brand/logo.png",
+    logoMark: "/brand/logo.png",
+    logoWordmark: "/brand/logo.png",
     favicon: "/brand/favicon.svg",
-    ogImage: "/brand/og-image.svg",
+    ogImage: "/brand/logo.png",
   },
+  logoWidth: 240,
 } as const;
 
 export type BrandConfig = typeof brand;
