@@ -1,0 +1,19 @@
+# GLOBAL ORBIT MAIL — Netlify Configuration
+# User Portal: webmail.theglobalorbit.com
+# Super Admin: orbit.theglobalorbit.com
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+[dev]
+  command = "npm run dev"
+  port = 3000
+  targetPort = 3000
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

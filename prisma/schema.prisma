@@ -1,0 +1,140 @@
+// GLOBAL ORBIT MAIL — Enterprise Data Foundation
+// Phase 1: Architecture preparation only. No mail engine models yet.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Multi-tenant identity & access (architecture)
+// ─────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  ORG_ADMIN
+  DOMAIN_ADMIN
+  MAILBOX_USER
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  DISABLED
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  TRIAL
+  SUSPENDED
+  ARCHIVED
+}
+
+model Organization {
+  id        String             @id @default(cuid())
+  name      String
+  slug      String             @unique
+  status    OrganizationStatus @default(TRIAL)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  users   User[]
+  domains Domain[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String     @id @default(cuid())
+  email          String     @unique
+  name           String?
+  image          String?
+  role           UserRole   @default(MAILBOX_USER)
+  status         UserStatus @default(INVITED)
+  emailVerified  DateTime?
+  twoFactorEnabled Boolean  @default(false)
+  organizationId String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  accounts     Account[]
+  sessions     Session[]
+
+  @@index([organizationId])
+  @@index([role])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─────────────────────────────────────────────
+// Domain architecture (CMS-ready, no DNS ops yet)
+// ─────────────────────────────────────────────
+
+enum DomainStatus {
+  PENDING
+  VERIFYING
+  ACTIVE
+  SUSPENDED
+  FAILED
+}
+
+model Domain {
+  id             String       @id @default(cuid())
+  name           String
+  status         DomainStatus @default(PENDING)
+  organizationId String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+  @@index([status])
+  @@map("domains")
+}

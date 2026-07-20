@@ -32,10 +32,15 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
-# vercel
+# vercel / netlify
 .vercel
+.netlify
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# prisma
+/lib/generated/prisma
