@@ -1,9 +1,6 @@
 import { randomBytes, createHash } from "node:crypto";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { hashPassword } from "@/lib/auth/session";
-
-const execFileAsync = promisify(execFile);
+import { hashSha512Crypt, isSha512Crypt } from "@/lib/mail/sha512-crypt";
 
 const LOWER = "abcdefghijkmnopqrstuvwxyz";
 const UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -40,14 +37,9 @@ export function generateSecurePassword(length = 20): string {
 }
 
 /**
- * Prefer hashing with live Dovecot (`doveadm pw`) / openssl SHA512-CRYPT.
- * Most production Dovecot stacks expect SHA512-CRYPT ($6$), NOT bcrypt.
- *
- * App-layer passwordHash remains bcrypt for any Orbit-side checks.
- * mailPasswordHash is what Dovecot SQL passdb must verify.
- *
- * Final authority on the mail VPS: deploy/vps/mail-agent.sh runs
- * `doveadm pw -s <detected_scheme>` and writes virtual_users.
+ * App-layer passwordHash: bcrypt (Orbit only).
+ * mailPasswordHash: SHA512-CRYPT `$6$…` for Dovecot MySQL passdb.
+ * Never stores bcrypt/argon in mailPasswordHash.
  */
 export async function hashMailboxPassword(plain: string): Promise<{
   passwordHash: string;
@@ -55,37 +47,10 @@ export async function hashMailboxPassword(plain: string): Promise<{
 }> {
   const passwordHash = await hashPassword(plain);
   const rawBcrypt = passwordHash.replace(/^\{[A-Z0-9-]+\}/i, "");
+  const mailPasswordHash = await hashSha512Crypt(plain);
 
-  const scheme = (process.env.DOVECOT_PASS_SCHEME ?? "SHA512-CRYPT").trim();
-  let mailPasswordHash: string | null = null;
-
-  try {
-    const { stdout } = await execFileAsync("doveadm", ["pw", "-s", scheme, "-p", plain], {
-      timeout: 15_000,
-    });
-    mailPasswordHash = stdout.trim() || null;
-  } catch {
-    // not on mail host
-  }
-
-  if (!mailPasswordHash) {
-    try {
-      const { stdout } = await execFileAsync("openssl", ["passwd", "-6", plain], {
-        timeout: 15_000,
-      });
-      const hash = stdout.trim();
-      if (hash) {
-        mailPasswordHash = hash.startsWith("{") ? hash : `{SHA512-CRYPT}${hash}`;
-      }
-    } catch {
-      // Windows/dev without openssl -6
-    }
-  }
-
-  // Last resort: bcrypt with BLF-CRYPT label (only if Dovecot is configured for it).
-  // Production agent will overwrite this with doveadm-native hash when password is provisioned.
-  if (!mailPasswordHash) {
-    mailPasswordHash = `{BLF-CRYPT}${rawBcrypt}`;
+  if (!isSha512Crypt(mailPasswordHash)) {
+    throw new Error("Failed to produce SHA512-CRYPT hash for Dovecot");
   }
 
   return { passwordHash: rawBcrypt, mailPasswordHash };
@@ -93,7 +58,7 @@ export async function hashMailboxPassword(plain: string): Promise<{
 
 /** Deterministic marker so tests can assert scheme without doveadm. */
 export function hashSchemeLabel(mailPasswordHash: string): string {
-  if (mailPasswordHash.includes("SHA512") || mailPasswordHash.startsWith("$6$")) {
+  if (isSha512Crypt(mailPasswordHash) || mailPasswordHash.includes("SHA512")) {
     return "SHA512-CRYPT";
   }
   if (mailPasswordHash.includes("BLF-CRYPT") || mailPasswordHash.startsWith("$2")) {

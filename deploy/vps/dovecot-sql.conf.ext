@@ -1,58 +1,40 @@
-# GLOBAL ORBIT MAIL — Dovecot SQL auth (PostgreSQL)
+# GLOBAL ORBIT MAIL — Dovecot SQL auth (MySQL)
+#
+# Production fact:
+#   Dovecot authenticates against MySQL database `mailserver`, table `virtual_users`.
+#   Orbit (PostgreSQL + Prisma) is the control plane only — NOT the IMAP passdb.
 #
 # Install on the mail VPS:
 #   sudo cp deploy/vps/dovecot-sql.conf.ext /etc/dovecot/dovecot-sql.conf.ext
-#   # edit connect= with the same DATABASE_URL credentials Orbit uses
-#   sudo nano /etc/dovecot/conf.d/10-auth.conf
+#   # edit connect= with MySQL mailserver credentials
+#   sudo systemctl reload dovecot
 #
-# 10-auth.conf (example):
-#   disable_plaintext_auth = no
-#   auth_mechanisms = plain login
-#   !include auth-sql.conf.ext
+# password_query (must match live config):
+#   SELECT email,password FROM virtual_users WHERE email='%u';
 #
-# auth-sql.conf.ext (example):
-#   passdb {
-#     driver = sql
-#     args = /etc/dovecot/dovecot-sql.conf.ext
-#   }
-#   userdb {
-#     driver = sql
-#     args = /etc/dovecot/dovecot-sql.conf.ext
-#   }
+# Password scheme: SHA512-CRYPT ($6$…)
+# Orbit mailbox create writes SHA512-CRYPT into mailserver.virtual_users
+# and creates Maildir under /var/mail/vhosts/<domain>/<user>.
 #
-# 10-mail.conf (example):
-#   mail_location = maildir:~/
-#   mail_uid = vmail
-#   mail_gid = vmail
-#   first_valid_uid = 5000
-#
-# Password scheme MUST match live Dovecot.
-# Most production Dovecot stacks use SHA512-CRYPT ($6$...).
-# Orbit's VPS agent generates hashes with `doveadm pw` against this scheme.
-#
-# After install / Orbit mailbox create, verify:
+# Verify:
 #   bash deploy/vps/fix-dovecot-auth.sh user@domain.com 'password'
 # Expected:
 #   SUCCESS: passdb: user authenticated
 
-driver = pgsql
+driver = mysql
 
-# Replace with production credentials (same DB Dovecot passdb uses)
-connect = host=127.0.0.1 dbname=global_orbit_mail user=postgres password=CHANGE_ME
+# Replace with production MySQL credentials for database `mailserver`
+connect = host=127.0.0.1 dbname=mailserver user=mailuser password=CHANGE_ME
 
 default_pass_scheme = SHA512-CRYPT
 
 # passdb — Roundcube / IMAP / SMTP SASL / POP3
-password_query = SELECT email AS user, password, \
-  home AS userdb_home, uid AS userdb_uid, gid AS userdb_gid, \
-  '*:bytes=' || quota_bytes AS userdb_quota_rule \
-  FROM virtual_users \
-  WHERE email = '%u' AND active = true
+password_query = SELECT email AS user, password FROM virtual_users WHERE email = '%u'
 
-# userdb — Maildir + quota
-user_query = SELECT home, uid, gid, \
-  '*:bytes=' || quota_bytes AS quota_rule \
-  FROM virtual_users \
-  WHERE email = '%u' AND active = true
+# userdb — static vmail + Maildir home (adjust if your table has home/uid/gid)
+user_query = SELECT \
+  concat('/var/mail/vhosts/', substring_index(email, '@', -1), '/', substring_index(email, '@', 1)) AS home, \
+  5000 AS uid, 5000 AS gid \
+  FROM virtual_users WHERE email = '%u'
 
-iterate_query = SELECT email AS user FROM virtual_users WHERE active = true
+iterate_query = SELECT email AS user FROM virtual_users

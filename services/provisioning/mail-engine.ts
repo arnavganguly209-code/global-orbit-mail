@@ -1,6 +1,13 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { prisma } from "@/lib/db";
+import { hashSha512Crypt, isSha512Crypt, normalizeSha512Crypt } from "@/lib/mail/sha512-crypt";
+import {
+  activateMysqlVirtualUser,
+  deactivateMysqlVirtualUser,
+  isMysqlMailAuthConfigured,
+  upsertMysqlVirtualUser,
+} from "@/services/provisioning/mysql-mail-auth";
 import type { ProvisionJobKind, ProvisionJobStatus } from "@prisma/client";
 
 const execFileAsync = promisify(execFile);
@@ -74,30 +81,6 @@ function vmailHome(email: string): string {
   return `${base}/${domain.toLowerCase()}/${local.toLowerCase()}`;
 }
 
-/** Hash with live doveadm/openssl when running on the mail host (Linux). */
-async function hashPasswordWithSystemTools(plain: string): Promise<string | null> {
-  const scheme = (process.env.DOVECOT_PASS_SCHEME ?? "SHA512-CRYPT").trim();
-  try {
-    const { stdout } = await execFileAsync("doveadm", ["pw", "-s", scheme, "-p", plain], {
-      timeout: 15_000,
-    });
-    const hash = stdout.trim();
-    if (hash) return hash;
-  } catch {
-    // fall through
-  }
-  try {
-    const { stdout } = await execFileAsync("openssl", ["passwd", "-6", plain], {
-      timeout: 15_000,
-    });
-    const hash = stdout.trim();
-    if (hash) return hash.startsWith("{") ? hash : `{SHA512-CRYPT}${hash}`;
-  } catch {
-    // fall through
-  }
-  return null;
-}
-
 function parseAgentOutput(stdout: string, stderr: string): AgentResponse {
   const trimmed = stdout.trim();
   if (!trimmed) {
@@ -122,177 +105,135 @@ function parseAgentOutput(stdout: string, stderr: string): AgentResponse {
 }
 
 /**
- * Durable Postfix/Dovecot SQL maps. Always written on mailbox create/password
- * so Roundcube → Dovecot auth works even if the shell agent is a stub.
+ * @deprecated Postgres virtual_* is NOT used by production Dovecot.
+ * Dovecot authenticates against MySQL `mailserver.virtual_users`.
+ * Kept as a no-op so older callers/scripts do not crash.
  */
 export async function ensureVirtualMailTables() {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS virtual_domains (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      active BOOLEAN NOT NULL DEFAULT true
-    )
-  `);
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS virtual_users (
-      id SERIAL PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE,
-      password TEXT NOT NULL,
-      domain TEXT NOT NULL,
-      quota_bytes BIGINT NOT NULL DEFAULT 0,
-      active BOOLEAN NOT NULL DEFAULT true,
-      home TEXT,
-      uid INTEGER,
-      gid INTEGER
-    )
-  `);
-  // Upgrade older virtual_users rows created without home/uid/gid
-  await prisma.$executeRawUnsafe(`ALTER TABLE virtual_users ADD COLUMN IF NOT EXISTS home TEXT`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE virtual_users ADD COLUMN IF NOT EXISTS uid INTEGER`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE virtual_users ADD COLUMN IF NOT EXISTS gid INTEGER`);
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS virtual_aliases (
-      id SERIAL PRIMARY KEY,
-      address TEXT NOT NULL UNIQUE,
-      goto TEXT NOT NULL,
-      active BOOLEAN NOT NULL DEFAULT true
-    )
-  `);
+  return;
 }
 
+/**
+ * Sync Dovecot credentials into MySQL mailserver.virtual_users (SHA512-CRYPT).
+ * Postgres (Prisma) remains the Orbit control plane — not the IMAP passdb.
+ */
 async function syncSqlAuth(request: AgentRequest, reason: string): Promise<AgentResponse> {
   try {
-    await ensureVirtualMailTables();
-    const uid = Number(process.env.VMAIL_UID ?? "5000");
-    const gid = Number(process.env.VMAIL_GID ?? "5000");
-
     switch (request.command) {
-      case "domain.create": {
-        const domain = String(request.payload.domain ?? "").toLowerCase();
-        if (!domain) throw new Error("domain required");
-        await prisma.$executeRawUnsafe(
-          `INSERT INTO virtual_domains (name, active) VALUES ($1, true)
-           ON CONFLICT (name) DO UPDATE SET active = true`,
-          domain,
-        );
-        return { ok: true, stdout: "sql:domain.create", stderr: "", data: { sqlSynced: true, reason } };
-      }
-      case "domain.delete": {
-        const domain = String(request.payload.domain ?? "").toLowerCase();
-        await prisma.$executeRawUnsafe(
-          `UPDATE virtual_domains SET active = false WHERE name = $1`,
-          domain,
-        );
-        await prisma.$executeRawUnsafe(
-          `UPDATE virtual_users SET active = false WHERE domain = $1`,
-          domain,
-        );
-        return { ok: true, stdout: "sql:domain.delete", stderr: "", data: { sqlSynced: true } };
-      }
+      case "domain.create":
+      case "domain.delete":
+      case "alias.sync":
+      case "forwarder.sync":
+      case "mailbox.quota":
+        return {
+          ok: true,
+          stdout: `mysql:${request.command}:noop`,
+          stderr: "",
+          data: { sqlSynced: true, mysqlSynced: true, reason },
+        };
+
       case "mailbox.create":
       case "mailbox.password": {
         const email = String(request.payload.email ?? "").toLowerCase().trim();
         const plain = String(request.payload.password ?? "");
-        let password = String(request.payload.mailPasswordHash ?? "").trim();
-        const quotaBytes = Number(request.payload.quotaBytes ?? 0);
+        let password =
+          normalizeSha512Crypt(String(request.payload.mailPasswordHash ?? "")) ?? "";
         const domain = email.split("@")[1] ?? "";
+        const home = vmailHome(email);
         if (!email || !domain) throw new Error("email required");
 
-        // Prefer a hash generated by live doveadm/openssl when plaintext is available
         if (plain) {
-          const systemHash = await hashPasswordWithSystemTools(plain);
-          if (systemHash) password = systemHash;
+          password = await hashSha512Crypt(plain);
         }
-        if (!password) throw new Error("mailPasswordHash or password required for Dovecot auth");
+        if (!isSha512Crypt(password)) {
+          throw new Error(
+            "SHA512-CRYPT hash required for MySQL virtual_users (bcrypt/argon rejected)",
+          );
+        }
 
-        // Do NOT force {BLF-CRYPT} — production Dovecot often expects SHA512-CRYPT ($6$)
-        const home = vmailHome(email);
-        await prisma.$executeRawUnsafe(
-          `INSERT INTO virtual_domains (name, active) VALUES ($1, true)
-           ON CONFLICT (name) DO UPDATE SET active = true`,
-          domain,
-        );
-        await prisma.$executeRawUnsafe(
-          `INSERT INTO virtual_users (email, password, domain, quota_bytes, active, home, uid, gid)
-           VALUES ($1, $2, $3, $4, true, $5, $6, $7)
-           ON CONFLICT (email) DO UPDATE SET
-             password = EXCLUDED.password,
-             quota_bytes = EXCLUDED.quota_bytes,
-             active = true,
-             home = EXCLUDED.home,
-             uid = EXCLUDED.uid,
-             gid = EXCLUDED.gid`,
+        const mysqlResult = await upsertMysqlVirtualUser({
           email,
-          password,
+          passwordHash: password,
           domain,
-          quotaBytes,
-          home,
-          uid,
-          gid,
-        );
+        });
+        if (!mysqlResult.ok) {
+          // Agent may have written MySQL on the VPS; only fail hard when MySQL is configured here
+          if (isMysqlMailAuthConfigured()) {
+            throw new Error(mysqlResult.error ?? "MySQL virtual_users upsert failed");
+          }
+          return {
+            ok: true,
+            stdout: `mysql:${request.command}:deferred-to-agent`,
+            stderr: mysqlResult.error ?? "",
+            data: {
+              sqlSynced: false,
+              mysqlSynced: false,
+              mysqlDeferred: true,
+              reason,
+              email,
+              home,
+              mailPasswordHash: password,
+              scheme: "SHA512-CRYPT",
+            },
+          };
+        }
+
         return {
           ok: true,
-          stdout: `sql:${request.command}`,
+          stdout: `mysql:${request.command}`,
           stderr: "",
           data: {
             sqlSynced: true,
+            mysqlSynced: true,
             reason,
             email,
             home,
             mailPasswordHash: password,
-            scheme: password.startsWith("$6$") || password.includes("SHA512")
-              ? "SHA512-CRYPT"
-              : password.includes("BLF-CRYPT") || password.startsWith("$2")
-                ? "BLF-CRYPT"
-                : "unknown",
+            scheme: "SHA512-CRYPT",
+            database: mysqlResult.database ?? "mailserver",
           },
         };
       }
-      case "mailbox.delete": {
-        const email = String(request.payload.email ?? "").toLowerCase();
-        await prisma.$executeRawUnsafe(`UPDATE virtual_users SET active = false WHERE email = $1`, email);
-        return { ok: true, stdout: "sql:mailbox.delete", stderr: "", data: { sqlSynced: true } };
-      }
+      case "mailbox.delete":
       case "mailbox.suspend": {
         const email = String(request.payload.email ?? "").toLowerCase();
-        await prisma.$executeRawUnsafe(`UPDATE virtual_users SET active = false WHERE email = $1`, email);
-        return { ok: true, stdout: "sql:mailbox.suspend", stderr: "", data: { sqlSynced: true } };
+        const mysqlResult = await deactivateMysqlVirtualUser(email);
+        if (!mysqlResult.ok && isMysqlMailAuthConfigured()) {
+          throw new Error(mysqlResult.error ?? "MySQL deactivate failed");
+        }
+        return {
+          ok: true,
+          stdout: `mysql:${request.command}`,
+          stderr: "",
+          data: { sqlSynced: true, mysqlSynced: mysqlResult.ok },
+        };
       }
       case "mailbox.unsuspend": {
         const email = String(request.payload.email ?? "").toLowerCase();
-        await prisma.$executeRawUnsafe(`UPDATE virtual_users SET active = true WHERE email = $1`, email);
-        return { ok: true, stdout: "sql:mailbox.unsuspend", stderr: "", data: { sqlSynced: true } };
-      }
-      case "mailbox.quota": {
-        const email = String(request.payload.email ?? "").toLowerCase();
-        const quotaBytes = Number(request.payload.quotaBytes ?? 0);
-        await prisma.$executeRawUnsafe(
-          `UPDATE virtual_users SET quota_bytes = $2 WHERE email = $1`,
-          email,
-          quotaBytes,
-        );
-        return { ok: true, stdout: "sql:mailbox.quota", stderr: "", data: { sqlSynced: true } };
-      }
-      case "alias.sync":
-      case "forwarder.sync": {
-        const address = String(request.payload.address ?? "").toLowerCase();
-        const goto = String(request.payload.goto ?? "").toLowerCase();
-        await prisma.$executeRawUnsafe(
-          `INSERT INTO virtual_aliases (address, goto, active) VALUES ($1, $2, true)
-           ON CONFLICT (address) DO UPDATE SET goto = EXCLUDED.goto, active = true`,
-          address,
-          goto,
-        );
-        return { ok: true, stdout: `sql:${request.command}`, stderr: "", data: { sqlSynced: true } };
+        const mysqlResult = await activateMysqlVirtualUser(email);
+        if (!mysqlResult.ok && isMysqlMailAuthConfigured()) {
+          throw new Error(mysqlResult.error ?? "MySQL activate failed");
+        }
+        return {
+          ok: true,
+          stdout: `mysql:${request.command}`,
+          stderr: "",
+          data: { sqlSynced: true, mysqlSynced: mysqlResult.ok },
+        };
       }
       default:
-        return { ok: true, stdout: `sql:${request.command}`, stderr: "", data: { sqlSynced: true, reason } };
+        return {
+          ok: true,
+          stdout: `mysql:${request.command}`,
+          stderr: "",
+          data: { sqlSynced: true, mysqlSynced: true, reason },
+        };
     }
   } catch (error) {
     return {
       ok: false,
       stdout: "",
-      stderr: error instanceof Error ? error.message : "SQL auth sync failed",
+      stderr: error instanceof Error ? error.message : "MySQL auth sync failed",
     };
   }
 }
@@ -335,25 +276,26 @@ async function runLocal(request: AgentRequest): Promise<AgentResponse> {
     }
   }
 
-  // Auth-critical commands ALWAYS sync virtual_* so Dovecot passdb has credentials
+  // Auth-critical: MySQL virtual_users (app) and/or agent (MySQL + Maildir on VPS)
   if (AUTH_COMMANDS.has(request.command)) {
     const sqlResult = await syncSqlAuth(
       request,
       agentResult.ok ? "post-agent-sync" : "agent-unavailable-or-failed",
     );
+    const ok = agentResult.ok || Boolean(sqlResult.data?.mysqlSynced);
     return {
-      ok: sqlResult.ok,
+      ok,
       stdout: [agentResult.stdout, sqlResult.stdout].filter(Boolean).join("\n"),
-      stderr: sqlResult.ok
-        ? agentResult.ok
-          ? ""
-          : agentResult.stderr
-        : sqlResult.stderr,
+      stderr: ok
+        ? ""
+        : [sqlResult.stderr, agentResult.stderr].filter(Boolean).join(" | ") ||
+          "MySQL virtual_users sync failed and mail agent failed",
       data: {
         ...(agentResult.data ?? {}),
         ...(sqlResult.data ?? {}),
         agentOk: agentResult.ok,
-        sqlSynced: sqlResult.ok,
+        sqlSynced: Boolean(sqlResult.data?.mysqlSynced),
+        mysqlSynced: Boolean(sqlResult.data?.mysqlSynced) || Boolean(agentResult.data?.mysqlSynced),
       },
     };
   }
@@ -413,17 +355,22 @@ async function runSsh(request: AgentRequest): Promise<AgentResponse> {
   if (AUTH_COMMANDS.has(request.command)) {
     const sqlResult = await syncSqlAuth(
       request,
-      agentResult.ok ? "post-ssh-sync" : "ssh-failed-sql-sync",
+      agentResult.ok ? "post-ssh-sync" : "ssh-failed-mysql-sync",
     );
+    const ok = agentResult.ok || Boolean(sqlResult.data?.mysqlSynced);
     return {
-      ok: sqlResult.ok,
+      ok,
       stdout: [agentResult.stdout, sqlResult.stdout].filter(Boolean).join("\n"),
-      stderr: sqlResult.ok ? "" : sqlResult.stderr,
+      stderr: ok
+        ? ""
+        : [sqlResult.stderr, agentResult.stderr].filter(Boolean).join(" | ") ||
+          "MySQL virtual_users sync failed and SSH agent failed",
       data: {
         ...(agentResult.data ?? {}),
         ...(sqlResult.data ?? {}),
         agentOk: agentResult.ok,
-        sqlSynced: sqlResult.ok,
+        sqlSynced: Boolean(sqlResult.data?.mysqlSynced),
+        mysqlSynced: Boolean(sqlResult.data?.mysqlSynced) || Boolean(agentResult.data?.mysqlSynced),
       },
     };
   }
@@ -467,10 +414,10 @@ async function finishJob(
 }
 
 /**
- * Re-sync every active mailbox into virtual_users (repairs Dovecot passdb).
+ * Re-sync every active mailbox into MySQL mailserver.virtual_users (Dovecot passdb).
+ * Requires mailPasswordHash already in SHA512-CRYPT form (or plaintext via agent).
  */
 export async function resyncAllMailboxAuth(): Promise<{ synced: number; failed: number }> {
-  await ensureVirtualMailTables();
   const rows = await prisma.mailbox.findMany({
     where: { deletedAt: null, mailPasswordHash: { not: null } },
     include: { domain: true, quota: true },
@@ -479,18 +426,23 @@ export async function resyncAllMailboxAuth(): Promise<{ synced: number; failed: 
   let failed = 0;
   for (const row of rows) {
     const email = `${row.localPart}@${row.domain.name}`.toLowerCase();
+    const hash = normalizeSha512Crypt(row.mailPasswordHash);
+    if (!hash) {
+      failed += 1;
+      continue;
+    }
     const result = await syncSqlAuth(
       {
         command: "mailbox.password",
         payload: {
           email,
-          mailPasswordHash: row.mailPasswordHash,
+          mailPasswordHash: hash,
           quotaBytes: (row.quota?.quotaMb ?? 2048) * 1024 * 1024,
         },
       },
       "resync",
     );
-    if (result.ok) synced += 1;
+    if (result.ok && (result.data?.mysqlSynced || result.data?.mysqlDeferred)) synced += 1;
     else failed += 1;
   }
   return { synced, failed };
@@ -508,9 +460,9 @@ export const mailEngine = {
   async execute(request: AgentRequest): Promise<AgentResponse> {
     const mode = getMode();
     if (mode === "disabled") {
-      // Still sync SQL auth so Roundcube can work when agent is off but DB is shared
+      // Still sync MySQL auth so Roundcube can work when agent is off
       if (AUTH_COMMANDS.has(request.command)) {
-        return syncSqlAuth(request, "provision-mode-disabled-sql-only");
+        return syncSqlAuth(request, "provision-mode-disabled-mysql-only");
       }
       return {
         ok: false,

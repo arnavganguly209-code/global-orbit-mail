@@ -6,7 +6,7 @@ import { requestAuditContext, writeAudit } from "@/lib/audit";
 
 /**
  * POST /api/admin/mailboxes/resync-auth
- * Re-sync all mailbox mailPasswordHash values into virtual_users for Dovecot.
+ * Re-sync SHA512-CRYPT mailPasswordHash values into MySQL mailserver.virtual_users.
  */
 export async function POST(request: Request) {
   try {
@@ -26,8 +26,8 @@ export async function POST(request: Request) {
     return ok(
       result,
       undefined,
-      `Synced ${result.synced} mailbox(es) to Dovecot virtual_users` +
-        (result.failed ? ` (${result.failed} failed)` : ""),
+      `Synced ${result.synced} mailbox(es) to MySQL mailserver.virtual_users` +
+        (result.failed ? ` (${result.failed} failed — reset password if hash was not SHA512-CRYPT)` : ""),
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Resync failed";
