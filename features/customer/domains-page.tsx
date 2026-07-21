@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { StatusPill, statusToneFromValue } from "@/components/admin/status-pill";
 import { customerFetch } from "@/lib/api/customer-fetch";
+import { normalizeApexDomain } from "@/lib/dns/domain-name";
 import { cn } from "@/lib/utils";
 import type { AdminDomain, ApiResponse, DnsRecordView, PaginatedResult } from "@/types";
 
@@ -94,16 +95,29 @@ export function CustomerDomainsPage() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      const normalized = normalizeApexDomain(domainName);
+      setDomainName(normalized);
       const res = await customerFetch("/api/customer/domains", {
         method: "POST",
-        body: JSON.stringify({ name: domainName }),
+        body: JSON.stringify({ name: normalized }),
       });
       const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.message ?? "Create failed");
-      return json.data as AdminDomain;
+      if (!res.ok || !json.success) {
+        throw new Error(json.message ?? "Unable to save domain. Please try again.");
+      }
+      return {
+        data: json.data as AdminDomain & { alreadyExisted?: boolean; restored?: boolean },
+        message: (json.message as string | undefined) ?? undefined,
+      };
     },
-    onSuccess: (domain) => {
-      toast.success("Domain added — copy the DNS records to continue");
+    onSuccess: ({ data: domain, message }) => {
+      if (domain.alreadyExisted) {
+        toast.message(message ?? "This domain already exists in your account.");
+      } else if (domain.restored) {
+        toast.success(message ?? "Domain restored successfully.");
+      } else {
+        toast.success(message ?? "Domain added successfully.");
+      }
       setOpen(false);
       setDomainName("");
       setSelectedDomainId(domain.id);
@@ -151,7 +165,26 @@ export function CustomerDomainsPage() {
                   placeholder="example.com"
                   value={domainName}
                   onChange={(e) => setDomainName(e.target.value)}
+                  onBlur={() => {
+                    const normalized = normalizeApexDomain(domainName);
+                    if (normalized && normalized !== domainName.trim()) {
+                      setDomainName(normalized);
+                    }
+                  }}
                 />
+                {domainName.trim() &&
+                normalizeApexDomain(domainName) !== domainName.trim().toLowerCase() ? (
+                  <p className="text-xs text-muted-foreground">
+                    Will be saved as{" "}
+                    <span className="font-mono text-foreground">
+                      {normalizeApexDomain(domainName) || "…"}
+                    </span>
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    www and https are removed automatically. Stored as the root domain only.
+                  </p>
+                )}
               </div>
               <DialogFooter>
                 <Button

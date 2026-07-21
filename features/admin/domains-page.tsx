@@ -42,6 +42,7 @@ import {
   DnsSetupWizardScroll,
   type DnsWizardPayload,
 } from "@/features/admin/dns-setup-wizard";
+import { normalizeApexDomain } from "@/lib/dns/domain-name";
 import type {
   AdminDomain,
   ApiResponse,
@@ -53,6 +54,9 @@ type DnsInstructionPayload = DnsWizardPayload;
 
 type DomainCreateResult = AdminDomain & {
   dns?: DnsInstructionPayload;
+  alreadyExisted?: boolean;
+  restored?: boolean;
+  created?: boolean;
 };
 
 type VerifyReport = {
@@ -119,27 +123,38 @@ export function DomainsAdminPage() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      const normalized = normalizeApexDomain(domainName);
+      setDomainName(normalized);
       const res = await adminFetch("/api/admin/domains", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: domainName }),
+        body: JSON.stringify({ name: normalized }),
       });
       const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.message ?? "Create failed");
-      return json.data as DomainCreateResult;
+      if (!res.ok || !json.success) {
+        throw new Error(json.message ?? "Unable to save domain. Please try again.");
+      }
+      return {
+        data: json.data as DomainCreateResult,
+        message: (json.message as string | undefined) ?? undefined,
+      };
     },
-    onSuccess: (created) => {
+    onSuccess: ({ data: created, message }) => {
       setCreateOpen(false);
       setDomainName("");
       qc.invalidateQueries({ queryKey: ["admin-domains"] });
 
-      const flat = created.dns?.flat ?? [];
-      if (flat.length > 0 && created.dns) {
+      if (created.alreadyExisted) {
+        toast.message(message ?? "This domain already exists in your account.");
+      } else if (created.restored) {
+        toast.success(message ?? "Domain restored successfully.");
+      } else {
+        toast.success(message ?? "Domain added successfully.");
+      }
+
+      if (created.dns) {
         setDnsDialogDomain(created);
         setDnsPayload(created.dns);
-        toast.success("Domain created — DNS records generated");
-      } else {
-        toast.success("Domain created");
       }
     },
     onError: (e: Error) => toast.error(e.message),
@@ -240,7 +255,25 @@ export function DomainsAdminPage() {
                 placeholder="example.com"
                 value={domainName}
                 onChange={(e) => setDomainName(e.target.value)}
+                onBlur={() => {
+                  const normalized = normalizeApexDomain(domainName);
+                  if (normalized && normalized !== domainName.trim()) {
+                    setDomainName(normalized);
+                  }
+                }}
               />
+              {domainName.trim() && normalizeApexDomain(domainName) !== domainName.trim().toLowerCase() ? (
+                <p className="text-xs text-muted-foreground">
+                  Will be saved as{" "}
+                  <span className="font-mono text-foreground">
+                    {normalizeApexDomain(domainName) || "…"}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  www and https are removed automatically. Stored as the root domain only.
+                </p>
+              )}
             </div>
             <DialogFooter>
               <Button

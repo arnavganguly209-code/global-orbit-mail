@@ -5,6 +5,13 @@
  */
 
 import type { DnsRecordStatus, DnsRecordType } from "@prisma/client";
+import {
+  normalizeApexDomain,
+  isValidApexDomain,
+  domainLookupVariants,
+} from "@/lib/dns/domain-name";
+
+export { normalizeApexDomain, isValidApexDomain, domainLookupVariants };
 
 const MAIL_HOST = process.env.MAIL_HOSTNAME ?? "mail.globalorbitmail.com";
 const WEBMAIL_HOST = process.env.WEBMAIL_HOSTNAME ?? "webmail.globalorbitmail.cloud";
@@ -39,28 +46,6 @@ export type DnsRecordBlueprint = {
   purpose: DnsRecordPurpose;
   label: string;
 };
-
-/**
- * Normalize customer domain to email apex (root) zone.
- * Strips protocol, path, trailing dot, and leading www.
- * Never uses www for mail services.
- */
-export function normalizeApexDomain(input: string): string {
-  let value = input.trim().toLowerCase();
-  value = value.replace(/^https?:\/\//i, "");
-  value = value.replace(/[/?#].*$/, "");
-  value = value.replace(/\.$/, "");
-  value = value.replace(/^www\./i, "");
-  // Guard nested www (www.www.example.com)
-  while (value.startsWith("www.")) {
-    value = value.slice(4);
-  }
-  return value;
-}
-
-export function getSharedMailHostname() {
-  return normalizeApexDomain(MAIL_HOST.startsWith("mail.") ? MAIL_HOST : MAIL_HOST);
-}
 
 function sharedMailHost() {
   return (process.env.MAIL_HOSTNAME ?? MAIL_HOST).replace(/\.$/, "").replace(/^www\./i, "").toLowerCase();

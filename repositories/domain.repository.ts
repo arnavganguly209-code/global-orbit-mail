@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { mapDomain } from "@/repositories/mappers";
-import { buildDnsRecordsForDomain, normalizeApexDomain } from "@/lib/dns/records";
+import { buildDnsRecordsForDomain } from "@/lib/dns/records";
+import { domainLookupVariants, isValidApexDomain, normalizeApexDomain } from "@/lib/dns/domain-name";
 import { generateDkimKeypair } from "@/lib/dns/dkim";
 import { resolveMailServerIpv4, resolveMailServerIpv6 } from "@/lib/dns/mail-ip";
 import { MailProvisioningService } from "@/services/provisioning/mail-provisioning-service";
 import type { AdminDomain, PaginatedResult } from "@/types";
 import type { DomainStatus, Prisma } from "@prisma/client";
+import { Prisma as PrismaNS } from "@prisma/client";
 
 export const domainRepository = {
   async list(params: {
@@ -55,12 +57,119 @@ export const domainRepository = {
     return domain ? mapDomain(domain) : null;
   },
 
-  async getByName(name: string) {
+  async getByName(name: string, organizationId?: string) {
+    const apex = normalizeApexDomain(name);
+    const variants = domainLookupVariants(apex);
     const domain = await prisma.domain.findFirst({
-      where: { name: { equals: name, mode: "insensitive" }, deletedAt: null },
+      where: {
+        deletedAt: null,
+        ...(organizationId ? { organizationId } : {}),
+        OR: variants.map((n) => ({ name: { equals: n, mode: "insensitive" as const } })),
+      },
       include: { _count: { select: { mailboxes: { where: { deletedAt: null } } } } },
+      orderBy: { createdAt: "asc" },
     });
     return domain ? mapDomain(domain) : null;
+  },
+
+  /** Includes soft-deleted rows — used for unique-safe create/restore. */
+  async findAnyByOrgName(organizationId: string, name: string) {
+    const apex = normalizeApexDomain(name);
+    const variants = domainLookupVariants(apex);
+    return prisma.domain.findFirst({
+      where: {
+        organizationId,
+        OR: variants.map((n) => ({ name: { equals: n, mode: "insensitive" as const } })),
+      },
+      include: { _count: { select: { mailboxes: { where: { deletedAt: null } } } } },
+      orderBy: { createdAt: "asc" },
+    });
+  },
+
+  /**
+   * Idempotent domain create:
+   * - normalizes to apex
+   * - returns existing active domain
+   * - restores soft-deleted domain
+   * - creates only when missing
+   * Never throws Prisma unique constraint to callers.
+   */
+  async createOrGet(input: {
+    name: string;
+    organizationId: string;
+    actorId?: string | null;
+  }): Promise<{ domain: AdminDomain; created: boolean; restored: boolean }> {
+    const name = normalizeApexDomain(input.name);
+    if (!isValidApexDomain(name)) {
+      throw new Error("Invalid domain name.");
+    }
+
+    const existing = await this.findAnyByOrgName(input.organizationId, name);
+    if (existing) {
+      // Canonicalize www.* → apex if needed
+      if (existing.name.toLowerCase() !== name) {
+        try {
+          await prisma.domain.update({
+            where: { id: existing.id },
+            data: { name },
+          });
+          existing.name = name;
+        } catch {
+          // Keep existing name if rename races another row
+        }
+      }
+
+      if (!existing.deletedAt) {
+        const mapped = mapDomain(existing);
+        return { domain: mapped, created: false, restored: false };
+      }
+
+      // Restore soft-deleted domain
+      const restored = await prisma.domain.update({
+        where: { id: existing.id },
+        data: {
+          name,
+          deletedAt: null,
+          status: "PENDING",
+          dnsStatus: "PENDING",
+          mailStatus: "PROVISIONING",
+          sslStatus: "NONE",
+        },
+        include: { _count: { select: { mailboxes: { where: { deletedAt: null } } } } },
+      });
+
+      await writeAudit({
+        actorId: input.actorId,
+        action: "domain.restore",
+        resource: "domain",
+        resourceId: restored.id,
+        status: "SUCCESS",
+        newValue: { name: restored.name },
+      });
+
+      return { domain: mapDomain(restored), created: false, restored: true };
+    }
+
+    try {
+      const created = await this.createFresh({
+        name,
+        organizationId: input.organizationId,
+        actorId: input.actorId,
+      });
+      return { domain: created, created: true, restored: false };
+    } catch (error) {
+      if (
+        error instanceof PrismaNS.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        const raced = await this.findAnyByOrgName(input.organizationId, name);
+        if (raced && !raced.deletedAt) {
+          return { domain: mapDomain(raced), created: false, restored: false };
+        }
+        throw new Error("This domain already exists in your account.");
+      }
+      throw error;
+    }
   },
 
   async create(input: {
@@ -68,9 +177,18 @@ export const domainRepository = {
     organizationId: string;
     actorId?: string | null;
   }) {
+    const result = await this.createOrGet(input);
+    return result.domain;
+  },
+
+  async createFresh(input: {
+    name: string;
+    organizationId: string;
+    actorId?: string | null;
+  }) {
     const name = normalizeApexDomain(input.name);
-    if (!name || name.startsWith("www.")) {
-      throw new Error("Domain must be the root domain (without www)");
+    if (!isValidApexDomain(name)) {
+      throw new Error("Invalid domain name.");
     }
     const dkim = generateDkimKeypair("orbit");
     const mailIpv4 = await resolveMailServerIpv4();
@@ -99,10 +217,12 @@ export const domainRepository = {
       });
 
       await tx.dnsRecord.createMany({
-        data: records.map(({ purpose: _purpose, label: _label, publishType: _publishType, host: _host, ...record }) => ({
-          domainId: created.id,
-          ...record,
-        })),
+        data: records.map(
+          ({ purpose: _purpose, label: _label, publishType: _publishType, host: _host, ...record }) => ({
+            domainId: created.id,
+            ...record,
+          }),
+        ),
       });
 
       await tx.verification.createMany({
@@ -179,7 +299,7 @@ export const domainRepository = {
       include: { _count: { select: { mailboxes: { where: { deletedAt: null } } } } },
     });
     if (!fresh) {
-      throw new Error("Domain provisioning failed and was rolled back");
+      throw new Error("Unable to save domain. Please try again.");
     }
     return mapDomain(fresh);
   },

@@ -6,6 +6,7 @@ import {
 } from "@/lib/validations/admin";
 import { getDefaultOrganizationId } from "@/repositories";
 import { getDomainDnsPayload } from "@/services/dns/engine";
+import { normalizeApexDomain, isValidApexDomain } from "@/lib/dns/domain-name";
 
 export const domainService = {
   async list(query: Record<string, string | string[] | undefined>) {
@@ -18,18 +19,34 @@ export const domainService = {
     return domainRepository.list({ ...parsed, status });
   },
 
+  /**
+   * Idempotent create:
+   * - normalizes www/https/case/spaces → apex
+   * - returns existing domain instead of failing on duplicates
+   * - generates DNS payload
+   */
   async create(body: unknown, actorId?: string | null, organizationId?: string | null) {
     const input = domainCreateSchema.parse(body);
-    const existing = await domainRepository.getByName(input.name);
-    if (existing) throw new Error("Domain already exists");
+    const apex = normalizeApexDomain(input.name);
+    if (!isValidApexDomain(apex)) {
+      throw new Error("Invalid domain name.");
+    }
+
     const orgId = organizationId ?? (await getDefaultOrganizationId());
-    const domain = await domainRepository.create({
-      name: input.name,
+    const result = await domainRepository.createOrGet({
+      name: apex,
       organizationId: orgId,
       actorId,
     });
-    const dns = await getDomainDnsPayload(domain.id);
-    return { ...domain, dns };
+
+    const dns = await getDomainDnsPayload(result.domain.id);
+    return {
+      ...result.domain,
+      dns,
+      alreadyExisted: !result.created && !result.restored,
+      restored: result.restored,
+      created: result.created,
+    };
   },
 
   async update(id: string, body: unknown, actorId?: string | null) {
@@ -66,12 +83,7 @@ export const domainService = {
   },
 
   async createForOrganization(body: unknown, organizationId: string, actorId?: string | null) {
-    const input = domainCreateSchema.parse(body);
-    const existing = await domainRepository.getByName(input.name);
-    if (existing) throw new Error("Domain already exists");
-    const domain = await domainRepository.create({ name: input.name, organizationId, actorId });
-    const dns = await getDomainDnsPayload(domain.id);
-    return { ...domain, dns };
+    return this.create(body, actorId, organizationId);
   },
 
   async getForOrganization(id: string, organizationId: string) {

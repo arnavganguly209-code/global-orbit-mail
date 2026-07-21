@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidApexDomain, normalizeApexDomain } from "@/lib/dns/domain-name";
 
 export const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -10,23 +11,10 @@ export const domainCreateSchema = z.object({
   name: z
     .string()
     .trim()
-    .min(3)
-    .max(253)
-    .transform((value) =>
-      value
-        .trim()
-        .toLowerCase()
-        .replace(/^https?:\/\//i, "")
-        .replace(/[/?#].*$/, "")
-        .replace(/\.$/, "")
-        .replace(/^www\./i, ""),
-    )
-    .refine((value) => /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(value), {
-      message: "Enter a valid root domain (without www)",
-    })
-    .refine((value) => !value.startsWith("www."), {
-      message: "Use the root domain for email (example.com), not www.example.com",
-    }),
+    .min(1, "Invalid domain name.")
+    .max(253, "Invalid domain name.")
+    .transform((value) => normalizeApexDomain(value))
+    .refine((value) => isValidApexDomain(value), { message: "Invalid domain name." }),
 });
 
 export const domainUpdateSchema = z.object({
