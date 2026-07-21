@@ -37,9 +37,26 @@ export const routes = {
   },
   admin: {
     root: "/admin",
+    domains: "/admin/domains",
+    mailboxes: "/admin/mailboxes",
+    users: "/admin/users",
+    dns: "/admin/dns",
+    logs: "/admin/logs",
+    monitoring: "/admin/monitoring",
+    settings: "/admin/settings",
   },
   api: {
     health: "/api/health",
+    admin: {
+      dashboard: "/api/admin/dashboard",
+      domains: "/api/admin/domains",
+      mailboxes: "/api/admin/mailboxes",
+      dns: "/api/admin/dns",
+      users: "/api/admin/users",
+      audit: "/api/admin/audit",
+      settings: "/api/admin/settings",
+      monitoring: "/api/admin/monitoring",
+    },
   },
 } as const;
 

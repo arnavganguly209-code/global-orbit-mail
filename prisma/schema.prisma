@@ -1,5 +1,6 @@
-// GLOBAL ORBIT MAIL — Enterprise Data Foundation
-// Phase 1: Architecture preparation only. No mail engine models yet.
+// GLOBAL ORBIT MAIL — Enterprise Data Model
+// Phase 2A: Production-ready relational schema.
+ // VPS / Postfix / Dovecot integration deferred.
 
 generator client {
   provider = "prisma-client-js"
@@ -11,15 +12,15 @@ datasource db {
 }
 
 // ─────────────────────────────────────────────
-// Multi-tenant identity & access (architecture)
+// Identity & RBAC
 // ─────────────────────────────────────────────
 
-enum UserRole {
+enum SystemRole {
   SUPER_ADMIN
-  ORG_ADMIN
-  DOMAIN_ADMIN
+  RESELLER
+  CUSTOMER
+  SUPPORT_STAFF
   MAILBOX_USER
-  VIEWER
 }
 
 enum UserStatus {
@@ -36,39 +37,93 @@ enum OrganizationStatus {
   ARCHIVED
 }
 
+enum OrganizationType {
+  INTERNAL
+  RESELLER
+  CUSTOMER
+}
+
 model Organization {
   id        String             @id @default(cuid())
   name      String
   slug      String             @unique
+  type      OrganizationType   @default(CUSTOMER)
   status    OrganizationStatus @default(TRIAL)
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
 
-  users   User[]
-  domains Domain[]
+  users     User[]
+  domains   Domain[]
+  mailboxes Mailbox[]
+  settings  SystemSetting[]
 
   @@map("organizations")
 }
 
-model User {
-  id             String     @id @default(cuid())
-  email          String     @unique
-  name           String?
-  image          String?
-  role           UserRole   @default(MAILBOX_USER)
-  status         UserStatus @default(INVITED)
-  emailVerified  DateTime?
-  twoFactorEnabled Boolean  @default(false)
-  organizationId String?
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+model Role {
+  id          String   @id @default(cuid())
+  key         SystemRole @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
+  permissions RolePermission[]
+  users       User[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id               String     @id @default(cuid())
+  email            String     @unique
+  name             String?
+  image            String?
+  passwordHash     String?
+  status           UserStatus @default(INVITED)
+  emailVerified    DateTime?
+  twoFactorEnabled Boolean    @default(false)
+  twoFactorSecret  String?
+  roleId           String?
+  organizationId   String?
+  lastLoginAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  role         Role?         @relation(fields: [roleId], references: [id], onDelete: SetNull)
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   accounts     Account[]
   sessions     Session[]
+  auditLogs    AuditLog[]    @relation("AuditActor")
+  activities   ActivityLog[] @relation("ActivityActor")
+  notifications Notification[]
 
   @@index([organizationId])
-  @@index([role])
+  @@index([roleId])
+  @@index([status])
   @@map("users")
 }
 
@@ -97,9 +152,13 @@ model Session {
   sessionToken String   @unique
   userId       String
   expires      DateTime
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("sessions")
 }
 
@@ -113,7 +172,7 @@ model VerificationToken {
 }
 
 // ─────────────────────────────────────────────
-// Domain architecture (CMS-ready, no DNS ops yet)
+// Domains, Mailboxes, DNS
 // ─────────────────────────────────────────────
 
 enum DomainStatus {
@@ -124,17 +183,209 @@ enum DomainStatus {
   FAILED
 }
 
+enum SslStatus {
+  NONE
+  PENDING
+  ACTIVE
+  EXPIRED
+  FAILED
+}
+
+enum DnsStatus {
+  UNKNOWN
+  PENDING
+  PARTIAL
+  VERIFIED
+  FAILED
+}
+
+enum MailStatus {
+  DISABLED
+  PROVISIONING
+  ACTIVE
+  SUSPENDED
+  ERROR
+}
+
 model Domain {
   id             String       @id @default(cuid())
   name           String
   status         DomainStatus @default(PENDING)
+  sslStatus      SslStatus    @default(NONE)
+  dnsStatus      DnsStatus    @default(UNKNOWN)
+  mailStatus     MailStatus   @default(DISABLED)
   organizationId String
+  verifiedAt     DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  mailboxes    Mailbox[]
+  dnsRecords   DnsRecord[]
 
   @@unique([organizationId, name])
   @@index([status])
+  @@index([name])
   @@map("domains")
+}
+
+enum MailboxStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+  PENDING
+}
+
+model Mailbox {
+  id             String        @id @default(cuid())
+  localPart      String
+  domainId       String
+  organizationId String
+  displayName    String?
+  quotaMb        Int           @default(2048)
+  usedMb         Int           @default(0)
+  status         MailboxStatus @default(PENDING)
+  passwordHash   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  domain       Domain       @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  aliases      Alias[]
+  forwarders   Forwarder[]
+
+  @@unique([localPart, domainId])
+  @@index([organizationId])
+  @@index([status])
+  @@map("mailboxes")
+}
+
+model Alias {
+  id        String   @id @default(cuid())
+  mailboxId String
+  address   String
+  createdAt DateTime @default(now())
+
+  mailbox Mailbox @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+
+  @@unique([mailboxId, address])
+  @@map("aliases")
+}
+
+model Forwarder {
+  id             String   @id @default(cuid())
+  mailboxId      String
+  destination    String
+  keepCopy       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  mailbox Mailbox @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+
+  @@index([mailboxId])
+  @@map("forwarders")
+}
+
+enum DnsRecordType {
+  MX
+  A
+  AAAA
+  TXT
+  CNAME
+  SPF
+  DKIM
+  DMARC
+  PTR
+}
+
+enum DnsRecordStatus {
+  EXPECTED
+  DETECTED
+  MISSING
+  MISMATCH
+  VERIFIED
+}
+
+model DnsRecord {
+  id        String          @id @default(cuid())
+  domainId  String
+  type      DnsRecordType
+  name      String
+  value     String          @db.Text
+  priority  Int?
+  status    DnsRecordStatus @default(EXPECTED)
+  ttl       Int             @default(3600)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  domain Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([domainId, type])
+  @@map("dns_records")
+}
+
+// ─────────────────────────────────────────────
+// Observability & Platform
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  resource   String
+  resourceId String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([action])
+  @@index([actorId])
+  @@map("audit_logs")
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  category  String
+  message   String
+  severity  String   @default("info")
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  actor User? @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([category])
+  @@map("activity_logs")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  href      String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@map("notifications")
+}
+
+model SystemSetting {
+  id             String   @id @default(cuid())
+  organizationId String?
+  key            String
+  value          Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@map("system_settings")
 }

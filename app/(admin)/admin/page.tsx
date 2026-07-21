@@ -1,10 +1,5 @@
-import { redirect } from "next/navigation";
-import { routes } from "@/config/routes";
+import { AdminDashboardPage } from "@/features/admin/dashboard-page";
 
-/**
- * Admin console surface reserved for Super Admin CMS.
- * Module UIs arrive in later phases.
- */
-export default function AdminRootPage() {
-  redirect(routes.adminLogin);
+export default function AdminHomePage() {
+  return <AdminDashboardPage />;
 }
