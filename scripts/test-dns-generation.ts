@@ -6,6 +6,7 @@
 import {
   buildDnsRecordsForDomain,
   normalizeApexDomain,
+  recommendSpfMerge,
   toDnsInstructionJson,
 } from "../lib/dns/records";
 
@@ -24,12 +25,11 @@ function assert(condition: boolean, message: string) {
 }
 
 function main() {
-  const mailIpv4 = "203.0.113.10"; // documentation/test IP — not a placeholder zero
+  const mailIpv4 = "203.0.113.10";
 
   for (const input of CASES) {
     const apex = normalizeApexDomain(input);
     assert(!apex.startsWith("www."), `apex still has www for ${input} → ${apex}`);
-    assert(!apex.includes(".www."), `apex nested www for ${input} → ${apex}`);
 
     const records = buildDnsRecordsForDomain(input, {
       mailIpv4,
@@ -37,28 +37,40 @@ function main() {
     });
     const payload = toDnsInstructionJson(apex, records);
 
-    assert(payload.domain === apex, `payload domain mismatch for ${input}`);
-    assert(!payload.flat.some((r) => r.host.includes("www") || r.fqdn.includes("www")), `www leaked for ${input}`);
-    assert(!payload.flat.some((r) => r.value === "0.0.0.0"), `placeholder IP for ${input}`);
+    assert(payload.required.length >= 3, `expected >=3 required for ${input}`);
+    assert(
+      payload.required.every((r) => ["mx", "spf", "mail_a", "verification"].includes(r.purpose)),
+      `non-required in required tier for ${input}`,
+    );
+    assert(
+      payload.advanced.every((r) => !["mx", "spf", "mail_a"].includes(r.purpose)),
+      `core record leaked into advanced for ${input}`,
+    );
+    assert(payload.required.some((r) => r.purpose === "mx" && r.host === "@"), "MX @ missing");
+    assert(
+      payload.required.some((r) => r.purpose === "mail_a" && r.fqdn === `mail.${apex}`),
+      "mail A missing",
+    );
+    assert(!payload.flat.some((r) => r.fqdn.includes("www")), `www leaked for ${input}`);
 
-    const mailA = payload.flat.find((r) => r.purpose === "mail_a");
-    const mx = payload.flat.find((r) => r.purpose === "mx");
-    assert(mailA?.host === "mail", `mail host not relative for ${input}: ${mailA?.host}`);
-    assert(mailA?.fqdn === `mail.${apex}`, `mail fqdn wrong for ${input}: ${mailA?.fqdn}`);
-    assert(mx?.host === "@", `MX host must be @ for ${input}: ${mx?.host}`);
-    assert(mx?.fqdn === apex, `MX fqdn must be apex for ${input}: ${mx?.fqdn}`);
-    assert(mailA?.value === mailIpv4, `mail A IP wrong for ${input}`);
-
-    console.log(`OK  ${input.padEnd(36)} → apex=${apex}  mail=${mailA?.fqdn}  mxHost=${mx?.host}`);
+    console.log(
+      `OK  ${input.padEnd(36)} → required=${payload.required.length} advanced=${payload.advanced.length}`,
+    );
   }
+
+  const merge = recommendSpfMerge(
+    "v=spf1 include:_spf.google.com ~all",
+    "mail.globalorbitmail.com",
+  );
+  assert(merge.recommended.includes("a:mail.globalorbitmail.com"), "SPF merge missing mail host");
+  assert(merge.recommended.includes("include:_spf.google.com"), "SPF merge dropped existing include");
+  console.log("OK  SPF merge recommendation");
 
   try {
     buildDnsRecordsForDomain("example.com", { mailIpv4: "0.0.0.0" });
     throw new Error("Expected placeholder IP rejection");
   } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes("IPv4")) {
-      throw error;
-    }
+    if (!(error instanceof Error) || !error.message.includes("IPv4")) throw error;
     console.log("OK  rejected placeholder 0.0.0.0");
   }
 

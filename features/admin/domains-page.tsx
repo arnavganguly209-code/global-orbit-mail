@@ -37,9 +37,11 @@ import {
 import { Pagination } from "@/components/ui/pagination";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Loading } from "@/components/ui/loading";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { adminFetch } from "@/lib/api/admin-fetch";
-import { formatDnsRecordsForClipboard, formatSingleDnsRecordForClipboard } from "@/lib/dns/clipboard";
+import {
+  DnsSetupWizardScroll,
+  type DnsWizardPayload,
+} from "@/features/admin/dns-setup-wizard";
 import type {
   AdminDomain,
   ApiResponse,
@@ -47,29 +49,7 @@ import type {
   VerificationTone,
 } from "@/types";
 
-type DnsInstructionRecord = {
-  type: string;
-  publishType: string;
-  host: string;
-  fqdn?: string;
-  value: string;
-  priority: number | null;
-  ttl: number;
-  status: string;
-  purpose: string;
-  label: string;
-  alreadyPublished?: boolean;
-};
-
-type DnsInstructionPayload = {
-  domain: string;
-  generatedAt: string;
-  mailHostname?: string;
-  title?: string;
-  notice?: string;
-  flat: DnsInstructionRecord[];
-  records?: Record<string, DnsInstructionRecord[]>;
-};
+type DnsInstructionPayload = DnsWizardPayload;
 
 type DomainCreateResult = AdminDomain & {
   dns?: DnsInstructionPayload;
@@ -95,18 +75,10 @@ async function fetchGeneratedDns(domainId: string): Promise<DnsInstructionPayloa
   if (!res.ok || !json.success) {
     throw new Error(json.message ?? "Failed to generate DNS records");
   }
-  if (!json.data?.flat?.length) {
+  if (!json.data?.flat?.length && !json.data?.required?.length) {
     throw new Error("DNS generator returned no records");
   }
   return json.data;
-}
-
-async function copyText(text: string) {
-  await navigator.clipboard.writeText(text);
-}
-
-function singleRecordClipboardText(record: DnsInstructionRecord) {
-  return formatSingleDnsRecordForClipboard(record);
 }
 
 async function fetchDomains(params: {
@@ -240,25 +212,6 @@ export function DomainsAdminPage() {
       setDnsDialogDomain(null);
     } finally {
       setDnsLoading(false);
-    }
-  }
-
-  async function handleCopyAllDns() {
-    if (!dnsPayload?.flat?.length) return;
-    try {
-      await copyText(formatDnsRecordsForClipboard(dnsPayload.flat, dnsPayload.domain));
-      toast.success("All DNS records copied");
-    } catch {
-      toast.error("Could not copy DNS records");
-    }
-  }
-
-  async function handleCopyOne(record: DnsInstructionRecord) {
-    try {
-      await copyText(singleRecordClipboardText(record));
-      toast.success(`${record.label} copied`);
-    } catch {
-      toast.error("Could not copy record");
     }
   }
 
@@ -412,7 +365,7 @@ export function DomainsAdminPage() {
                         onClick={() => void openDnsDialog(domain)}
                       >
                         <Copy className="size-3.5 text-gold" />
-                        {dnsLoading && dnsDialogDomain?.id === domain.id ? "…" : "Copy DNS"}
+                        {dnsLoading && dnsDialogDomain?.id === domain.id ? "…" : "DNS Setup"}
                       </Button>
                       <Button
                         type="button"
@@ -457,126 +410,36 @@ export function DomainsAdminPage() {
           }
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-hidden sm:max-w-3xl">
+        <DialogContent className="max-h-[92vh] max-w-2xl overflow-hidden sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Required DNS Records — {dnsDialogDomain?.name}</DialogTitle>
+            <DialogTitle>DNS setup</DialogTitle>
             <DialogDescription>
-              Additional mail DNS only. Do not change existing website records (including www). Host{" "}
-              <span className="font-mono">@</span> is the root domain.
+              Google Workspace–style setup: add only the required mail records. Website DNS stays
+              untouched.
             </DialogDescription>
           </DialogHeader>
 
-          {dnsLoading ? <Loading label="Generating DNS records" /> : null}
+          {dnsLoading ? <Loading label="Preparing DNS wizard" /> : null}
 
-          {!dnsLoading && dnsPayload ? (
-            <ScrollArea className="max-h-[55vh] pr-3">
-              <div className="space-y-3">
-                {dnsPayload.notice ? (
-                  <p className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                    {dnsPayload.notice}
-                  </p>
-                ) : null}
-                {dnsPayload.flat.map((record) => (
-                  <div
-                    key={`${record.purpose}-${record.host}-${record.publishType}`}
-                    className="rounded-xl border border-border/70 bg-card/40 p-3"
-                  >
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
-                          {record.label}
-                        </span>
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {record.publishType}
-                          {record.priority != null ? ` · Priority ${record.priority}` : ""}
-                          {record.ttl ? ` · TTL ${record.ttl}` : ""}
-                        </span>
-                        {record.alreadyPublished ? (
-                          <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
-                            Already published
-                          </span>
-                        ) : null}
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-8 gap-1.5 text-xs"
-                        onClick={() => void handleCopyOne(record)}
-                      >
-                        <Copy className="size-3.5" />
-                        Copy
-                      </Button>
-                    </div>
-                    <dl className="grid gap-2 text-sm sm:grid-cols-2">
-                      <div>
-                        <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                          Host
-                        </dt>
-                        <dd className="break-all font-mono text-xs">{record.host}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                          FQDN
-                        </dt>
-                        <dd className="break-all font-mono text-xs">
-                          {record.fqdn ?? record.host}
-                        </dd>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                          Value
-                        </dt>
-                        <dd className="break-all font-mono text-xs leading-relaxed">
-                          {record.value}
-                        </dd>
-                      </div>
-                      {record.priority != null ? (
-                        <div>
-                          <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                            Priority
-                          </dt>
-                          <dd className="font-mono text-xs">{record.priority}</dd>
-                        </div>
-                      ) : null}
-                      <div>
-                        <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                          TTL
-                        </dt>
-                        <dd className="font-mono text-xs">{record.ttl}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
+          {!dnsLoading && dnsPayload && dnsDialogDomain ? (
+            <DnsSetupWizardScroll
+              payload={dnsPayload}
+              verifying={verifyingId === dnsDialogDomain.id}
+              onVerify={() => verifyMutation.mutate(dnsDialogDomain.id)}
+            />
           ) : null}
 
-          <DialogFooter className="gap-2 sm:justify-between">
-            <p className="text-xs text-muted-foreground">
-              A · AAAA · MX · SPF · DKIM · DMARC · Autodiscover · Autoconfig · IMAP · POP · SMTP
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setDnsDialogDomain(null);
-                  setDnsPayload(null);
-                }}
-              >
-                Close
-              </Button>
-              <Button
-                type="button"
-                className="gradient-blue border-0"
-                disabled={!dnsPayload?.flat?.length}
-                onClick={() => void handleCopyAllDns()}
-              >
-                <Copy className="size-4" />
-                Copy All DNS
-              </Button>
-            </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setDnsDialogDomain(null);
+                setDnsPayload(null);
+              }}
+            >
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

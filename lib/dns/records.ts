@@ -15,6 +15,7 @@ export type DnsRecordPurpose =
   | "mail_aaaa"
   | "mx"
   | "spf"
+  | "verification"
   | "dkim"
   | "dmarc"
   | "autodiscover"
@@ -279,7 +280,63 @@ export type DnsInstructionRecord = {
   purpose: string;
   label: string;
   alreadyPublished?: boolean;
+  tier?: "required" | "advanced";
 };
+
+export type SpfMergeRecommendation = {
+  existing: string;
+  recommended: string;
+  message: string;
+};
+
+export const REQUIRED_DNS_PURPOSES = ["mx", "spf", "mail_a", "verification"] as const;
+export const ADVANCED_DNS_PURPOSES = [
+  "mail_aaaa",
+  "dkim",
+  "dmarc",
+  "autodiscover",
+  "autoconfig",
+  "imap",
+  "pop",
+  "smtp",
+] as const;
+
+export function isRequiredDnsPurpose(purpose: string) {
+  return (REQUIRED_DNS_PURPOSES as readonly string[]).includes(purpose);
+}
+
+export function isAdvancedDnsPurpose(purpose: string) {
+  return (ADVANCED_DNS_PURPOSES as readonly string[]).includes(purpose);
+}
+
+/** Merge Orbit mail authorization into an existing SPF without replacing other includes. */
+export function recommendSpfMerge(existingSpf: string, mailHost: string): SpfMergeRecommendation {
+  const existing = existingSpf.trim().replace(/^"+|"+$/g, "");
+  const token = `a:${mailHost}`;
+  if (/\bv=spf1\b/i.test(existing) && existing.toLowerCase().includes(token.toLowerCase())) {
+    return {
+      existing,
+      recommended: existing,
+      message: "Existing SPF already authorizes Global Orbit Mail. No change needed.",
+    };
+  }
+
+  let recommended = existing;
+  if (!/\bv=spf1\b/i.test(recommended)) {
+    recommended = `v=spf1 ${token} ~all`;
+  } else if (/\s(~all|-all|\?all|\+all)\s*$/i.test(recommended)) {
+    recommended = recommended.replace(/\s(~all|-all|\?all|\+all)\s*$/i, ` ${token} $1`);
+  } else {
+    recommended = `${recommended} ${token} ~all`;
+  }
+
+  return {
+    existing,
+    recommended: recommended.replace(/\s+/g, " ").trim(),
+    message:
+      "An SPF TXT already exists on @. Do not replace it — merge the recommended value so website and other services keep working.",
+  };
+}
 
 /** Public DNS instruction payload for Orbit UI / API consumers. */
 export function toDnsInstructionJson(
@@ -297,23 +354,46 @@ export function toDnsInstructionJson(
     label?: string;
     alreadyPublished?: boolean;
   }>,
+  options?: {
+    spfMerge?: SpfMergeRecommendation | null;
+    verificationEnabled?: boolean;
+  },
 ) {
   const apex = normalizeApexDomain(domainName);
-  const formatted = records.map((r) => formatRecord(r, apex));
+  const formatted = records.map((r) => {
+    const row = formatRecord(r, apex);
+    return {
+      ...row,
+      tier: isRequiredDnsPurpose(row.purpose) ? ("required" as const) : ("advanced" as const),
+    };
+  });
+
+  const required = formatted.filter((r) => r.tier === "required");
+  const advanced = formatted.filter((r) => r.tier === "advanced");
   const byPurpose = (purpose: string) => formatted.filter((r) => r.purpose === purpose);
 
   return {
     domain: apex,
     generatedAt: new Date().toISOString(),
     mailHostname: sharedMailHost(),
-    title: "Required DNS Records",
+    title: "Connect your domain",
     notice:
-      "Add these mail DNS records at your DNS provider. Do not change existing website records (including www CNAME/A).",
+      "Add only the required mail records below. Leave website records (www, root A/CNAME, CDN) unchanged.",
+    wizard: {
+      style: "google-workspace",
+      requiredCount: required.length,
+      advancedCount: advanced.length,
+      verificationEnabled: Boolean(options?.verificationEnabled),
+    },
+    required,
+    advanced,
+    spfMerge: options?.spfMerge ?? null,
     records: {
       a: byPurpose("mail_a"),
       aaaa: byPurpose("mail_aaaa"),
       mx: byPurpose("mx"),
       spf: byPurpose("spf"),
+      verification: byPurpose("verification"),
       dkim: byPurpose("dkim"),
       dmarc: byPurpose("dmarc"),
       autodiscover: byPurpose("autodiscover"),
@@ -327,7 +407,8 @@ export function toDnsInstructionJson(
       a: "Create an A record: Host mail → production mail server IPv4.",
       aaaa: "Optional AAAA for Host mail when IPv6 is enabled.",
       mx: "Create MX on Host @ (or apex domain) with priority 10.",
-      spf: "Publish SPF TXT on Host @.",
+      spf: "Publish SPF TXT on Host @ (merge if one already exists).",
+      verification: "Optional ownership TXT used only when domain verification is enabled.",
       dkim: "Publish DKIM TXT on Host selector._domainkey.",
       dmarc: "Publish DMARC TXT on Host _dmarc.",
       autodiscover: "CNAME Host autodiscover → webmail host (Outlook).",
@@ -403,6 +484,7 @@ function inferPurpose(record: { type: string; name: string; value: string }): st
   if (type === "MX") return "mx";
   if (type === "SPF" || record.value.startsWith("v=spf1")) return "spf";
   if (type === "DKIM" || name.includes("._domainkey.")) return "dkim";
+  if (record.value.startsWith("orbit-domain-verification=")) return "verification";
   if (type === "DMARC" || name.startsWith("_dmarc.")) return "dmarc";
   if (name.startsWith("autodiscover.")) return "autodiscover";
   if (name.startsWith("autoconfig.")) return "autoconfig";
@@ -415,13 +497,15 @@ function inferPurpose(record: { type: string; name: string; value: string }): st
 function labelForPurpose(purpose: string) {
   switch (purpose) {
     case "mail_a":
-      return "A (mail)";
+      return "Mail A";
     case "mail_aaaa":
-      return "AAAA (mail)";
+      return "Mail AAAA";
     case "mx":
       return "MX";
     case "spf":
       return "SPF";
+    case "verification":
+      return "Verification TXT";
     case "dkim":
       return "DKIM";
     case "dmarc":

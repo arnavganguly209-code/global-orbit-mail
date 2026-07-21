@@ -18,7 +18,9 @@ export function formatDnsRecordsForClipboard(
   records: DnsClipboardRecord[],
   domainName?: string,
 ) {
-  const header = domainName ? `# Required DNS Records for ${domainName}\n` : "# Required DNS Records\n";
+  const header = domainName
+    ? `# Required DNS Records for ${domainName}\n# Do not change website www records\n`
+    : "# Required DNS Records\n";
   const lines = records.map((r) => {
     const host = r.host ?? r.name ?? "@";
     const kind = r.publishType ?? r.type ?? "TXT";
