@@ -12,15 +12,19 @@ export function StatusPill({
   label,
   tone = "neutral",
   className,
+  uppercase = false,
 }: {
   label: string;
   tone?: VerificationTone;
   className?: string;
+  /** Raw technical enums can stay uppercase; friendly labels should not. */
+  uppercase?: boolean;
 }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide",
+        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium tracking-wide",
+        uppercase && "uppercase",
         toneStyles[tone],
         className,
       )}

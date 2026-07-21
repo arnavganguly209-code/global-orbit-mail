@@ -2,10 +2,9 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/admin/admin-shell";
-import { StatusPill, statusToneFromValue } from "@/components/admin/status-pill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search } from "@/components/ui/search";
@@ -42,13 +41,10 @@ import {
   DnsSetupWizardScroll,
   type DnsWizardPayload,
 } from "@/features/admin/dns-setup-wizard";
+import { FriendlyDomainBadge } from "@/components/domain/friendly-status";
 import { normalizeApexDomain } from "@/lib/dns/domain-name";
-import type {
-  AdminDomain,
-  ApiResponse,
-  PaginatedResult,
-  VerificationTone,
-} from "@/types";
+import type { AdminDomain, ApiResponse, PaginatedResult } from "@/types";
+import type { AutoVerifyReport } from "@/hooks/use-dns-auto-verify";
 
 type DnsInstructionPayload = DnsWizardPayload;
 
@@ -59,19 +55,7 @@ type DomainCreateResult = AdminDomain & {
   created?: boolean;
 };
 
-type VerifyReport = {
-  domainId: string;
-  domain: string;
-  overall: string;
-};
-
-function dnsHealthTone(status: string): VerificationTone {
-  const v = status.toUpperCase();
-  if (v === "VERIFIED") return "success";
-  if (["PENDING", "PARTIAL", "VERIFYING"].includes(v)) return "warning";
-  if (["FAILED", "MISMATCH"].includes(v)) return "danger";
-  return statusToneFromValue(status);
-}
+type VerifyReport = AutoVerifyReport;
 
 async function fetchGeneratedDns(domainId: string): Promise<DnsInstructionPayload> {
   const res = await adminFetch(`/api/admin/dns?domainId=${encodeURIComponent(domainId)}`);
@@ -110,7 +94,6 @@ export function DomainsAdminPage() {
   const [createOpen, setCreateOpen] = React.useState(false);
   const [editDomain, setEditDomain] = React.useState<AdminDomain | null>(null);
   const [domainName, setDomainName] = React.useState("");
-  const [verifyingId, setVerifyingId] = React.useState<string | null>(null);
   const [dnsDialogDomain, setDnsDialogDomain] = React.useState<AdminDomain | null>(null);
   const [dnsPayload, setDnsPayload] = React.useState<DnsInstructionPayload | null>(null);
   const [dnsLoading, setDnsLoading] = React.useState(false);
@@ -147,14 +130,16 @@ export function DomainsAdminPage() {
       if (created.alreadyExisted) {
         toast.message(message ?? "This domain already exists in your account.");
       } else if (created.restored) {
-        toast.success(message ?? "Domain restored successfully.");
+        toast.success("✓ Domain Connected");
       } else {
-        toast.success(message ?? "Domain added successfully.");
+        toast.success("✓ Domain Connected");
       }
 
       if (created.dns) {
         setDnsDialogDomain(created);
         setDnsPayload(created.dns);
+      } else {
+        void openDnsDialog(created);
       }
     },
     onError: (e: Error) => toast.error(e.message),
@@ -192,28 +177,25 @@ export function DomainsAdminPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const verifyMutation = useMutation({
-    mutationFn: async (domainId: string) => {
-      setVerifyingId(domainId);
-      const res = await adminFetch("/api/admin/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domainId }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.message ?? "Verification failed");
-      return json.data as VerifyReport;
-    },
-    onSuccess: (report) => {
-      toast.success(`DNS verification: ${report.overall}`, {
-        description: report.domain,
-      });
-      qc.invalidateQueries({ queryKey: ["admin-domains"] });
-      qc.invalidateQueries({ queryKey: ["admin-dns"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-    onSettled: () => setVerifyingId(null),
-  });
+  async function runVerify(domainId: string): Promise<VerifyReport> {
+    const res = await adminFetch("/api/admin/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domainId }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.message ?? "Verification failed");
+    const report = json.data as VerifyReport;
+    qc.invalidateQueries({ queryKey: ["admin-domains"] });
+    if (report.ready) {
+      setDnsDialogDomain((prev) =>
+        prev && prev.id === domainId
+          ? { ...prev, status: "ACTIVE", dnsStatus: "VERIFIED", mailStatus: "ACTIVE" }
+          : prev,
+      );
+    }
+    return report;
+  }
 
   async function openDnsDialog(domain: AdminDomain) {
     setDnsDialogDomain(domain);
@@ -235,7 +217,7 @@ export function DomainsAdminPage() {
   return (
     <AdminShell
       title="Domains"
-      description="Domain lifecycle, SSL, DNS and mail status"
+      description="Connect a domain, add DNS, and go live — Google Workspace–style"
       actions={
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
@@ -334,10 +316,7 @@ export function DomainsAdminPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Domain</TableHead>
-                <TableHead>Verification</TableHead>
-                <TableHead>SSL</TableHead>
-                <TableHead>DNS health</TableHead>
-                <TableHead>Mail</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead>Mailboxes</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -347,48 +326,18 @@ export function DomainsAdminPage() {
                 <TableRow key={domain.id}>
                   <TableCell>
                     <p className="font-medium tracking-tight">{domain.name}</p>
-                    <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                      {domain.id.slice(0, 8)}
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {domain.mailboxCount === 0
+                        ? "Create a mailbox when DNS is ready"
+                        : `${domain.mailboxCount} mailbox${domain.mailboxCount === 1 ? "" : "es"}`}
                     </p>
                   </TableCell>
                   <TableCell>
-                    <StatusPill
-                      label={domain.status}
-                      tone={statusToneFromValue(domain.status)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <StatusPill
-                      label={domain.sslStatus}
-                      tone={statusToneFromValue(domain.sslStatus)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <StatusPill
-                      label={domain.dnsStatus}
-                      tone={dnsHealthTone(domain.dnsStatus)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <StatusPill
-                      label={domain.mailStatus}
-                      tone={statusToneFromValue(domain.mailStatus)}
-                    />
+                    <FriendlyDomainBadge domain={domain} />
                   </TableCell>
                   <TableCell className="tabular-nums">{domain.mailboxCount}</TableCell>
                   <TableCell className="text-right">
                     <div className="inline-flex flex-wrap items-center justify-end gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-8 gap-1.5 border-primary/25 text-xs"
-                        disabled={verifyingId === domain.id}
-                        onClick={() => verifyMutation.mutate(domain.id)}
-                      >
-                        <ShieldCheck className="size-3.5 text-primary" />
-                        {verifyingId === domain.id ? "…" : "Verify"}
-                      </Button>
                       <Button
                         type="button"
                         size="sm"
@@ -445,10 +394,9 @@ export function DomainsAdminPage() {
       >
         <DialogContent className="max-h-[92vh] max-w-2xl overflow-hidden sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>DNS setup</DialogTitle>
+            <DialogTitle>Connect domain</DialogTitle>
             <DialogDescription>
-              Google Workspace–style setup: add only the required mail records. Website DNS stays
-              untouched.
+              Add required mail DNS, then we verify automatically — no manual refresh.
             </DialogDescription>
           </DialogHeader>
 
@@ -456,9 +404,17 @@ export function DomainsAdminPage() {
 
           {!dnsLoading && dnsPayload && dnsDialogDomain ? (
             <DnsSetupWizardScroll
+              domainId={dnsDialogDomain.id}
+              domainMeta={dnsDialogDomain}
               payload={dnsPayload}
-              verifying={verifyingId === dnsDialogDomain.id}
-              onVerify={() => verifyMutation.mutate(dnsDialogDomain.id)}
+              mailboxHref={`/orbit/mailboxes?domainId=${dnsDialogDomain.id}`}
+              verifyFn={runVerify}
+              onDomainRefresh={() => {
+                qc.invalidateQueries({ queryKey: ["admin-domains"] });
+              }}
+              onReady={() => {
+                qc.invalidateQueries({ queryKey: ["admin-domains"] });
+              }}
             />
           ) : null}
 

@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, Globe2, Plus, RefreshCw } from "lucide-react";
+import { Globe2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
@@ -14,18 +14,24 @@ import { EmptyState } from "@/components/ui/empty-state";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { StatusPill, statusToneFromValue } from "@/components/admin/status-pill";
 import { customerFetch } from "@/lib/api/customer-fetch";
 import { normalizeApexDomain } from "@/lib/dns/domain-name";
 import { cn } from "@/lib/utils";
-import type { AdminDomain, ApiResponse, DnsRecordView, PaginatedResult } from "@/types";
-
-const WIZARD_STEPS = ["Add Domain", "Copy DNS", "Verify", "Create Mailbox"] as const;
+import {
+  DnsSetupWizardScroll,
+  type DnsWizardPayload,
+} from "@/features/admin/dns-setup-wizard";
+import { FriendlyDomainBadge } from "@/components/domain/friendly-status";
+import { DomainOnboardingProgress } from "@/components/domain/onboarding-progress";
+import { getOnboardingStepIndex, isDomainReady } from "@/lib/domain/onboarding-status";
+import type { AutoVerifyReport } from "@/hooks/use-dns-auto-verify";
+import type { AdminDomain, ApiResponse, PaginatedResult } from "@/types";
 
 async function fetchDomains() {
   const res = await customerFetch("/api/customer/domains?page=1&pageSize=50");
@@ -34,43 +40,14 @@ async function fetchDomains() {
   return json.data.items;
 }
 
-async function fetchDns(domainId: string) {
+async function fetchDnsWizard(domainId: string): Promise<DnsWizardPayload> {
   const res = await customerFetch(`/api/customer/domains/${domainId}/dns`);
-  const json = (await res.json()) as ApiResponse<DnsRecordView[]>;
-  if (!json.success) throw new Error("Failed to load DNS records");
+  const json = (await res.json()) as ApiResponse<DnsWizardPayload>;
+  if (!res.ok || !json.success) throw new Error(json.message ?? "Failed to load DNS");
+  if (!json.data?.flat?.length && !json.data?.required?.length) {
+    throw new Error("DNS generator returned no records");
+  }
   return json.data;
-}
-
-function WizardTracker({ activeStep }: { activeStep: number }) {
-  return (
-    <div className="glass-surface mb-6 flex flex-wrap items-center gap-2 rounded-2xl p-4">
-      {WIZARD_STEPS.map((step, index) => (
-        <div key={step} className="flex items-center gap-2">
-          <div
-            className={cn(
-              "flex size-7 items-center justify-center rounded-full text-xs font-semibold",
-              index <= activeStep
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground",
-            )}
-          >
-            {index + 1}
-          </div>
-          <span
-            className={cn(
-              "text-xs font-medium",
-              index <= activeStep ? "text-foreground" : "text-muted-foreground",
-            )}
-          >
-            {step}
-          </span>
-          {index < WIZARD_STEPS.length - 1 ? (
-            <div className="mx-2 h-px w-6 bg-border sm:w-10" />
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
 }
 
 export function CustomerDomainsPage() {
@@ -78,20 +55,66 @@ export function CustomerDomainsPage() {
   const [open, setOpen] = React.useState(false);
   const [domainName, setDomainName] = React.useState("");
   const [selectedDomainId, setSelectedDomainId] = React.useState<string | null>(null);
-  const [copied, setCopied] = React.useState<string | null>(null);
+  const [wizardOpen, setWizardOpen] = React.useState(false);
+  const [wizardDomain, setWizardDomain] = React.useState<AdminDomain | null>(null);
+  const [wizardPayload, setWizardPayload] = React.useState<DnsWizardPayload | null>(null);
+  const [wizardLoading, setWizardLoading] = React.useState(false);
 
   const { data: domains, isLoading } = useQuery({
     queryKey: ["customer-domains"],
     queryFn: fetchDomains,
+    refetchInterval: (query) => {
+      const items = query.state.data ?? [];
+      const needsPoll = items.some((d) => !isDomainReady(d));
+      return needsPoll ? 30_000 : 60_000;
+    },
   });
 
   const selectedDomain = domains?.find((d) => d.id === selectedDomainId) ?? domains?.[0] ?? null;
 
-  const { data: dnsRecords, isFetching: dnsLoading } = useQuery({
-    queryKey: ["customer-domain-dns", selectedDomain?.id],
-    enabled: Boolean(selectedDomain?.id),
-    queryFn: () => fetchDns(selectedDomain!.id),
-  });
+  React.useEffect(() => {
+    if (!selectedDomainId && domains?.[0]) {
+      setSelectedDomainId(domains[0].id);
+    }
+  }, [domains, selectedDomainId]);
+
+  async function openWizard(domain: AdminDomain) {
+    setWizardDomain(domain);
+    setWizardPayload(null);
+    setWizardOpen(true);
+    setWizardLoading(true);
+    try {
+      const payload = await fetchDnsWizard(domain.id);
+      setWizardPayload(payload);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to open DNS setup");
+      setWizardOpen(false);
+      setWizardDomain(null);
+    } finally {
+      setWizardLoading(false);
+    }
+  }
+
+  async function runVerify(domainId: string): Promise<AutoVerifyReport> {
+    const res = await customerFetch(`/api/customer/domains/${domainId}/verify`, {
+      method: "POST",
+      body: JSON.stringify({ domainId }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message ?? "Unable to check DNS right now.");
+    }
+    const report = json.data as AutoVerifyReport;
+    await qc.invalidateQueries({ queryKey: ["customer-domains"] });
+    if (report.ready) {
+      setWizardDomain((prev) =>
+        prev && prev.id === domainId
+          ? { ...prev, status: "ACTIVE", dnsStatus: "VERIFIED", mailStatus: "ACTIVE" }
+          : prev,
+      );
+    }
+    return report;
+  }
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -106,46 +129,45 @@ export function CustomerDomainsPage() {
         throw new Error(json.message ?? "Unable to save domain. Please try again.");
       }
       return {
-        data: json.data as AdminDomain & { alreadyExisted?: boolean; restored?: boolean },
+        data: json.data as AdminDomain & {
+          alreadyExisted?: boolean;
+          restored?: boolean;
+          dns?: DnsWizardPayload;
+        },
         message: (json.message as string | undefined) ?? undefined,
       };
     },
-    onSuccess: ({ data: domain, message }) => {
+    onSuccess: async ({ data: domain, message }) => {
       if (domain.alreadyExisted) {
         toast.message(message ?? "This domain already exists in your account.");
-      } else if (domain.restored) {
-        toast.success(message ?? "Domain restored successfully.");
       } else {
-        toast.success(message ?? "Domain added successfully.");
+        toast.success("✓ Domain Connected");
       }
       setOpen(false);
       setDomainName("");
       setSelectedDomainId(domain.id);
-      qc.invalidateQueries({ queryKey: ["customer-domains"] });
+      await qc.invalidateQueries({ queryKey: ["customer-domains"] });
+
+      if (domain.dns) {
+        setWizardDomain(domain);
+        setWizardPayload(domain.dns);
+        setWizardOpen(true);
+      } else {
+        await openWizard(domain);
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  async function copyValue(id: string, value: string) {
-    await navigator.clipboard.writeText(value);
-    setCopied(id);
-    toast.success("Copied to clipboard");
-    window.setTimeout(() => setCopied(null), 1500);
-  }
-
-  const activeStep = !domains?.length
-    ? 0
-    : selectedDomain?.status === "ACTIVE"
-      ? 3
-      : selectedDomain?.dnsStatus === "VERIFIED"
-        ? 2
-        : 1;
+  const activeStep = selectedDomain
+    ? getOnboardingStepIndex(selectedDomain)
+    : 0;
 
   return (
     <>
       <PageHeader
         title="Domains"
-        description="Add Domain → Copy DNS → Verify → Create Mailbox"
+        description="Connect your domain in minutes — we verify DNS automatically"
         actions={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
@@ -172,19 +194,9 @@ export function CustomerDomainsPage() {
                     }
                   }}
                 />
-                {domainName.trim() &&
-                normalizeApexDomain(domainName) !== domainName.trim().toLowerCase() ? (
-                  <p className="text-xs text-muted-foreground">
-                    Will be saved as{" "}
-                    <span className="font-mono text-foreground">
-                      {normalizeApexDomain(domainName) || "…"}
-                    </span>
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    www and https are removed automatically. Stored as the root domain only.
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  www and https are removed automatically.
+                </p>
               </div>
               <DialogFooter>
                 <Button
@@ -200,7 +212,11 @@ export function CustomerDomainsPage() {
         }
       />
 
-      <WizardTracker activeStep={activeStep} />
+      {selectedDomain ? (
+        <div className="glass-surface mb-6 rounded-2xl p-4">
+          <DomainOnboardingProgress activeStep={activeStep} />
+        </div>
+      ) : null}
 
       {isLoading ? <Loading label="Loading domains" /> : null}
 
@@ -208,108 +224,104 @@ export function CustomerDomainsPage() {
         <EmptyState
           icon={<Globe2 className="size-5" />}
           title="No domains yet"
-          description="Add your custom domain to start provisioning professional mailboxes."
+          description="Add your custom domain to start creating professional mailboxes."
         />
       ) : null}
 
       {domains && domains.length > 0 ? (
-        <div className="grid gap-6 lg:grid-cols-[1fr_1.4fr]">
-          <div className="space-y-3">
-            {domains.map((domain) => (
-              <button
+        <div className="grid gap-4">
+          {domains.map((domain) => {
+            const ready = isDomainReady(domain);
+            return (
+              <div
                 key={domain.id}
-                type="button"
-                onClick={() => setSelectedDomainId(domain.id)}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-2xl border px-4 py-3.5 text-left transition-colors",
-                  selectedDomain?.id === domain.id
-                    ? "border-primary/50 bg-primary/10"
-                    : "border-border/60 bg-background/40 hover:border-primary/30",
+                  "glass-surface flex flex-col gap-4 rounded-2xl p-5 sm:flex-row sm:items-center sm:justify-between",
+                  selectedDomain?.id === domain.id && "ring-1 ring-primary/40",
                 )}
               >
-                <div>
-                  <p className="text-sm font-medium">{domain.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {domain.mailboxCount} mailbox{domain.mailboxCount === 1 ? "" : "es"}
-                  </p>
-                </div>
-                <StatusPill label={domain.status} tone={statusToneFromValue(domain.status)} />
-              </button>
-            ))}
-          </div>
-
-          <div className="glass-surface rounded-2xl p-5">
-            {selectedDomain ? (
-              <>
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h2 className="font-display text-lg font-semibold">{selectedDomain.name}</h2>
-                    <p className="text-xs text-muted-foreground">
-                      Add these records at your DNS provider, then verify.
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left"
+                  onClick={() => setSelectedDomainId(domain.id)}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-display text-lg font-semibold tracking-tight">
+                      {domain.name}
                     </p>
+                    <FriendlyDomainBadge domain={domain} />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        qc.invalidateQueries({ queryKey: ["customer-domain-dns", selectedDomain.id] })
-                      }
-                    >
-                      <RefreshCw className="size-3.5" />
-                      Verify
-                    </Button>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {ready
+                      ? domain.mailboxCount > 0
+                        ? `${domain.mailboxCount} mailbox${domain.mailboxCount === 1 ? "" : "es"}`
+                        : "Ready — create your first mailbox"
+                      : "Add DNS records to finish setup"}
+                  </p>
+                </button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void openWizard(domain)}
+                  >
+                    {ready ? "View DNS" : "Continue DNS Setup"}
+                  </Button>
+                  {ready ? (
                     <Button asChild size="sm" className="gradient-blue border-0">
-                      <Link href={`/dashboard/mailboxes?domainId=${selectedDomain.id}`}>
-                        Create Mailbox
+                      <Link href={`/dashboard/mailboxes?domainId=${domain.id}`}>
+                        Create First Mailbox
                       </Link>
                     </Button>
-                  </div>
+                  ) : null}
                 </div>
-
-                {dnsLoading ? <Loading label="Loading DNS records" /> : null}
-
-                {dnsRecords ? (
-                  <div className="space-y-2">
-                    {dnsRecords.map((record) => (
-                      <div
-                        key={record.id}
-                        className="rounded-xl border border-border/60 bg-background/40 p-3"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-mono text-xs text-gold">{record.type}</span>
-                          <StatusPill label={record.status} tone={record.tone} />
-                        </div>
-                        <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-                          {record.name}
-                        </p>
-                        <div className="mt-2 flex items-center gap-2">
-                          <pre className="flex-1 overflow-x-auto rounded-lg bg-black/40 p-2 font-mono text-[11px] text-muted-foreground">
-                            {record.value}
-                          </pre>
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => copyValue(record.id, record.value)}
-                          >
-                            {copied === record.id ? (
-                              <Check className="size-4 text-emerald-400" />
-                            ) : (
-                              <Copy className="size-4" />
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </>
-            ) : null}
-          </div>
+              </div>
+            );
+          })}
         </div>
       ) : null}
+
+      <Dialog
+        open={wizardOpen}
+        onOpenChange={(next) => {
+          setWizardOpen(next);
+          if (!next) {
+            setWizardDomain(null);
+            setWizardPayload(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[92vh] max-w-2xl overflow-hidden sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Connect domain</DialogTitle>
+            <DialogDescription>
+              Add required mail DNS. We verify automatically — no manual Verify button.
+            </DialogDescription>
+          </DialogHeader>
+          {wizardLoading ? <Loading label="Preparing DNS wizard" /> : null}
+          {!wizardLoading && wizardPayload && wizardDomain ? (
+            <DnsSetupWizardScroll
+              domainId={wizardDomain.id}
+              domainMeta={wizardDomain}
+              payload={wizardPayload}
+              mailboxHref={`/dashboard/mailboxes?domainId=${wizardDomain.id}`}
+              verifyFn={runVerify}
+              onDomainRefresh={() => {
+                qc.invalidateQueries({ queryKey: ["customer-domains"] });
+              }}
+              onReady={() => {
+                qc.invalidateQueries({ queryKey: ["customer-domains"] });
+              }}
+            />
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setWizardOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

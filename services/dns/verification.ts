@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import type { DnsRecordStatus, VerificationKind, VerificationState } from "@prisma/client";
 import { getMailHostname } from "@/lib/dns/records";
+import { isUsableIpv4 } from "@/lib/dns/mail-ip";
 
 export type CheckResult = {
   ok: boolean;
@@ -18,9 +19,15 @@ export type DomainVerifyReport = {
   domain: string;
   mx: CheckResult;
   spf: CheckResult;
+  mailA: CheckResult;
   dkim: CheckResult;
   dmarc: CheckResult;
   ssl: CheckResult;
+  /** True when required mail DNS (MX + SPF + mail A) is valid */
+  ready: boolean;
+  requiredPassed: number;
+  requiredTotal: number;
+  waitingFor: string | null;
   overall: "VERIFIED" | "PARTIAL" | "FAILED" | "PENDING";
   checkedAt: string;
 };
@@ -38,7 +45,6 @@ function includesSpf(observed: string[], expected: string): boolean {
 }
 
 function softSpfMatch(observed: string, expected: string): boolean {
-  // Accept if both declare v=spf1 and reference our mail host
   const host = getMailHostname().toLowerCase();
   return observed.includes("v=spf1") && expected.includes("v=spf1") && observed.includes(host);
 }
@@ -82,6 +88,14 @@ async function lookupTxt(host: string): Promise<string[]> {
   }
 }
 
+async function lookupA(host: string): Promise<string[]> {
+  try {
+    return await dns.resolve4(host);
+  } catch {
+    return [];
+  }
+}
+
 async function checkSsl(hostname: string): Promise<CheckResult> {
   const host = hostname.replace(/\.$/, "");
   return new Promise((resolve) => {
@@ -101,29 +115,29 @@ async function checkSsl(hostname: string): Promise<CheckResult> {
         resolve({
           ok: Boolean(valid),
           label: "SSL",
-          expected: `Valid TLS on ${host}:443`,
+          expected: host,
           observed: cert?.subject?.CN ? [String(cert.subject.CN)] : [],
           detail,
         });
       },
     );
-    socket.on("error", (err) => {
+    socket.on("error", (error) => {
       resolve({
         ok: false,
         label: "SSL",
-        expected: `Valid TLS on ${host}:443`,
+        expected: host,
         observed: [],
-        detail: err.message,
+        detail: error.message || "TLS check failed",
       });
     });
-    socket.on("timeout", () => {
+    socket.setTimeout(8000, () => {
       socket.destroy();
       resolve({
         ok: false,
         label: "SSL",
-        expected: `Valid TLS on ${host}:443`,
+        expected: host,
         observed: [],
-        detail: "TLS connection timed out",
+        detail: "TLS check timed out",
       });
     });
   });
@@ -144,7 +158,7 @@ async function upsertVerification(
   if (existing) {
     await prisma.verification.update({
       where: { id: existing.id },
-      data: { state, detail, target, checkedAt: new Date() },
+      data: { state, target, detail, checkedAt: new Date() },
     });
     return;
   }
@@ -185,6 +199,9 @@ export const dnsVerificationService = {
     const mailHost = getMailHostname().toLowerCase().replace(/\.$/, "");
     const expectedMx = domain.dnsRecords.find((r) => r.type === "MX");
     const expectedSpf = domain.dnsRecords.find((r) => r.type === "SPF");
+    const expectedMailA = domain.dnsRecords.find(
+      (r) => r.type === "A" && (r.name.startsWith("mail.") || r.name === `mail.${domain.name}`),
+    );
     const expectedDkim = domain.dnsRecords.find((r) => r.type === "DKIM");
     const expectedDmarc = domain.dnsRecords.find((r) => r.type === "DMARC");
 
@@ -193,7 +210,11 @@ export const dnsVerificationService = {
       mxObserved.some((row) => row.toLowerCase().includes(mailHost)) ||
       (expectedMx
         ? mxObserved.some((row) =>
-            row.toLowerCase().includes(expectedMx.value.toLowerCase().replace(/^\d+\s+/, "").replace(/\.$/, "")),
+            row
+              .toLowerCase()
+              .includes(
+                expectedMx.value.toLowerCase().replace(/^\d+\s+/, "").replace(/\.$/, ""),
+              ),
           )
         : false);
 
@@ -201,6 +222,13 @@ export const dnsVerificationService = {
     const spfOk = expectedSpf
       ? includesSpf(spfObserved, expectedSpf.value)
       : spfObserved.some((v) => v.toLowerCase().startsWith("v=spf1"));
+
+    const mailAHost = expectedMailA?.name ?? `mail.${domain.name}`;
+    const mailAObserved = await lookupA(mailAHost);
+    const expectedIp = (expectedMailA?.value ?? "").trim();
+    const mailAOk =
+      (isUsableIpv4(expectedIp) && mailAObserved.includes(expectedIp)) ||
+      (!expectedIp && mailAObserved.some((ip) => isUsableIpv4(ip)));
 
     const dkimHost =
       expectedDkim?.name ?? `${domain.dkimSelector || "orbit"}._domainkey.${domain.name}`;
@@ -230,6 +258,15 @@ export const dnsVerificationService = {
       observed: spfObserved.filter((v) => v.toLowerCase().includes("v=spf1")),
       detail: spfOk ? "SPF TXT verified" : "SPF TXT missing or mismatch",
     };
+    const mailA: CheckResult = {
+      ok: mailAOk,
+      label: "A (mail)",
+      expected: expectedIp || "production mail IPv4",
+      observed: mailAObserved,
+      detail: mailAOk
+        ? `mail.${domain.name} resolves to the mail server`
+        : `A record for mail.${domain.name} missing or incorrect`,
+    };
     const dkim: CheckResult = {
       ok: dkimOk,
       label: "DKIM",
@@ -245,11 +282,13 @@ export const dnsVerificationService = {
       detail: dmarcOk ? "DMARC TXT verified" : "DMARC TXT missing",
     };
 
-    // Persist per-record statuses
     for (const record of domain.dnsRecords) {
       let status: DnsRecordStatus = record.status;
       if (record.type === "MX") status = toRecordStatus(mxOk, mxObserved);
       if (record.type === "SPF") status = toRecordStatus(spfOk, spfObserved);
+      if (record.type === "A" && record.name.startsWith("mail.")) {
+        status = toRecordStatus(mailAOk, mailAObserved);
+      }
       if (record.type === "DKIM") status = toRecordStatus(dkimOk, dkimObserved);
       if (record.type === "DMARC") status = toRecordStatus(dmarcOk, dmarcObserved);
       if (status !== record.status) {
@@ -257,11 +296,17 @@ export const dnsVerificationService = {
       }
     }
 
-    const checks = [mx, spf, dkim, dmarc];
-    const passed = checks.filter((c) => c.ok).length;
+    const requiredChecks = [mailA, mx, spf];
+    const requiredPassed = requiredChecks.filter((c) => c.ok).length;
+    const requiredTotal = requiredChecks.length;
+    const ready = requiredPassed === requiredTotal;
+    const waitingFor =
+      requiredChecks.find((c) => !c.ok)?.label ?? null;
+
+    // overall reflects required readiness for product UX (advanced DKIM/DMARC optional)
     let overall: DomainVerifyReport["overall"] = "PENDING";
-    if (passed === checks.length) overall = "VERIFIED";
-    else if (passed === 0) overall = "FAILED";
+    if (ready) overall = "VERIFIED";
+    else if (requiredPassed === 0) overall = "FAILED";
     else overall = "PARTIAL";
 
     const dnsStatus =
@@ -313,10 +358,14 @@ export const dnsVerificationService = {
       data: {
         dnsStatus,
         sslStatus: ssl.ok ? "ACTIVE" : domain.sslStatus === "NONE" ? "PENDING" : domain.sslStatus,
-        status: overall === "VERIFIED" ? "ACTIVE" : overall === "FAILED" ? "FAILED" : "VERIFYING",
-        verifiedAt: overall === "VERIFIED" ? new Date() : domain.verifiedAt,
-        mailStatus:
-          overall === "VERIFIED" && domain.mailStatus === "DISABLED"
+        // Ready as soon as required DNS is valid — never leave customers on VERIFYING
+        status: ready ? "ACTIVE" : overall === "FAILED" ? "PENDING" : "VERIFYING",
+        verifiedAt: ready ? new Date() : domain.verifiedAt,
+        mailStatus: ready
+          ? domain.mailStatus === "DISABLED" || domain.mailStatus === "PROVISIONING"
+            ? "ACTIVE"
+            : domain.mailStatus
+          : domain.mailStatus === "DISABLED"
             ? "PROVISIONING"
             : domain.mailStatus,
       },
@@ -329,8 +378,11 @@ export const dnsVerificationService = {
       resourceId: domain.id,
       metadata: {
         overall,
+        ready,
+        requiredPassed,
         mx: mx.ok,
         spf: spf.ok,
+        mailA: mailA.ok,
         dkim: dkim.ok,
         dmarc: dmarc.ok,
         ssl: ssl.ok,
@@ -342,9 +394,14 @@ export const dnsVerificationService = {
       domain: domain.name,
       mx,
       spf,
+      mailA,
       dkim,
       dmarc,
       ssl,
+      ready,
+      requiredPassed,
+      requiredTotal,
+      waitingFor,
       overall,
       checkedAt: new Date().toISOString(),
     };
