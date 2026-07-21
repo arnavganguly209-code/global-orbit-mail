@@ -39,15 +39,22 @@ export function generateSecurePassword(length = 20): string {
 
 /**
  * App-layer bcrypt hash + Dovecot BLF-CRYPT compatible string.
- * bcryptjs hashes are `$2a$`/`$2b$` which Dovecot accepts as {BLF-CRYPT}.
+ *
+ * Orbit and Dovecot MUST use the same scheme:
+ *   - Algorithm: bcrypt (cost 12) via bcryptjs → `$2a$12$…` or `$2b$12$…`
+ *   - Dovecot label: `{BLF-CRYPT}` prefix (see deploy/vps/dovecot-sql.conf.ext)
+ *   - default_pass_scheme = BLF-CRYPT
+ *
+ * Never store plaintext. Never use SHA512-CRYPT / ARGON2 unless Dovecot is
+ * reconfigured to match — Roundcube → IMAP auth will fail with "passdb: auth failed".
  */
 export async function hashMailboxPassword(plain: string): Promise<{
   passwordHash: string;
   mailPasswordHash: string;
 }> {
   const passwordHash = await hashPassword(plain);
-  const mailPasswordHash = passwordHash.startsWith("{")
-    ? passwordHash
-    : `{BLF-CRYPT}${passwordHash}`;
-  return { passwordHash, mailPasswordHash };
+  // Strip any accidental scheme prefix before re-applying BLF-CRYPT
+  const raw = passwordHash.replace(/^\{[A-Z0-9-]+\}/i, "");
+  const mailPasswordHash = `{BLF-CRYPT}${raw}`;
+  return { passwordHash: raw, mailPasswordHash };
 }

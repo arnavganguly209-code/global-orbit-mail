@@ -1,0 +1,62 @@
+# GLOBAL ORBIT MAIL — Dovecot SQL auth (PostgreSQL)
+#
+# Install on the mail VPS:
+#   sudo cp deploy/vps/dovecot-sql.conf.ext /etc/dovecot/dovecot-sql.conf.ext
+#   # edit connect= with the same DATABASE_URL credentials Orbit uses
+#   sudo nano /etc/dovecot/conf.d/10-auth.conf
+#
+# 10-auth.conf (example):
+#   disable_plaintext_auth = no
+#   auth_mechanisms = plain login
+#   !include auth-sql.conf.ext
+#
+# auth-sql.conf.ext (example):
+#   passdb {
+#     driver = sql
+#     args = /etc/dovecot/dovecot-sql.conf.ext
+#   }
+#   userdb {
+#     driver = sql
+#     args = /etc/dovecot/dovecot-sql.conf.ext
+#   }
+#
+# 10-mail.conf (example):
+#   mail_location = maildir:~/
+#   mail_uid = vmail
+#   mail_gid = vmail
+#   first_valid_uid = 5000
+#
+# Password scheme MUST match Orbit:
+#   Orbit stores: {BLF-CRYPT}$2a$12$...  (bcrypt via bcryptjs)
+#   Dovecot:      default_pass_scheme = BLF-CRYPT
+#
+# After install / Orbit mailbox create, verify:
+#   doveadm auth test user@domain.com 'ThePassword'
+# Expected:
+#   passdb: userdb lookup: userdb_fields: ...
+#   passdb: user authenticated
+#
+# Repair existing Orbit mailboxes into virtual_users:
+#   curl -X POST https://YOUR_APP/api/admin/mailboxes/resync-auth  (Super Admin)
+
+driver = pgsql
+
+# Replace with production credentials (same DB as Orbit DATABASE_URL)
+connect = host=127.0.0.1 dbname=global_orbit_mail user=postgres password=CHANGE_ME
+
+default_pass_scheme = BLF-CRYPT
+
+# passdb — authenticate Roundcube / IMAP / SMTP SASL / POP3
+password_query = SELECT email AS user, password, \
+  home AS userdb_home, uid AS userdb_uid, gid AS userdb_gid, \
+  '*:bytes=' || quota_bytes AS userdb_quota_rule \
+  FROM virtual_users \
+  WHERE email = '%u' AND active = true
+
+# userdb — locate Maildir + quota
+user_query = SELECT home, uid, gid, \
+  '*:bytes=' || quota_bytes AS quota_rule \
+  FROM virtual_users \
+  WHERE email = '%u' AND active = true
+
+iterate_query = SELECT email AS user FROM virtual_users WHERE active = true
