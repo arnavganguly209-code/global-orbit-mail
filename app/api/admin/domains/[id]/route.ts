@@ -1,8 +1,15 @@
 import { ok, fail, parseJson } from "@/lib/api/response";
-import { requireAdminActor } from "@/lib/api/actor";
+import { requireAdminActor, requireAdminMutation } from "@/lib/api/actor";
 import { domainService } from "@/services/domains";
 
 type Params = { params: Promise<{ id: string }> };
+
+function statusFor(message: string) {
+  if (message === "Unauthorized") return 401;
+  if (message === "Forbidden" || message === "Invalid CSRF token") return 403;
+  if (message === "Domain not found" || message === "Not found") return 404;
+  return 400;
+}
 
 export async function GET(_request: Request, { params }: Params) {
   try {
@@ -11,19 +18,19 @@ export async function GET(_request: Request, { params }: Params) {
     return ok(await domainService.get(id));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Not found";
-    return fail(message, message === "Unauthorized" ? 401 : 404);
+    return fail(message, statusFor(message));
   }
 }
 
 export async function PUT(request: Request, { params }: Params) {
   try {
-    const actor = await requireAdminActor();
+    const actor = await requireAdminMutation(request);
     const { id } = await params;
     const body = await parseJson(request);
     return ok(await domainService.update(id, body, actor.sub), undefined, "Domain updated");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Update failed";
-    return fail(message, message === "Unauthorized" ? 401 : 400);
+    return fail(message, statusFor(message));
   }
 }
 
@@ -31,14 +38,14 @@ export async function PATCH(request: Request, { params }: Params) {
   return PUT(request, { params });
 }
 
-export async function DELETE(_request: Request, { params }: Params) {
+export async function DELETE(request: Request, { params }: Params) {
   try {
-    const actor = await requireAdminActor();
+    const actor = await requireAdminMutation(request);
     const { id } = await params;
     await domainService.remove(id, actor.sub);
     return ok({ id }, undefined, "Domain deleted");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Delete failed";
-    return fail(message, message === "Unauthorized" ? 401 : 400);
+    return fail(message, statusFor(message));
   }
 }

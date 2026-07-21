@@ -1,5 +1,5 @@
 import { ok, fail, parseJson } from "@/lib/api/response";
-import { requireAdminActor } from "@/lib/api/actor";
+import { requireAdminActor, requireAdminMutation } from "@/lib/api/actor";
 import { profileService } from "@/services/auth/profile";
 
 export async function GET() {
@@ -14,7 +14,7 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
-    const session = await requireAdminActor();
+    const session = await requireAdminMutation(request);
     const body = await parseJson(request);
     return ok(await profileService.update(session.sub, body), undefined, "Profile updated");
   } catch (error) {

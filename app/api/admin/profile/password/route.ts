@@ -1,10 +1,10 @@
 import { ok, fail, parseJson } from "@/lib/api/response";
-import { requireAdminActor } from "@/lib/api/actor";
+import { requireAdminMutation } from "@/lib/api/actor";
 import { profileService } from "@/services/auth/profile";
 
 export async function POST(request: Request) {
   try {
-    const session = await requireAdminActor();
+    const session = await requireAdminMutation(request);
     const body = await parseJson(request);
     return ok(
       await profileService.changePassword(session.sub, body),

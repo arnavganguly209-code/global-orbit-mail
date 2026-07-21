@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loading } from "@/components/ui/loading";
 import { Cpu, Database, HardDrive, ListOrdered } from "lucide-react";
+import { adminFetch } from "@/lib/api/admin-fetch";
 import type { ApiResponse, MonitoringSnapshot } from "@/types";
 import * as React from "react";
 
@@ -19,7 +20,7 @@ export function MonitoringAdminPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["admin-monitoring"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/monitoring");
+      const res = await adminFetch("/api/admin/monitoring");
       const json = (await res.json()) as ApiResponse<MonitoringSnapshot>;
       if (!json.success) throw new Error("Failed");
       return json.data;
@@ -98,7 +99,7 @@ export function SettingsAdminPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["admin-settings"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/settings");
+      const res = await adminFetch("/api/admin/settings");
       const json = (await res.json()) as ApiResponse<Record<string, Record<string, unknown>>>;
       if (!json.success) throw new Error("Failed");
       return json.data;
@@ -180,7 +181,7 @@ export function SettingsAdminPage() {
 
   const saveMutation = useMutation({
     mutationFn: async (payload: { section: string; values: Record<string, unknown> }) => {
-      const res = await fetch("/api/admin/settings", {
+      const res = await adminFetch("/api/admin/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

@@ -23,6 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Loading } from "@/components/ui/loading";
+import { adminFetch } from "@/lib/api/admin-fetch";
 import type { AdminDomain, ApiResponse, DnsRecordView, PaginatedResult } from "@/types";
 
 export function DnsAdminPage() {
@@ -32,7 +33,7 @@ export function DnsAdminPage() {
   const { data: domains } = useQuery({
     queryKey: ["admin-domains-options"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/domains?page=1&pageSize=100");
+      const res = await adminFetch("/api/admin/domains?page=1&pageSize=100");
       const json = (await res.json()) as ApiResponse<PaginatedResult<AdminDomain>>;
       if (!json.success) throw new Error("Failed");
       return json.data.items;
@@ -43,7 +44,7 @@ export function DnsAdminPage() {
     queryKey: ["admin-dns", domainId],
     queryFn: async () => {
       const qs = domainId !== "ALL" ? `?domainId=${domainId}` : "";
-      const res = await fetch(`/api/admin/dns${qs}`);
+      const res = await adminFetch(`/api/admin/dns${qs}`);
       const json = (await res.json()) as ApiResponse<DnsRecordView[]>;
       if (!json.success) throw new Error("Failed to load DNS");
       return json.data;

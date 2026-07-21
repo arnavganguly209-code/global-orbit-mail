@@ -45,6 +45,7 @@ import {
 import { Pagination } from "@/components/ui/pagination";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Loading } from "@/components/ui/loading";
+import { adminFetch } from "@/lib/api/admin-fetch";
 import type { AdminDomain, AdminMailbox, ApiResponse, PaginatedResult } from "@/types";
 
 type AliasRow = { id: string; address: string };
@@ -79,7 +80,7 @@ export function MailboxesAdminPage() {
         pageSize: "8",
         search,
       });
-      const res = await fetch(`/api/admin/mailboxes?${qs}`);
+      const res = await adminFetch(`/api/admin/mailboxes?${qs}`);
       const json = (await res.json()) as ApiResponse<PaginatedResult<AdminMailbox>>;
       if (!json.success) throw new Error("Failed to load mailboxes");
       return json.data;
@@ -89,7 +90,7 @@ export function MailboxesAdminPage() {
   const { data: domainsData } = useQuery({
     queryKey: ["admin-domains-options"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/domains?page=1&pageSize=100");
+      const res = await adminFetch("/api/admin/domains?page=1&pageSize=100");
       const json = (await res.json()) as ApiResponse<PaginatedResult<AdminDomain>>;
       if (!json.success) throw new Error("Failed");
       return json.data.items;
@@ -100,7 +101,7 @@ export function MailboxesAdminPage() {
     queryKey: ["admin-mailbox-aliases", manageMailbox?.id],
     enabled: Boolean(manageMailbox?.id),
     queryFn: async () => {
-      const res = await fetch(`/api/admin/mailboxes/${manageMailbox!.id}/aliases`);
+      const res = await adminFetch(`/api/admin/mailboxes/${manageMailbox!.id}/aliases`);
       const json = (await res.json()) as ApiResponse<AliasRow[]>;
       if (!json.success) throw new Error("Failed to load aliases");
       return json.data;
@@ -111,7 +112,7 @@ export function MailboxesAdminPage() {
     queryKey: ["admin-mailbox-forwarders", manageMailbox?.id],
     enabled: Boolean(manageMailbox?.id),
     queryFn: async () => {
-      const res = await fetch(`/api/admin/mailboxes/${manageMailbox!.id}/forwarders`);
+      const res = await adminFetch(`/api/admin/mailboxes/${manageMailbox!.id}/forwarders`);
       const json = (await res.json()) as ApiResponse<ForwarderRow[]>;
       if (!json.success) throw new Error("Failed to load forwarders");
       return json.data;
@@ -120,7 +121,7 @@ export function MailboxesAdminPage() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/admin/mailboxes", {
+      const res = await adminFetch("/api/admin/mailboxes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -154,7 +155,7 @@ export function MailboxesAdminPage() {
   const editMutation = useMutation({
     mutationFn: async () => {
       if (!editMailbox) return;
-      const res = await fetch(`/api/admin/mailboxes/${editMailbox.id}`, {
+      const res = await adminFetch(`/api/admin/mailboxes/${editMailbox.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -176,7 +177,7 @@ export function MailboxesAdminPage() {
 
   const statusMutation = useMutation({
     mutationFn: async (payload: { id: string; action: "suspend" | "activate" }) => {
-      const res = await fetch(`/api/admin/mailboxes/${payload.id}`, {
+      const res = await adminFetch(`/api/admin/mailboxes/${payload.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: payload.action }),
@@ -193,21 +194,28 @@ export function MailboxesAdminPage() {
 
   const resetMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/admin/mailboxes/${id}/reset-password`, {
+      const password = window.prompt(
+        "Enter a new mailbox password (min 12 characters)",
+      );
+      if (!password) throw new Error("Password reset cancelled");
+      if (password.length < 12) throw new Error("Password must be at least 12 characters");
+      const res = await adminFetch(`/api/admin/mailboxes/${id}/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: "TemporaryPass123!" }),
+        body: JSON.stringify({ password }),
       });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.message ?? "Reset failed");
     },
     onSuccess: () => toast.success("Password reset stored (VPS provisioning deferred)"),
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      if (e.message !== "Password reset cancelled") toast.error(e.message);
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/admin/mailboxes/${id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/admin/mailboxes/${id}`, { method: "DELETE" });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.message ?? "Delete failed");
     },
@@ -221,7 +229,7 @@ export function MailboxesAdminPage() {
 
   const addAliasMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/admin/mailboxes/${manageMailbox!.id}/aliases`, {
+      const res = await adminFetch(`/api/admin/mailboxes/${manageMailbox!.id}/aliases`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address: aliasInput }),
@@ -240,7 +248,7 @@ export function MailboxesAdminPage() {
 
   const removeAliasMutation = useMutation({
     mutationFn: async (aliasId: string) => {
-      const res = await fetch(
+      const res = await adminFetch(
         `/api/admin/mailboxes/${manageMailbox!.id}/aliases/${aliasId}`,
         { method: "DELETE" },
       );
@@ -257,7 +265,7 @@ export function MailboxesAdminPage() {
 
   const addForwarderMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/admin/mailboxes/${manageMailbox!.id}/forwarders`, {
+      const res = await adminFetch(`/api/admin/mailboxes/${manageMailbox!.id}/forwarders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ destination: forwarderInput, keepCopy: true }),
@@ -276,7 +284,7 @@ export function MailboxesAdminPage() {
 
   const removeForwarderMutation = useMutation({
     mutationFn: async (forwarderId: string) => {
-      const res = await fetch(
+      const res = await adminFetch(
         `/api/admin/mailboxes/${manageMailbox!.id}/forwarders/${forwarderId}`,
         { method: "DELETE" },
       );

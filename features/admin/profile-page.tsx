@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loading } from "@/components/ui/loading";
+import { adminFetch } from "@/lib/api/admin-fetch";
 import type { AdminProfile, ApiResponse } from "@/types";
 
 export function ProfileAdminPage() {
@@ -15,7 +16,7 @@ export function ProfileAdminPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["admin-profile"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/profile");
+      const res = await adminFetch("/api/admin/profile");
       const json = (await res.json()) as ApiResponse<AdminProfile>;
       if (!json.success) throw new Error(json.message ?? "Failed");
       return json.data;
@@ -35,7 +36,7 @@ export function ProfileAdminPage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/admin/profile", {
+      const res = await adminFetch("/api/admin/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, image }),
@@ -54,7 +55,7 @@ export function ProfileAdminPage() {
 
   const passwordMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/admin/profile/password", {
+      const res = await adminFetch("/api/admin/profile/password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ currentPassword, newPassword }),

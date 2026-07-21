@@ -1,5 +1,5 @@
 import { ok, fail, created, parseJson } from "@/lib/api/response";
-import { requireAdminActor } from "@/lib/api/actor";
+import { requireAdminActor, requireAdminMutation } from "@/lib/api/actor";
 import { mailboxService } from "@/services/mailboxes";
 
 export async function GET(request: Request) {
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const actor = await requireAdminActor();
+    const actor = await requireAdminMutation(request);
     const body = await parseJson(request);
     return created(await mailboxService.create(body, actor.sub), "Mailbox created");
   } catch (error) {

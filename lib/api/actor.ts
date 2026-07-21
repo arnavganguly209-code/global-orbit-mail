@@ -1,4 +1,5 @@
 import { getSessionFromCookies, type SessionPayload } from "@/lib/auth/session";
+import { assertCsrf } from "@/lib/auth/csrf";
 
 export async function getRequestActor(): Promise<SessionPayload | null> {
   return getSessionFromCookies();
@@ -17,4 +18,11 @@ export async function requireAdminActor(): Promise<SessionPayload> {
     throw new Error("Forbidden");
   }
   return session;
+}
+
+/** Session + CSRF for POST/PUT/PATCH/DELETE admin mutations. */
+export async function requireAdminMutation(request: Request): Promise<SessionPayload> {
+  const actor = await requireAdminActor();
+  await assertCsrf(request);
+  return actor;
 }

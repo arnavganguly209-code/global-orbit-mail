@@ -1,9 +1,9 @@
 /**
- * CSRF readiness — double-submit cookie token (Phase 3A).
- * SameSite session cookies mitigate CSRF; this token is ready for mutating forms.
+ * CSRF double-submit cookie token (Phase 3A).
  */
 
-import { randomBytes } from "crypto";
+import { randomBytes, timingSafeEqual } from "crypto";
+import { cookies } from "next/headers";
 import { CSRF_COOKIE } from "@/lib/auth/constants";
 
 export function createCsrfToken() {
@@ -18,6 +18,24 @@ export function csrfCookieOptions(maxAgeSeconds: number) {
     path: "/",
     maxAge: maxAgeSeconds,
   };
+}
+
+function safeEqual(a: string, b: string) {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
+/** Enforce double-submit CSRF on mutating admin requests. */
+export async function assertCsrf(request: Request) {
+  const header =
+    request.headers.get("x-csrf-token") ?? request.headers.get("x-xsrf-token");
+  const jar = await cookies();
+  const cookie = jar.get(CSRF_COOKIE)?.value;
+  if (!header || !cookie || !safeEqual(header, cookie)) {
+    throw Object.assign(new Error("Invalid CSRF token"), { status: 403 });
+  }
 }
 
 export { CSRF_COOKIE };

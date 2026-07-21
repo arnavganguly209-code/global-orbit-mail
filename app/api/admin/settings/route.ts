@@ -1,5 +1,5 @@
 import { ok, fail, parseJson } from "@/lib/api/response";
-import { requireAdminActor } from "@/lib/api/actor";
+import { requireAdminActor, requireAdminMutation } from "@/lib/api/actor";
 import { settingsService } from "@/services/admin";
 
 export async function GET() {
@@ -14,7 +14,7 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
-    const actor = await requireAdminActor();
+    const actor = await requireAdminMutation(request);
     const body = await parseJson(request);
     return ok(await settingsService.update(body, actor.sub), undefined, "Settings updated");
   } catch (error) {

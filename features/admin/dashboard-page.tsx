@@ -25,8 +25,10 @@ import type {
   MonitoringSnapshot,
 } from "@/types";
 
+import { adminFetch } from "@/lib/api/admin-fetch";
+
 async function fetchDashboard() {
-  const res = await fetch("/api/admin/dashboard");
+  const res = await adminFetch("/api/admin/dashboard");
   const json = (await res.json()) as ApiResponse<{
     metrics: DashboardMetrics;
     monitoring: MonitoringSnapshot;

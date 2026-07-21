@@ -8,6 +8,7 @@ import { Bell, LogOut, Menu, UserCircle } from "lucide-react";
 import { toast } from "sonner";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { Button } from "@/components/ui/button";
+import { adminFetch } from "@/lib/api/admin-fetch";
 
 export function AdminTopbar({
   title,
@@ -22,7 +23,7 @@ export function AdminTopbar({
   const { data } = useQuery({
     queryKey: ["admin-me"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/auth/me");
+      const res = await adminFetch("/api/admin/auth/me");
       const json = await res.json();
       if (!res.ok || !json.success) return null;
       return json.data.user as {
@@ -37,7 +38,7 @@ export function AdminTopbar({
   });
 
   async function logout() {
-    await fetch("/api/admin/auth/logout", { method: "POST" });
+    await adminFetch("/api/admin/auth/logout", { method: "POST" });
     toast.success("Signed out");
     router.replace("/admin/login");
     router.refresh();

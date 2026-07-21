@@ -36,6 +36,7 @@ import {
 import { Pagination } from "@/components/ui/pagination";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Loading } from "@/components/ui/loading";
+import { adminFetch } from "@/lib/api/admin-fetch";
 import type { AdminDomain, ApiResponse, PaginatedResult } from "@/types";
 
 async function fetchDomains(params: {
@@ -49,7 +50,7 @@ async function fetchDomains(params: {
     search: params.search,
   });
   if (params.status !== "ALL") qs.set("status", params.status);
-  const res = await fetch(`/api/admin/domains?${qs}`);
+  const res = await adminFetch(`/api/admin/domains?${qs}`);
   const json = (await res.json()) as ApiResponse<PaginatedResult<AdminDomain>>;
   if (!json.success) throw new Error("Failed to load domains");
   return json.data;
@@ -71,7 +72,7 @@ export function DomainsAdminPage() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/admin/domains", {
+      const res = await adminFetch("/api/admin/domains", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: domainName }),
@@ -91,7 +92,7 @@ export function DomainsAdminPage() {
 
   const updateMutation = useMutation({
     mutationFn: async (payload: { id: string; body: Record<string, string> }) => {
-      const res = await fetch(`/api/admin/domains/${payload.id}`, {
+      const res = await adminFetch(`/api/admin/domains/${payload.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload.body),
@@ -110,7 +111,7 @@ export function DomainsAdminPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/admin/domains/${id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/admin/domains/${id}`, { method: "DELETE" });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.message ?? "Delete failed");
     },

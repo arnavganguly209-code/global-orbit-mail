@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/table";
 import { Pagination } from "@/components/ui/pagination";
 import { Loading } from "@/components/ui/loading";
+import { adminFetch } from "@/lib/api/admin-fetch";
 import type { AdminUser, ApiResponse, AuditLogEntry, PaginatedResult, SystemRole } from "@/types";
 
 export function UsersAdminPage() {
@@ -50,7 +51,7 @@ export function UsersAdminPage() {
     queryKey: ["admin-users", page, search],
     queryFn: async () => {
       const qs = new URLSearchParams({ page: String(page), pageSize: "10", search });
-      const res = await fetch(`/api/admin/users?${qs}`);
+      const res = await adminFetch(`/api/admin/users?${qs}`);
       const json = (await res.json()) as ApiResponse<PaginatedResult<AdminUser>>;
       if (!json.success) throw new Error("Failed");
       return json.data;
@@ -59,7 +60,7 @@ export function UsersAdminPage() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/admin/users", {
+      const res = await adminFetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, name, role }),
@@ -203,7 +204,7 @@ export function LogsAdminPage() {
     queryKey: ["admin-audit", page, search],
     queryFn: async () => {
       const qs = new URLSearchParams({ page: String(page), pageSize: "12", search });
-      const res = await fetch(`/api/admin/audit?${qs}`);
+      const res = await adminFetch(`/api/admin/audit?${qs}`);
       const json = (await res.json()) as ApiResponse<PaginatedResult<AuditLogEntry>>;
       if (!json.success) throw new Error("Failed");
       return json.data;

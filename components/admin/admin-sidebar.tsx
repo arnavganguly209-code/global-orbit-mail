@@ -2,13 +2,24 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { BrandLogo } from "@/components/shared/brand-logo";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { adminNav } from "@/config/admin-nav";
+import { adminFetch } from "@/lib/api/admin-fetch";
 import { cn } from "@/lib/utils";
 
 export function AdminSidebar() {
   const pathname = usePathname();
+  const { data } = useQuery({
+    queryKey: ["admin-me"],
+    queryFn: async () => {
+      const res = await adminFetch("/api/admin/auth/me");
+      const json = await res.json();
+      if (!res.ok || !json.success) return null;
+      return json.data.user as { roleName?: string; role?: string };
+    },
+  });
 
   return (
     <aside className="hidden h-dvh w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar/90 backdrop-blur-xl lg:flex">
@@ -42,7 +53,7 @@ export function AdminSidebar() {
         </nav>
       </ScrollArea>
       <div className="border-t border-sidebar-border p-4 text-xs text-muted-foreground">
-        Super Admin · Phase 2A
+        {data?.roleName ?? data?.role ?? "Admin"} · Live
       </div>
     </aside>
   );
