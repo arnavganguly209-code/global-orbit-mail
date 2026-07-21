@@ -1,18 +1,6 @@
 /**
- * Auth service stubs — NextAuth wiring in a later phase.
+ * Auth services — production admin login & profile (Phase 3A).
  */
 
-export const authService = {
-  /**
-   * Reserved for credentials / SSO sign-in.
-   */
-  async signIn() {
-    throw new Error("Authentication is not enabled in Phase 1.");
-  },
-  /**
-   * Reserved for session termination.
-   */
-  async signOut() {
-    throw new Error("Authentication is not enabled in Phase 1.");
-  },
-} as const;
+export { adminLogin } from "@/services/auth/admin-login";
+export { profileService } from "@/services/auth/profile";

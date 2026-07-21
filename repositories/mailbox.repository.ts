@@ -86,22 +86,25 @@ export const mailboxRepository = {
     if (existing) throw new Error("Mailbox already exists");
 
     const passwordHash = await hashPassword(input.password);
-    const mailbox = await prisma.mailbox.create({
-      data: {
-        localPart: input.localPart.toLowerCase(),
-        domainId: domain.id,
-        organizationId: domain.organizationId,
-        displayName: input.displayName ?? null,
-        status: "PENDING",
-        passwordHash,
-        quota: {
-          create: {
-            quotaMb: input.quotaMb,
-            usedMb: 0,
+
+    const mailbox = await prisma.$transaction(async (tx) => {
+      return tx.mailbox.create({
+        data: {
+          localPart: input.localPart.toLowerCase(),
+          domainId: domain.id,
+          organizationId: domain.organizationId,
+          displayName: input.displayName ?? null,
+          status: "PENDING",
+          passwordHash,
+          quota: {
+            create: {
+              quotaMb: input.quotaMb,
+              usedMb: 0,
+            },
           },
         },
-      },
-      include: mailboxInclude,
+        include: mailboxInclude,
+      });
     });
 
     await writeAudit({
@@ -177,10 +180,20 @@ export const mailboxRepository = {
   async softDelete(id: string, actorId?: string | null) {
     const existing = await prisma.mailbox.findFirst({ where: { id, deletedAt: null } });
     if (!existing) return false;
-    await prisma.mailbox.update({
-      where: { id },
-      data: { deletedAt: new Date(), status: "DISABLED" },
-    });
+    await prisma.$transaction([
+      prisma.mailbox.update({
+        where: { id },
+        data: { deletedAt: new Date(), status: "DISABLED" },
+      }),
+      prisma.alias.updateMany({
+        where: { mailboxId: id, deletedAt: null },
+        data: { deletedAt: new Date() },
+      }),
+      prisma.forwarder.updateMany({
+        where: { mailboxId: id, deletedAt: null },
+        data: { deletedAt: new Date() },
+      }),
+    ]);
     await writeAudit({
       actorId,
       action: "mailbox.delete",

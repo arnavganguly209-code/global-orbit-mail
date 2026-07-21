@@ -148,10 +148,30 @@ export interface DashboardMetrics {
   activeDomains: number;
   mailboxes: number;
   users: number;
+  aliases: number;
+  forwarders: number;
+  auditLogs: number;
+  notifications: number;
+  unreadNotifications: number;
   storageUsedGb: number;
   storageQuotaGb: number;
   spamBlocked24h: number;
   mailQueueDepth: number;
+}
+
+export interface AdminProfile {
+  id: string;
+  email: string;
+  name: string | null;
+  image: string | null;
+  role: SystemRole;
+  roleName: string;
+  company: string | null;
+  organizationId: string | null;
+  twoFactorEnabled: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  status: string;
 }
 
 export interface SystemHealthComponent {

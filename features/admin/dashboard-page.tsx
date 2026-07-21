@@ -4,11 +4,13 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  AtSign,
+  Bell,
+  Forward,
   Globe2,
   HardDrive,
   Inbox,
-  MailWarning,
-  Server,
+  ScrollText,
   Users,
 } from "lucide-react";
 import { AdminShell } from "@/components/admin/admin-shell";
@@ -16,13 +18,26 @@ import { StatsCard } from "@/components/admin/stats-card";
 import { MailTrafficChart } from "@/components/admin/mail-traffic-chart";
 import { StatusPill, statusToneFromValue } from "@/components/admin/status-pill";
 import { Loading } from "@/components/ui/loading";
-import type { ApiResponse, DashboardMetrics, MonitoringSnapshot } from "@/types";
+import type {
+  ApiResponse,
+  AuditLogEntry,
+  DashboardMetrics,
+  MonitoringSnapshot,
+} from "@/types";
 
 async function fetchDashboard() {
   const res = await fetch("/api/admin/dashboard");
   const json = (await res.json()) as ApiResponse<{
     metrics: DashboardMetrics;
     monitoring: MonitoringSnapshot;
+    recentActivity: AuditLogEntry[];
+    notifications: {
+      id: string;
+      title: string;
+      body: string;
+      read: boolean;
+      createdAt: string;
+    }[];
   }>;
   if (!json.success) throw new Error(json.message ?? "Failed");
   return json.data;
@@ -73,35 +88,56 @@ export function AdminDashboardPage() {
             />
           </div>
 
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatsCard
+              title="Aliases"
+              value={data.metrics.aliases}
+              hint="Active mailbox aliases"
+              icon={AtSign}
+            />
+            <StatsCard
+              title="Forwarders"
+              value={data.metrics.forwarders}
+              hint="Active forward rules"
+              icon={Forward}
+            />
+            <StatsCard
+              title="Audit Logs"
+              value={data.metrics.auditLogs}
+              hint="Security trail events"
+              icon={ScrollText}
+            />
+            <StatsCard
+              title="Notifications"
+              value={data.metrics.unreadNotifications}
+              hint={`${data.metrics.notifications} total`}
+              icon={Bell}
+            />
+          </div>
+
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="glass-surface rounded-2xl p-5 lg:col-span-2">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h2 className="font-display text-xl font-semibold">Mail Traffic</h2>
+                  <h2 className="font-display text-xl font-semibold">Platform Snapshot</h2>
                   <p className="text-xs text-muted-foreground">
-                    Architecture telemetry series · live VPS feed pending
+                    Live PostgreSQL counts · VPS mail telemetry in Phase 3B
                   </p>
                 </div>
                 <Activity className="size-4 text-gold" />
               </div>
               <MailTrafficChart
-                data={
-                  data.monitoring.series.length > 0
-                    ? data.monitoring.series
-                    : [
-                        { label: "DB", mail: data.metrics.mailboxes, spam: 0 },
-                        { label: "Domains", mail: data.metrics.domains, spam: 0 },
-                        { label: "Users", mail: data.metrics.users, spam: 0 },
-                      ]
-                }
+                data={[
+                  { label: "Domains", mail: data.metrics.domains, spam: 0 },
+                  { label: "Mailboxes", mail: data.metrics.mailboxes, spam: 0 },
+                  { label: "Aliases", mail: data.metrics.aliases, spam: 0 },
+                  { label: "Users", mail: data.metrics.users, spam: 0 },
+                ]}
               />
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Chart reflects live database counts until VPS mail telemetry is connected.
-              </p>
             </div>
 
             <div className="glass-surface space-y-4 rounded-2xl p-5">
-              <h2 className="font-display text-xl font-semibold">System Health</h2>
+              <h2 className="font-display text-xl font-semibold">System Status</h2>
               <div className="space-y-3">
                 {data.monitoring.components.map((component) => (
                   <div
@@ -122,25 +158,58 @@ export function AdminDashboardPage() {
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <StatsCard
-              title="Spam Blocked (series)"
-              value={data.metrics.spamBlocked24h}
-              hint="From architecture traffic series"
-              icon={MailWarning}
-            />
-            <StatsCard
-              title="Mail Queue Depth"
-              value={data.metrics.mailQueueDepth}
-              hint="Latest series point · Postfix pending"
-              icon={Server}
-            />
-            <StatsCard
-              title="API Surface"
-              value="Online"
-              hint="Admin REST routes operational"
-              icon={Activity}
-            />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="glass-surface rounded-2xl p-5">
+              <h2 className="mb-4 font-display text-xl font-semibold">Recent Activity</h2>
+              <ul className="space-y-3">
+                {data.recentActivity.length === 0 ? (
+                  <li className="text-sm text-muted-foreground">No activity yet.</li>
+                ) : (
+                  data.recentActivity.map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex items-start justify-between gap-3 border-b border-border/40 pb-3 last:border-0 last:pb-0"
+                    >
+                      <div>
+                        <p className="text-sm font-medium">{item.action}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.actorEmail ?? "system"} · {item.resource}
+                        </p>
+                      </div>
+                      <time className="shrink-0 text-[10px] text-muted-foreground">
+                        {new Date(item.createdAt).toLocaleString()}
+                      </time>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+
+            <div className="glass-surface rounded-2xl p-5">
+              <h2 className="mb-4 font-display text-xl font-semibold">Notifications</h2>
+              <ul className="space-y-3">
+                {data.notifications.length === 0 ? (
+                  <li className="text-sm text-muted-foreground">No notifications.</li>
+                ) : (
+                  data.notifications.map((n) => (
+                    <li
+                      key={n.id}
+                      className="rounded-xl border border-border/50 bg-background/30 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium">{n.title}</p>
+                        {!n.read ? (
+                          <span className="rounded-full bg-gold/20 px-2 py-0.5 text-[10px] text-gold">
+                            New
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">{n.body}</p>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
           </div>
         </div>
       ) : null}

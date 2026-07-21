@@ -1,9 +1,12 @@
 /**
- * GLOBAL ORBIT MAIL — RBAC Architecture (Phase 2A)
- * NextAuth-compatible session shape. Live auth not connected yet.
+ * GLOBAL ORBIT MAIL — RBAC Architecture (Phase 3A)
+ * Production session cookie + NextAuth-compatible role map.
  */
 
 import type { Permission, SystemRole } from "@/types";
+import { SESSION_COOKIE } from "@/lib/auth/constants";
+
+export { SESSION_COOKIE };
 
 export const ROLE_PERMISSIONS: Record<SystemRole, readonly Permission[]> = {
   SUPER_ADMIN: ["admin:full"],
@@ -89,8 +92,6 @@ export interface AuthSessionShape {
   expires: string;
 }
 
-export const SESSION_COOKIE = "go_mail_session";
-
 export const authArchitecture = {
   providers: ["credentials", "passkey"] as const,
   sessionStrategy: "jwt" as const,
@@ -109,19 +110,5 @@ export const authArchitecture = {
     user: "portal",
     admin: "admin",
   },
-  /** When true, middleware enforces session on /admin/* */
-  enforceAdminAuth: process.env.ADMIN_AUTH_ENFORCE === "true",
+  enforceAdminAuth: process.env.ADMIN_AUTH_ENFORCE !== "false",
 } as const;
-
-/** Dev/architecture actor used until NextAuth is wired. */
-export const architectureAdminSession: AuthSessionShape = {
-  user: {
-    id: "arch_super_admin",
-    email: "admin@theglobalorbit.com",
-    name: "Super Admin",
-    role: "SUPER_ADMIN",
-    organizationId: "org_global_orbit",
-    twoFactorEnabled: false,
-  },
-  expires: new Date(Date.now() + 1000 * 60 * 60 * 12).toISOString(),
-};

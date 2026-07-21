@@ -23,7 +23,7 @@ export function LoginFormShell({
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: surface === "admin" ? "admin@theglobalorbit.com" : "",
+      email: "",
       password: "",
       remember: true,
     },
@@ -47,6 +47,7 @@ export function LoginFormShell({
         body: JSON.stringify({
           email: values.email,
           password: values.password,
+          remember: values.remember ?? false,
         }),
       });
       const json = await res.json();
@@ -86,9 +87,7 @@ export function LoginFormShell({
             >
               Forgot Password
             </Link>
-          ) : (
-            <span className="text-xs text-muted-foreground">Seed: OrbitAdmin!2026</span>
-          )}
+          ) : null}
         </div>
         <Input
           id={`${surface}-password`}

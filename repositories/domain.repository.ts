@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
-import { provisionDnsForDomain } from "@/services/dns/engine";
 import { mapDomain } from "@/repositories/mappers";
 import type { AdminDomain, PaginatedResult } from "@/types";
 import type { DomainStatus, Prisma } from "@prisma/client";
@@ -63,19 +62,67 @@ export const domainRepository = {
     organizationId: string;
     actorId?: string | null;
   }) {
-    const domain = await prisma.domain.create({
-      data: {
-        name: input.name.toLowerCase(),
-        organizationId: input.organizationId,
-        status: "PENDING",
-        sslStatus: "NONE",
-        dnsStatus: "PENDING",
-        mailStatus: "DISABLED",
-      },
-      include: { _count: { select: { mailboxes: true } } },
+    const name = input.name.toLowerCase();
+
+    const domain = await prisma.$transaction(async (tx) => {
+      const created = await tx.domain.create({
+        data: {
+          name,
+          organizationId: input.organizationId,
+          status: "PENDING",
+          sslStatus: "NONE",
+          dnsStatus: "PENDING",
+          mailStatus: "DISABLED",
+        },
+      });
+
+      const { buildDnsRecordsForDomain } = await import("@/lib/dns/records");
+      const records = buildDnsRecordsForDomain(created.name);
+      await tx.dnsRecord.createMany({
+        data: records.map((record) => ({
+          domainId: created.id,
+          ...record,
+        })),
+      });
+      await tx.verification.createMany({
+        data: [
+          {
+            kind: "DNS_MX",
+            state: "PENDING",
+            domainId: created.id,
+            target: created.name,
+            detail: "MX verification architecture ready",
+          },
+          {
+            kind: "DNS_SPF",
+            state: "PENDING",
+            domainId: created.id,
+            target: created.name,
+            detail: "SPF verification architecture ready",
+          },
+          {
+            kind: "DNS_DKIM",
+            state: "PENDING",
+            domainId: created.id,
+            target: created.name,
+            detail: "DKIM verification architecture ready",
+          },
+          {
+            kind: "DNS_DMARC",
+            state: "PENDING",
+            domainId: created.id,
+            target: created.name,
+            detail: "DMARC verification architecture ready",
+          },
+        ],
+      });
+
+      return tx.domain.findFirstOrThrow({
+        where: { id: created.id },
+        include: { _count: { select: { mailboxes: true } } },
+      });
     });
 
-    await provisionDnsForDomain(domain.id, domain.name);
     await writeAudit({
       actorId: input.actorId,
       action: "domain.create",

@@ -14,6 +14,7 @@ import {
   Settings,
   LifeBuoy,
   BookOpen,
+  UserCircle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -36,6 +37,7 @@ export const adminNav: AdminNavItem[] = [
   { title: "Billing", href: "/admin/billing", icon: CreditCard },
   { title: "API", href: "/admin/api", icon: Code2 },
   { title: "System", href: "/admin/system", icon: Server },
+  { title: "Profile", href: "/admin/profile", icon: UserCircle },
   { title: "Settings", href: "/admin/settings", icon: Settings },
   { title: "Support", href: "/admin/support", icon: LifeBuoy },
   { title: "Documentation", href: "/admin/documentation", icon: BookOpen },

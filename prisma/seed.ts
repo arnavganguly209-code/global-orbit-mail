@@ -202,9 +202,35 @@ async function main() {
       action: "system.seed",
       resource: "database",
       resourceId: org.id,
-      metadata: { phase: "2B" },
+      metadata: { phase: "3A" },
     },
   });
+
+  await prisma.activity.create({
+    data: {
+      actorId: admin.id,
+      organizationId: org.id,
+      category: "system",
+      message: "Platform seed completed — production auth ready",
+      severity: "info",
+    },
+  });
+
+  const existingNotification = await prisma.notification.findFirst({
+    where: { userId: admin.id, title: "Welcome to GLOBAL ORBIT MAIL" },
+  });
+  if (!existingNotification) {
+    await prisma.notification.create({
+      data: {
+        userId: admin.id,
+        organizationId: org.id,
+        title: "Welcome to GLOBAL ORBIT MAIL",
+        body: "Production authentication is active. Manage domains and mailboxes from the admin panel.",
+        href: "/admin",
+        read: false,
+      },
+    });
+  }
 
   console.log("Seed complete");
   console.log("Admin login: admin@theglobalorbit.com / OrbitAdmin!2026");

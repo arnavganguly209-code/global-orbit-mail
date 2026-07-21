@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, LogOut, Menu } from "lucide-react";
+import { Bell, LogOut, Menu, UserCircle } from "lucide-react";
 import { toast } from "sonner";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,9 @@ export function AdminTopbar({
         name?: string | null;
         email: string;
         role: string;
+        roleName?: string;
+        image?: string | null;
+        company?: string | null;
       };
     },
   });
@@ -69,12 +72,23 @@ export function AdminTopbar({
           </Link>
         </Button>
         <ThemeToggle />
-        <div className="hidden rounded-xl border border-border/70 bg-card/50 px-3 py-1.5 text-right sm:block">
-          <p className="text-xs font-medium">{data?.name ?? data?.email ?? "Admin"}</p>
-          <p className="text-[10px] uppercase tracking-wide text-gold">
-            {data?.role ?? "SESSION"}
-          </p>
-        </div>
+        <Link
+          href="/admin/profile"
+          className="hidden items-center gap-2 rounded-xl border border-border/70 bg-card/50 px-3 py-1.5 text-right transition-colors hover:border-gold/40 sm:flex"
+        >
+          {data?.image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={data.image} alt="" className="size-7 rounded-lg object-cover" />
+          ) : (
+            <UserCircle className="size-5 text-muted-foreground" />
+          )}
+          <div>
+            <p className="text-xs font-medium">{data?.name ?? data?.email ?? "Admin"}</p>
+            <p className="text-[10px] uppercase tracking-wide text-gold">
+              {data?.roleName ?? data?.role ?? "SESSION"}
+            </p>
+          </div>
+        </Link>
         <Button type="button" variant="outline" size="sm" onClick={logout}>
           <LogOut className="size-3.5" />
           Logout

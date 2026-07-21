@@ -3,12 +3,20 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import type { SystemRole } from "@/types";
-import { SESSION_COOKIE } from "@/lib/auth/permissions";
-
-const SESSION_TTL_HOURS = 12;
+import {
+  REMEMBER_TTL_DAYS,
+  SESSION_COOKIE,
+  SESSION_TTL_HOURS,
+} from "@/lib/auth/constants";
 
 function secretKey() {
-  const secret = process.env.AUTH_SECRET ?? "phase2b-dev-secret-change-me";
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("AUTH_SECRET is required in production");
+    }
+    return new TextEncoder().encode("phase3a-dev-secret-change-me");
+  }
   return new TextEncoder().encode(secret);
 }
 
@@ -21,6 +29,11 @@ export interface SessionPayload {
   twoFactorEnabled: boolean;
 }
 
+export function sessionTtlSeconds(rememberMe?: boolean) {
+  if (rememberMe) return REMEMBER_TTL_DAYS * 24 * 3600;
+  return SESSION_TTL_HOURS * 3600;
+}
+
 export async function hashPassword(password: string) {
   return hash(password, 12);
 }
@@ -29,7 +42,11 @@ export async function verifyPassword(password: string, passwordHash: string) {
   return compare(password, passwordHash);
 }
 
-export async function createSessionToken(payload: SessionPayload) {
+export async function createSessionToken(
+  payload: SessionPayload,
+  rememberMe = false,
+) {
+  const ttlSeconds = sessionTtlSeconds(rememberMe);
   return new SignJWT({
     email: payload.email,
     name: payload.name,
@@ -40,7 +57,7 @@ export async function createSessionToken(payload: SessionPayload) {
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.sub)
     .setIssuedAt()
-    .setExpirationTime(`${SESSION_TTL_HOURS}h`)
+    .setExpirationTime(`${ttlSeconds}s`)
     .sign(secretKey());
 }
 
@@ -64,10 +81,11 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
 export async function createDbSession(input: {
   userId: string;
   token: string;
+  rememberMe?: boolean;
   ipAddress?: string | null;
   userAgent?: string | null;
 }) {
-  const expires = new Date(Date.now() + SESSION_TTL_HOURS * 60 * 60 * 1000);
+  const expires = new Date(Date.now() + sessionTtlSeconds(input.rememberMe) * 1000);
   return prisma.session.create({
     data: {
       userId: input.userId,
@@ -107,3 +125,5 @@ export function sessionCookieOptions(maxAgeSeconds = SESSION_TTL_HOURS * 3600) {
     maxAge: maxAgeSeconds,
   };
 }
+
+export { SESSION_COOKIE };

@@ -187,6 +187,8 @@ model User {
   roleId           String?
   organizationId   String?
   lastLoginAt      DateTime?
+  failedLoginCount Int        @default(0)
+  lockedUntil      DateTime?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
   deletedAt        DateTime?
@@ -203,7 +205,22 @@ model User {
   @@index([roleId])
   @@index([status])
   @@index([deletedAt])
+  @@index([lockedUntil])
   @@map("users")
+}
+
+/// Failed / successful login attempts for rate limiting & lockout (Phase 3A)
+model LoginAttempt {
+  id        String   @id @default(uuid())
+  email     String
+  ipAddress String?
+  success   Boolean  @default(false)
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@index([ipAddress, createdAt])
+  @@map("login_attempts")
 }
 
 model Account {

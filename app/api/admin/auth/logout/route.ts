@@ -1,9 +1,10 @@
 import { cookies } from "next/headers";
 import { ok, fail } from "@/lib/api/response";
 import { destroyDbSession } from "@/lib/auth/session";
-import { SESSION_COOKIE } from "@/lib/auth/permissions";
+import { SESSION_COOKIE } from "@/lib/auth/constants";
+import { CSRF_COOKIE } from "@/lib/auth/csrf";
 import { getRequestActor } from "@/lib/api/actor";
-import { writeAudit } from "@/lib/audit";
+import { writeActivity, writeAudit } from "@/lib/audit";
 
 export async function POST() {
   try {
@@ -13,6 +14,7 @@ export async function POST() {
     if (token) {
       await destroyDbSession(token);
       jar.set(SESSION_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+      jar.set(CSRF_COOKIE, "", { path: "/", maxAge: 0 });
     }
     if (actor) {
       await writeAudit({
@@ -20,6 +22,12 @@ export async function POST() {
         action: "auth.logout",
         resource: "session",
         resourceId: actor.sub,
+      });
+      await writeActivity({
+        actorId: actor.sub,
+        organizationId: actor.organizationId,
+        category: "auth",
+        message: `${actor.email} signed out`,
       });
     }
     return ok({ loggedOut: true });
