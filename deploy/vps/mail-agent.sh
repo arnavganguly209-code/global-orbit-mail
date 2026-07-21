@@ -270,8 +270,21 @@ case "$COMMAND" in
       json_err "Failed writing MySQL mailserver.virtual_users (set MAIL_MYSQL_* or dovecot-sql.conf.ext)"
     fi
 
+    if [[ -z "$plain" ]]; then
+      json_err "plaintext password required to prove doveadm auth test"
+    fi
+
+    set +e
+    AUTH_OUT="$(doveadm auth test "$email" "$plain" 2>&1)"
+    AUTH_RC=$?
+    set -e
+    if ! echo "$AUTH_OUT" | grep -qi "passdb: user authenticated"; then
+      json_err "doveadm auth test failed (rc=$AUTH_RC): $AUTH_OUT"
+    fi
+
     hash_json="$(printf '%s' "$hash" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
-    json_ok "{\"email\":\"$email\",\"action\":\"$COMMAND\",\"home\":\"$home\",\"scheme\":\"SHA512-CRYPT\",\"mailPasswordHash\":$hash_json,\"mysqlSynced\":true,\"sqlSynced\":true}"
+    auth_json="$(printf '%s' "$AUTH_OUT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+    json_ok "{\"email\":\"$email\",\"action\":\"$COMMAND\",\"home\":\"$home\",\"scheme\":\"SHA512-CRYPT\",\"mailPasswordHash\":$hash_json,\"mysqlSynced\":true,\"sqlSynced\":true,\"authTest\":true,\"authOutput\":$auth_json}"
     ;;
   mailbox.delete|mailbox.suspend)
     email="$(field email)"

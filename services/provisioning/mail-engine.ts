@@ -6,6 +6,7 @@ import {
   activateMysqlVirtualUser,
   deactivateMysqlVirtualUser,
   isMysqlMailAuthConfigured,
+  provisionDovecotAuth,
   upsertMysqlVirtualUser,
 } from "@/services/provisioning/mysql-mail-auth";
 import type { ProvisionJobKind, ProvisionJobStatus } from "@prisma/client";
@@ -151,31 +152,49 @@ async function syncSqlAuth(request: AgentRequest, reason: string): Promise<Agent
           );
         }
 
+        // With plaintext: write MySQL then prove with doveadm auth test (fail closed).
+        if (plain) {
+          if (!isMysqlMailAuthConfigured()) {
+            throw new Error(
+              "MySQL mailserver not configured — set MAIL_MYSQL_* or install /etc/dovecot/dovecot-sql.conf.ext",
+            );
+          }
+          const proved = await provisionDovecotAuth({
+            email,
+            password: plain,
+            passwordHash: password,
+            domain,
+          });
+          if (!proved.ok) {
+            throw new Error(proved.error ?? "Dovecot auth provision failed");
+          }
+          return {
+            ok: true,
+            stdout: proved.authOutput ?? `mysql:${request.command}:auth-ok`,
+            stderr: "",
+            data: {
+              sqlSynced: true,
+              mysqlSynced: true,
+              authTest: true,
+              authOutput: proved.authOutput,
+              reason,
+              email,
+              home,
+              mailPasswordHash: password,
+              scheme: "SHA512-CRYPT",
+              database: proved.database ?? "mailserver",
+            },
+          };
+        }
+
+        // Resync path (hash only): write MySQL, cannot run doveadm without plaintext.
         const mysqlResult = await upsertMysqlVirtualUser({
           email,
           passwordHash: password,
           domain,
         });
         if (!mysqlResult.ok) {
-          // Agent may have written MySQL on the VPS; only fail hard when MySQL is configured here
-          if (isMysqlMailAuthConfigured()) {
-            throw new Error(mysqlResult.error ?? "MySQL virtual_users upsert failed");
-          }
-          return {
-            ok: true,
-            stdout: `mysql:${request.command}:deferred-to-agent`,
-            stderr: mysqlResult.error ?? "",
-            data: {
-              sqlSynced: false,
-              mysqlSynced: false,
-              mysqlDeferred: true,
-              reason,
-              email,
-              home,
-              mailPasswordHash: password,
-              scheme: "SHA512-CRYPT",
-            },
-          };
+          throw new Error(mysqlResult.error ?? "MySQL virtual_users upsert failed");
         }
 
         return {
@@ -185,6 +204,7 @@ async function syncSqlAuth(request: AgentRequest, reason: string): Promise<Agent
           data: {
             sqlSynced: true,
             mysqlSynced: true,
+            authTest: false,
             reason,
             email,
             home,
@@ -276,26 +296,32 @@ async function runLocal(request: AgentRequest): Promise<AgentResponse> {
     }
   }
 
-  // Auth-critical: MySQL virtual_users (app) and/or agent (MySQL + Maildir on VPS)
+  // Auth-critical: MySQL virtual_users + doveadm auth test must succeed.
   if (AUTH_COMMANDS.has(request.command)) {
     const sqlResult = await syncSqlAuth(
       request,
       agentResult.ok ? "post-agent-sync" : "agent-unavailable-or-failed",
     );
-    const ok = agentResult.ok || Boolean(sqlResult.data?.mysqlSynced);
+    const needsAuthProof =
+      request.command === "mailbox.create" || request.command === "mailbox.password";
+    const authOk = Boolean(sqlResult.data?.authTest) || Boolean(agentResult.data?.authTest);
+    const mysqlOk =
+      Boolean(sqlResult.data?.mysqlSynced) || Boolean(agentResult.data?.mysqlSynced);
+    const ok = needsAuthProof ? Boolean(sqlResult.ok && authOk) : mysqlOk || agentResult.ok;
     return {
       ok,
       stdout: [agentResult.stdout, sqlResult.stdout].filter(Boolean).join("\n"),
       stderr: ok
         ? ""
         : [sqlResult.stderr, agentResult.stderr].filter(Boolean).join(" | ") ||
-          "MySQL virtual_users sync failed and mail agent failed",
+          "Dovecot MySQL auth provision failed (doveadm auth test required)",
       data: {
         ...(agentResult.data ?? {}),
         ...(sqlResult.data ?? {}),
         agentOk: agentResult.ok,
-        sqlSynced: Boolean(sqlResult.data?.mysqlSynced),
-        mysqlSynced: Boolean(sqlResult.data?.mysqlSynced) || Boolean(agentResult.data?.mysqlSynced),
+        sqlSynced: mysqlOk,
+        mysqlSynced: mysqlOk,
+        authTest: authOk,
       },
     };
   }
@@ -357,20 +383,26 @@ async function runSsh(request: AgentRequest): Promise<AgentResponse> {
       request,
       agentResult.ok ? "post-ssh-sync" : "ssh-failed-mysql-sync",
     );
-    const ok = agentResult.ok || Boolean(sqlResult.data?.mysqlSynced);
+    const needsAuthProof =
+      request.command === "mailbox.create" || request.command === "mailbox.password";
+    const authOk = Boolean(sqlResult.data?.authTest) || Boolean(agentResult.data?.authTest);
+    const mysqlOk =
+      Boolean(sqlResult.data?.mysqlSynced) || Boolean(agentResult.data?.mysqlSynced);
+    const ok = needsAuthProof ? Boolean(sqlResult.ok && authOk) : mysqlOk || agentResult.ok;
     return {
       ok,
       stdout: [agentResult.stdout, sqlResult.stdout].filter(Boolean).join("\n"),
       stderr: ok
         ? ""
         : [sqlResult.stderr, agentResult.stderr].filter(Boolean).join(" | ") ||
-          "MySQL virtual_users sync failed and SSH agent failed",
+          "Dovecot MySQL auth provision failed (doveadm auth test required)",
       data: {
         ...(agentResult.data ?? {}),
         ...(sqlResult.data ?? {}),
         agentOk: agentResult.ok,
-        sqlSynced: Boolean(sqlResult.data?.mysqlSynced),
-        mysqlSynced: Boolean(sqlResult.data?.mysqlSynced) || Boolean(agentResult.data?.mysqlSynced),
+        sqlSynced: mysqlOk,
+        mysqlSynced: mysqlOk,
+        authTest: authOk,
       },
     };
   }

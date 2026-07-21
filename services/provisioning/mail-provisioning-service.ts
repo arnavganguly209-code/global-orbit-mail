@@ -212,6 +212,12 @@ export const MailProvisioningService = {
         typeof result.data?.mailPasswordHash === "string"
           ? result.data.mailPasswordHash
           : null;
+      if (input.password && result.data?.authTest !== true) {
+        throw new ProvisioningError(
+          `Dovecot auth not proved (doveadm auth test required). ${result.stderr || result.stdout || ""}`.trim(),
+          "mailbox.create",
+        );
+      }
       if (agentHash && agentHash !== input.mailPasswordHash) {
         await prisma.mailbox.update({
           where: { id: input.mailboxId },
@@ -235,7 +241,11 @@ export const MailProvisioningService = {
         resource: "mailbox",
         resourceId: input.mailboxId,
         status: "SUCCESS",
-        newValue: { email: input.email, status: "ACTIVE" },
+        newValue: {
+          email: input.email,
+          status: "ACTIVE",
+          authTest: result.data?.authTest === true,
+        },
       });
     } catch (error) {
       await mailEngine
@@ -360,6 +370,12 @@ export const MailProvisioningService = {
       typeof result.data?.mailPasswordHash === "string"
         ? result.data.mailPasswordHash
         : null;
+    if (input.password && result.data?.authTest !== true) {
+      throw new ProvisioningError(
+        `Dovecot auth not proved (doveadm auth test required). ${result.stderr || result.stdout || ""}`.trim(),
+        "mailbox.password",
+      );
+    }
     if (agentHash) {
       await prisma.mailbox.update({
         where: { id: input.mailboxId },
@@ -374,7 +390,11 @@ export const MailProvisioningService = {
       resource: "mailbox",
       resourceId: input.mailboxId,
       status: "SUCCESS",
-      newValue: { email: input.email, passwordChanged: true },
+      newValue: {
+        email: input.email,
+        passwordChanged: true,
+        authTest: result.data?.authTest === true,
+      },
     });
   },
 
