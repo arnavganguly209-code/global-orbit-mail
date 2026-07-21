@@ -1,19 +1,13 @@
-import { ok, fail } from "@/lib/api/response";
-import { customerSignup } from "@/services/auth/customer-auth";
+import { fail } from "@/lib/api/response";
 
-export async function POST(request: Request) {
-  try {
-    const data = await customerSignup(request);
-    return ok(data, { status: 201 }, "Account created");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Signup failed";
-    const status =
-      typeof error === "object" &&
-      error &&
-      "status" in error &&
-      typeof (error as { status: unknown }).status === "number"
-        ? (error as { status: number }).status
-        : 400;
-    return fail(message, status);
-  }
+/**
+ * Public self-serve account creation is disabled while payment is offline.
+ * Customers register via the signup UI (draft only). Orbit Super Admin creates
+ * and activates accounts at /orbit/customers.
+ */
+export async function POST() {
+  return fail(
+    "Self-serve account creation is temporarily disabled. Complete the registration and plan selection, then contact sales@globalorbitmail.cloud or support@globalorbitmail.cloud. Orbit Super Admin activates accounts manually.",
+    503,
+  );
 }

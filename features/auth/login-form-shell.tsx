@@ -45,7 +45,7 @@ export function LoginFormShell({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: values.email,
+          email: values.email.trim(),
           password: values.password,
           remember: values.remember ?? false,
         }),

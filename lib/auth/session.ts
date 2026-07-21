@@ -38,8 +38,25 @@ export async function hashPassword(password: string) {
   return hash(password, 12);
 }
 
+/**
+ * Normalize stored password hashes before bcrypt compare.
+ * Strips Dovecot-style scheme prefixes (e.g. {BLF-CRYPT}) if present.
+ */
+export function normalizePasswordHash(passwordHash: string): string {
+  const trimmed = passwordHash.trim();
+  const scheme = /^\{[A-Za-z0-9_-]+\}/.exec(trimmed);
+  if (scheme) {
+    return trimmed.slice(scheme[0].length);
+  }
+  return trimmed;
+}
+
 export async function verifyPassword(password: string, passwordHash: string) {
-  return compare(password, passwordHash);
+  const normalized = normalizePasswordHash(passwordHash);
+  if (!normalized.startsWith("$2")) {
+    return false;
+  }
+  return compare(password, normalized);
 }
 
 export async function createSessionToken(

@@ -1,26 +1,79 @@
 /* GLOBAL ORBIT MAIL — Orbit skin (extends Elastic)
+ * Enterprise webmail chrome for webmail.globalorbitmail.cloud
  * Isolates branding/UI. Does not alter mail/auth logic.
  */
 
 @import url("../../elastic/styles/styles.min.css");
 
+/* ========== DESIGN TOKENS (light = default) ========== */
 :root {
-  --orbit-bg-0: #05080f;
-  --orbit-bg-1: #0a1220;
-  --orbit-blue: #3b82f6;
-  --orbit-blue-bright: #60a5fa;
-  --orbit-blue-deep: #1d4ed8;
-  --orbit-cyan: #38bdf8;
-  --orbit-glass: rgba(12, 18, 32, 0.55);
-  --orbit-glass-border: rgba(148, 163, 184, 0.22);
-  --orbit-text: #e8eef9;
-  --orbit-muted: #94a3b8;
-  --orbit-radius: 24px;
-  --orbit-shadow: 0 28px 80px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(59, 130, 246, 0.12);
   --orbit-font: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --orbit-radius: 24px;
+  --orbit-radius-sm: 12px;
+  --orbit-radius-xs: 10px;
+  --orbit-accent: #2563eb;
+  --orbit-accent-bright: #3b82f6;
+  --orbit-accent-deep: #1d4ed8;
+  --orbit-cyan: #0ea5e9;
+
+  /* Light mode surfaces */
+  --orbit-bg-0: #eef2f8;
+  --orbit-bg-1: #f7f9fc;
+  --orbit-bg-app: #f0f4fa;
+  --orbit-sidebar: rgba(255, 255, 255, 0.78);
+  --orbit-toolbar: rgba(255, 255, 255, 0.88);
+  --orbit-panel: rgba(255, 255, 255, 0.72);
+  --orbit-panel-solid: #ffffff;
+  --orbit-glass: rgba(255, 255, 255, 0.62);
+  --orbit-glass-border: rgba(148, 163, 184, 0.35);
+  --orbit-border: rgba(148, 163, 184, 0.28);
+  --orbit-text: #0f172a;
+  --orbit-muted: #64748b;
+  --orbit-hover: rgba(37, 99, 235, 0.08);
+  --orbit-selected: rgba(37, 99, 235, 0.14);
+  --orbit-shadow: 0 20px 50px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(37, 99, 235, 0.06);
+  --orbit-shadow-sm: 0 8px 24px rgba(15, 23, 42, 0.08);
+  --orbit-input-bg: rgba(255, 255, 255, 0.92);
+  --orbit-row-alt: rgba(241, 245, 249, 0.65);
+
+  /* Login stage (always deep night for brand presence) */
+  --orbit-login-bg-0: #05080f;
+  --orbit-login-bg-1: #0a1220;
+  --orbit-login-text: #e8eef9;
+  --orbit-login-muted: #94a3b8;
+  --orbit-login-glass: rgba(12, 18, 32, 0.55);
+  --orbit-login-glass-border: rgba(148, 163, 184, 0.22);
+  --orbit-login-shadow: 0 28px 80px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(59, 130, 246, 0.12);
 }
 
-/* Prefer branded web fonts when available on host */
+/* Dark mode (Elastic dark_mode_support) */
+html.dark-mode,
+body.dark-mode,
+html[data-color-mode="dark"],
+.dark-mode {
+  color-scheme: dark;
+  --orbit-bg-0: #05080f;
+  --orbit-bg-1: #0a1220;
+  --orbit-bg-app: #070b14;
+  --orbit-sidebar: rgba(11, 18, 32, 0.92);
+  --orbit-toolbar: rgba(14, 22, 40, 0.94);
+  --orbit-panel: rgba(17, 24, 39, 0.78);
+  --orbit-panel-solid: #111827;
+  --orbit-glass: rgba(12, 18, 32, 0.55);
+  --orbit-glass-border: rgba(148, 163, 184, 0.22);
+  --orbit-border: rgba(148, 163, 184, 0.14);
+  --orbit-text: #e8eef9;
+  --orbit-muted: #94a3b8;
+  --orbit-hover: rgba(59, 130, 246, 0.12);
+  --orbit-selected: rgba(59, 130, 246, 0.2);
+  --orbit-shadow: 0 28px 80px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(59, 130, 246, 0.12);
+  --orbit-shadow-sm: 0 12px 32px rgba(0, 0, 0, 0.35);
+  --orbit-input-bg: rgba(8, 12, 22, 0.72);
+  --orbit-row-alt: rgba(15, 23, 42, 0.45);
+  --orbit-accent: #3b82f6;
+  --orbit-accent-bright: #60a5fa;
+}
+
 @font-face {
   font-family: "Orbit Display";
   src: local("Segoe UI Semibold"), local("Helvetica Neue"), local("Arial");
@@ -28,13 +81,33 @@
   font-display: swap;
 }
 
+/* ========== HIDE ROUNDCUBE PRODUCT STRINGS (safe UI-only) ========== */
+#login-footer,
+.orbit-login-footer,
+body.task-login #login-footer .support-link,
+#login-footer .support-link,
+.about-link,
+a.aboutlink,
+#taskbar a.about,
+.footerbar .about,
+#colophon,
+.product-info,
+.powermade,
+.poweredby,
+.footer .support-link,
+body .footer a[href*="roundcube.net"],
+body a[href*="roundcube.net"]:not([href*="plugins"]),
+#message-footer .support-link {
+  display: none !important;
+}
+
 /* ========== LOGIN STAGE ========== */
 body.task-login,
 html.task-login,
 body.login,
 #layout.task-login {
-  background: var(--orbit-bg-0) !important;
-  color: var(--orbit-text);
+  background: var(--orbit-login-bg-0) !important;
+  color: var(--orbit-login-text);
   font-family: var(--orbit-font);
   min-height: 100%;
 }
@@ -54,9 +127,9 @@ body.task-login #layout-content,
   pointer-events: none;
   overflow: hidden;
   background:
-    radial-gradient(1200px 700px at 50% -10%, rgba(37, 99, 235, 0.28), transparent 60%),
-    radial-gradient(900px 500px at 15% 85%, rgba(14, 165, 233, 0.12), transparent 55%),
-    radial-gradient(800px 480px at 90% 70%, rgba(29, 78, 216, 0.18), transparent 50%),
+    radial-gradient(1200px 700px at 50% -10%, rgba(37, 99, 235, 0.3), transparent 60%),
+    radial-gradient(900px 500px at 15% 85%, rgba(14, 165, 233, 0.14), transparent 55%),
+    radial-gradient(800px 480px at 90% 70%, rgba(29, 78, 216, 0.2), transparent 50%),
     linear-gradient(165deg, #05080f 0%, #0a1220 45%, #070b14 100%);
 }
 
@@ -94,6 +167,15 @@ body.task-login #layout-content,
   animation-direction: alternate-reverse;
 }
 
+.orbit-glow-c {
+  width: 280px;
+  height: 280px;
+  left: 48%;
+  top: 62%;
+  background: rgba(59, 130, 246, 0.22);
+  animation-duration: 18s;
+}
+
 .orbit-vignette {
   position: absolute;
   inset: 0;
@@ -109,7 +191,6 @@ body.task-login #layout-content,
   .orbit-glow { animation: none; }
 }
 
-/* Login frame */
 body.task-login #layout-content.orbit-login-layout,
 .orbit-login-layout {
   position: relative;
@@ -124,11 +205,11 @@ body.task-login #layout-content.orbit-login-layout,
 
 .orbit-login-frame {
   width: 100%;
-  max-width: 440px;
+  max-width: 460px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 22px;
+  gap: 20px;
 }
 
 .orbit-brand {
@@ -136,47 +217,73 @@ body.task-login #layout-content.orbit-login-layout,
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+
+.orbit-brand-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #93c5fd;
+  background: rgba(37, 99, 235, 0.16);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  box-shadow: 0 0 24px rgba(37, 99, 235, 0.18);
+}
+
+.orbit-brand-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #60a5fa;
+  box-shadow: 0 0 10px #60a5fa;
 }
 
 body.task-login #logo,
 .orbit-brand #logo {
   display: block;
-  width: 230px;
-  max-width: min(230px, 72vw);
+  width: 240px;
+  max-width: min(240px, 74vw);
   height: auto;
   margin: 0 auto 4px;
-  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.35));
+  filter: drop-shadow(0 10px 28px rgba(0, 0, 0, 0.4));
 }
 
 .orbit-product {
   margin: 0;
   font-family: "Orbit Display", var(--orbit-font);
-  font-size: clamp(1.35rem, 3.2vw, 1.75rem);
+  font-size: clamp(1.4rem, 3.4vw, 1.85rem);
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.09em;
   color: #f8fafc;
   text-transform: uppercase;
+  text-shadow: 0 2px 24px rgba(37, 99, 235, 0.35);
 }
 
 .orbit-tagline {
   margin: 0;
   font-size: 0.95rem;
-  color: var(--orbit-muted);
-  letter-spacing: 0.04em;
+  color: var(--orbit-login-muted);
+  letter-spacing: 0.05em;
   font-weight: 400;
 }
 
-/* Glass card */
 .orbit-card {
   width: 100%;
-  background: var(--orbit-glass);
-  backdrop-filter: blur(22px) saturate(1.35);
-  -webkit-backdrop-filter: blur(22px) saturate(1.35);
-  border: 1px solid var(--orbit-glass-border);
+  background: var(--orbit-login-glass);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--orbit-login-glass-border);
   border-radius: var(--orbit-radius);
-  box-shadow: var(--orbit-shadow);
-  padding: 28px 28px 22px;
+  box-shadow: var(--orbit-login-shadow);
+  padding: 30px 30px 24px;
 }
 
 body.task-login #login-form,
@@ -196,7 +303,7 @@ body.task-login #login-form .propform,
 body.task-login #login-form td.title,
 body.task-login #login-form label {
   display: block;
-  color: var(--orbit-muted);
+  color: var(--orbit-login-muted);
   font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -222,7 +329,7 @@ body.task-login select.form-control {
   border-radius: 14px !important;
   border: 1px solid rgba(148, 163, 184, 0.28) !important;
   background: rgba(8, 12, 22, 0.72) !important;
-  color: var(--orbit-text) !important;
+  color: var(--orbit-login-text) !important;
   font-size: 1rem !important;
   padding: 0 16px !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -259,7 +366,7 @@ body.task-login #rcmloginpwd::placeholder {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--orbit-muted);
+  color: var(--orbit-login-muted);
   font-size: 0.88rem;
   cursor: pointer;
   user-select: none;
@@ -268,14 +375,14 @@ body.task-login #rcmloginpwd::placeholder {
 .orbit-remember input {
   width: 16px;
   height: 16px;
-  accent-color: var(--orbit-blue);
+  accent-color: var(--orbit-accent-bright);
 }
 
 .orbit-toggle-pass {
   appearance: none;
   border: 0;
   background: transparent;
-  color: var(--orbit-blue-bright);
+  color: #60a5fa;
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
@@ -296,19 +403,18 @@ body.task-login #rcmloginpwd::placeholder {
 }
 
 .orbit-links a {
-  color: var(--orbit-muted);
+  color: var(--orbit-login-muted);
   text-decoration: none;
 }
 
 .orbit-links a:hover {
-  color: var(--orbit-blue-bright);
+  color: #60a5fa;
 }
 
 .orbit-dot {
   color: rgba(148, 163, 184, 0.5);
 }
 
-/* Submit button */
 body.task-login #rcmloginsubmit,
 body.task-login .button.mainaction,
 body.task-login input.button.mainaction {
@@ -366,11 +472,6 @@ body.task-login #rcmloginsubmit.orbit-loading::after {
   to { transform: rotate(360deg); }
 }
 
-body.task-login #login-footer,
-.orbit-login-footer {
-  display: none !important;
-}
-
 .orbit-dev-credit {
   margin: 4px 0 0;
   text-align: center;
@@ -387,8 +488,8 @@ body.task-login #login-footer,
 }
 
 .orbit-dev-credit a:hover {
-  color: var(--orbit-blue-bright);
-  border-bottom-color: var(--orbit-blue-bright);
+  color: #60a5fa;
+  border-bottom-color: #60a5fa;
 }
 
 body.task-login .noscriptwarning {
@@ -398,12 +499,6 @@ body.task-login .noscriptwarning {
   text-align: center;
 }
 
-/* Hide leftover Roundcube product strings on login if any slip through */
-body.task-login #login-footer .support-link {
-  display: none;
-}
-
-/* Dark mode toggle control (Elastic) */
 body.task-login .special-buttons,
 body.task-login #taskmenu {
   z-index: 3;
@@ -411,131 +506,535 @@ body.task-login #taskmenu {
 
 body.task-login .dark-mode-toggle,
 body.task-login a.darkmode {
-  color: var(--orbit-muted) !important;
+  color: var(--orbit-login-muted) !important;
 }
 
-/* Language row polish */
 body.task-login #rcmloginlang {
   cursor: pointer;
 }
 
 /* ========== POST-LOGIN APP SHELL ========== */
-:root {
-  --orbit-sidebar: #0b1220;
-  --orbit-toolbar: #0e1628;
-  --orbit-panel: #111827;
-  --orbit-accent: #3b82f6;
+html,
+body {
+  font-family: var(--orbit-font);
+  color: var(--orbit-text);
 }
 
-html.dark-mode,
-body.dark-mode,
-html[data-color-mode="dark"] {
-  color-scheme: dark;
+body:not(.task-login) {
+  background: var(--orbit-bg-app) !important;
 }
 
+body:not(.task-login) #layout {
+  background:
+    radial-gradient(900px 480px at 0% 0%, rgba(37, 99, 235, 0.07), transparent 55%),
+    radial-gradient(700px 420px at 100% 0%, rgba(14, 165, 233, 0.05), transparent 50%),
+    var(--orbit-bg-app) !important;
+}
+
+/* --- Sidebar / task menu / folders --- */
 #layout-menu,
+#layout-sidebar,
 #mailboxlist,
 #directorylist,
-.listing.iconized {
+#settings-menu,
+.listing.iconized,
+#folderlist-content,
+#folderlist-header {
   background: var(--orbit-sidebar) !important;
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  color: var(--orbit-text);
 }
 
 #layout-menu {
-  border-right: 1px solid rgba(148, 163, 184, 0.12) !important;
+  border-right: 1px solid var(--orbit-border) !important;
+  box-shadow: var(--orbit-shadow-sm);
 }
 
-#layout-list,
-#layout-content,
 #layout-sidebar {
-  background: #0a0f1a !important;
+  border-right: 1px solid var(--orbit-border) !important;
+}
+
+#layout-menu .popover-header,
+#layout-sidebar .header,
+#folderlist-header,
+#directorylist-header {
+  background: transparent !important;
+  border-bottom: 1px solid var(--orbit-border) !important;
+  color: var(--orbit-muted) !important;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+#taskmenu a,
+#taskmenu .button,
+#taskmenu .action {
+  border-radius: var(--orbit-radius-xs) !important;
+  margin: 4px 8px !important;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+#taskmenu a:hover,
+#taskmenu .button:hover {
+  background: var(--orbit-hover) !important;
+  color: var(--orbit-accent-deep) !important;
+}
+
+#taskmenu a.selected,
+#taskmenu a.active,
+#taskmenu .selected {
+  background: var(--orbit-selected) !important;
+  color: var(--orbit-accent-deep) !important;
+  box-shadow: inset 3px 0 0 var(--orbit-accent);
+}
+
+html.dark-mode #taskmenu a:hover,
+html.dark-mode #taskmenu a.selected,
+.dark-mode #taskmenu a:hover,
+.dark-mode #taskmenu a.selected {
+  color: var(--orbit-accent-bright) !important;
+}
+
+#mailboxlist li a,
+#directorylist li a,
+#settings-menu li a,
+.listing li a {
+  border-radius: var(--orbit-radius-xs) !important;
+  margin: 1px 6px;
+  color: var(--orbit-text) !important;
+  transition: background 0.12s ease;
+}
+
+#mailboxlist li a:hover,
+#directorylist li a:hover,
+#settings-menu li a:hover,
+.listing li a:hover {
+  background: var(--orbit-hover) !important;
+}
+
+#mailboxlist li.mailbox.selected > a,
+#mailboxlist li.selected > a,
+#directorylist li.selected > a,
+#settings-menu li.selected > a,
+.listing li.selected > a {
+  background: var(--orbit-selected) !important;
+  color: var(--orbit-accent-deep) !important;
+  font-weight: 600;
+}
+
+html.dark-mode #mailboxlist li.selected > a,
+html.dark-mode #directorylist li.selected > a,
+.dark-mode #mailboxlist li.selected > a,
+.dark-mode #directorylist li.selected > a {
+  color: #e2e8f0 !important;
+}
+
+#mailboxlist li .unreadcount,
+.listing .unreadcount,
+.badge,
+.countdisplay {
+  border-radius: 999px !important;
+  background: var(--orbit-accent) !important;
+  color: #fff !important;
+  font-weight: 600;
+  min-width: 1.4em;
+  padding: 0 6px;
+}
+
+/* --- Toolbar / headers --- */
+.toolbar,
+#messagetoolbar,
+#composetoolbar,
+#contacttoolbar,
+.searchbar,
+#searchbar,
+.header,
+#layout-list .header,
+#layout-content .header,
+#layout-content > .header {
+  background: var(--orbit-toolbar) !important;
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  border-color: var(--orbit-border) !important;
+  box-shadow: 0 1px 0 var(--orbit-border);
+}
+
+.toolbar a.button,
+.toolbar .button,
+#messagetoolbar a,
+.searchbar input,
+.searchbox input {
+  border-radius: var(--orbit-radius-xs) !important;
+}
+
+.toolbar a.button:hover,
+#messagetoolbar a:hover {
+  background: var(--orbit-hover) !important;
+}
+
+.searchbar input,
+.searchbox input,
+#mailsearchform input,
+input.form-control,
+select.form-control,
+textarea.form-control {
+  border-radius: var(--orbit-radius-xs) !important;
+  border: 1px solid var(--orbit-border) !important;
+  background: var(--orbit-input-bg) !important;
+  color: var(--orbit-text) !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.searchbar input:focus,
+.searchbox input:focus,
+input.form-control:focus,
+select.form-control:focus,
+textarea.form-control:focus {
+  outline: none !important;
+  border-color: var(--orbit-accent-bright) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18) !important;
+}
+
+/* --- Message list (Gmail-like) --- */
+#layout-list,
+#layout-content {
+  background: transparent !important;
+}
+
+#messagelist,
+#contacts-table,
+.records-table,
+.listing.iconized.messagelist {
+  background: var(--orbit-panel) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--orbit-border) !important;
+  border-radius: var(--orbit-radius-sm) !important;
+  overflow: hidden;
+  box-shadow: var(--orbit-shadow-sm);
 }
 
 #messagelist thead th,
-.toolbar,
-#messagetoolbar,
-.header {
+#contacts-table thead th,
+.records-table thead th {
   background: var(--orbit-toolbar) !important;
-  border-color: rgba(148, 163, 184, 0.12) !important;
+  border-color: var(--orbit-border) !important;
+  color: var(--orbit-muted) !important;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+#messagelist tbody tr td,
+#contacts-table tbody tr td,
+.records-table tbody tr td {
+  border-color: var(--orbit-border) !important;
+  color: var(--orbit-text);
+}
+
+#messagelist tbody tr:nth-child(even) td,
+#contacts-table tbody tr:nth-child(even) td {
+  background: var(--orbit-row-alt);
 }
 
 #messagelist tbody tr:hover td,
-#messagelist tr.selected td {
-  background: rgba(59, 130, 246, 0.12) !important;
+#contacts-table tbody tr:hover td,
+#directorylist li:hover {
+  background: var(--orbit-hover) !important;
 }
 
-/* Gmail-like compose / message chrome */
+#messagelist tr.selected td,
+#messagelist tr.focused td,
+#contacts-table tr.selected td {
+  background: var(--orbit-selected) !important;
+}
+
+#messagelist tr.unread td {
+  font-weight: 600;
+}
+
+#messagelist tr.unread td.subject {
+  color: var(--orbit-accent-deep);
+}
+
+html.dark-mode #messagelist tr.unread td.subject,
+.dark-mode #messagelist tr.unread td.subject {
+  color: var(--orbit-accent-bright);
+}
+
+/* --- Message reading pane --- */
+#messagecontframe,
+#messagepartframe,
+#messagebody,
+.message-part,
+#message-header,
+#message-content {
+  background: var(--orbit-panel-solid) !important;
+  color: var(--orbit-text);
+  border-radius: var(--orbit-radius-sm);
+}
+
+#message-header {
+  border: 1px solid var(--orbit-border) !important;
+  box-shadow: var(--orbit-shadow-sm);
+  margin-bottom: 10px;
+  padding: 14px 16px !important;
+}
+
+#message-header .subject {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* --- Compose --- */
 #compose-content,
 .formcontent.compose,
-#messagecontframe,
-#messagebody {
-  background: #0c121e !important;
+#composeview-bottom,
+#composebodycontainer {
+  background: var(--orbit-panel) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--orbit-border) !important;
+  border-radius: var(--orbit-radius-sm) !important;
+  box-shadow: var(--orbit-shadow-sm);
+}
+
+#compose-headers,
+#compose-headers table,
+.compose-headers {
+  background: transparent !important;
+}
+
+#compose-headers input,
+#compose-headers textarea,
+#_from,
+#_to,
+#_cc,
+#_bcc,
+#_subject,
+.recipient-input input {
+  border-radius: var(--orbit-radius-xs) !important;
+  border: 1px solid var(--orbit-border) !important;
+  background: var(--orbit-input-bg) !important;
+  color: var(--orbit-text) !important;
 }
 
 #composebody,
 #composebodycontainer textarea,
-.mce-content-body {
-  background: #0a0f1a !important;
-  color: #e8eef9 !important;
-  border-radius: 12px !important;
+.mce-content-body,
+.tox-edit-area,
+.tox-edit-area__iframe {
+  background: var(--orbit-panel-solid) !important;
+  color: var(--orbit-text) !important;
+  border-radius: var(--orbit-radius-xs) !important;
 }
 
-#contacts-table tr:hover td,
+#composetoolbar .button.mainaction,
+#compose-content .button.mainaction {
+  min-width: 88px;
+}
+
+/* --- Contacts --- */
+#directorylist,
+#contacts-table,
+#contact-details,
+#contactphoto {
+  border-radius: var(--orbit-radius-sm);
+}
+
+#contact-details,
+#contacthead,
+.contactdetails {
+  background: var(--orbit-panel) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--orbit-border) !important;
+  border-radius: var(--orbit-radius-sm) !important;
+  box-shadow: var(--orbit-shadow-sm);
+  padding: 12px !important;
+}
+
 #directorylist li:hover {
-  background: rgba(59, 130, 246, 0.1) !important;
+  background: var(--orbit-hover) !important;
 }
 
+/* --- Settings --- */
 .settings-default .formcontent,
+#preferences-frame,
 #preferences-details,
-.propform fieldset {
-  border-radius: 14px !important;
-  border-color: rgba(148, 163, 184, 0.14) !important;
+#sections-table,
+.propform fieldset,
+#settings-sections,
+.tabsbar {
+  border-radius: var(--orbit-radius-sm) !important;
+  border-color: var(--orbit-border) !important;
 }
 
+.propform fieldset,
+#preferences-details,
+.settings-default .formcontent,
+.content.box,
+.formcontent {
+  background: var(--orbit-panel) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--orbit-border) !important;
+  box-shadow: var(--orbit-shadow-sm);
+  padding: 16px !important;
+}
+
+.propform legend,
+.formcontent legend {
+  color: var(--orbit-muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+
+.tabsbar a,
+.tablink,
+.nav-tabs .nav-link {
+  border-radius: var(--orbit-radius-xs) var(--orbit-radius-xs) 0 0 !important;
+}
+
+.tabsbar a.selected,
+.tablink.selected,
+.nav-tabs .nav-link.active {
+  color: var(--orbit-accent-deep) !important;
+  border-bottom: 2px solid var(--orbit-accent) !important;
+  font-weight: 600;
+}
+
+/* --- Buttons / controls --- */
 a.button,
 .button,
-.btn {
-  border-radius: 10px !important;
+.btn,
+input.button {
+  border-radius: var(--orbit-radius-xs) !important;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
 }
 
 .button.mainaction,
 a.button.mainaction,
-.btn-primary {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+.btn-primary,
+input.button.mainaction {
+  background: linear-gradient(135deg, var(--orbit-accent) 0%, var(--orbit-accent-deep) 100%) !important;
   border: 0 !important;
   color: #fff !important;
-  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.32);
+  font-weight: 600;
 }
 
-#mailboxlist li.mailbox.selected > a,
-#mailboxlist li.selected > a {
-  background: rgba(59, 130, 246, 0.18) !important;
-  color: #e2e8f0 !important;
-  border-radius: 10px;
+.button.mainaction:hover,
+a.button.mainaction:hover,
+.btn-primary:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 8px 22px rgba(37, 99, 235, 0.4);
 }
 
-#compose-content,
-#compose-body,
-.formcontent,
-.content {
-  border-radius: 12px;
+.button.cancel,
+.btn-secondary {
+  border-radius: var(--orbit-radius-xs) !important;
+  border: 1px solid var(--orbit-border) !important;
+  background: var(--orbit-input-bg) !important;
+  color: var(--orbit-text) !important;
 }
 
-#logo,
-#header .logo {
-  max-height: 36px;
-}
-
-/* Soften Elastic chrome toward SaaS */
-#layout {
-  background: #070b14 !important;
-}
-
+/* --- Popups / dialogs / menus --- */
 .popupmenu,
 .ui-dialog,
-.popover {
+.popover,
+.menu,
+.contextmenu,
+.ui-widget-content {
   border-radius: 14px !important;
-  border: 1px solid rgba(148, 163, 184, 0.18) !important;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45) !important;
+  border: 1px solid var(--orbit-glass-border) !important;
+  background: var(--orbit-panel-solid) !important;
+  box-shadow: var(--orbit-shadow) !important;
+  color: var(--orbit-text) !important;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.popupmenu li a:hover,
+.menu li a:hover,
+.contextmenu li a:hover {
+  background: var(--orbit-hover) !important;
+  color: var(--orbit-accent-deep) !important;
+}
+
+.ui-dialog .ui-dialog-titlebar {
+  background: var(--orbit-toolbar) !important;
+  border-bottom: 1px solid var(--orbit-border) !important;
+  border-radius: 14px 14px 0 0 !important;
+  color: var(--orbit-text) !important;
+}
+
+/* --- Branding chrome --- */
+#logo,
+#header .logo,
+#layout-menu #logo {
+  max-height: 36px;
+  width: auto;
+}
+
+#layout-menu .special-buttons a.darkmode,
+.dark-mode-toggle {
+  border-radius: var(--orbit-radius-xs) !important;
+  color: var(--orbit-muted) !important;
+}
+
+#layout-menu .special-buttons a.darkmode:hover {
+  background: var(--orbit-hover) !important;
+  color: var(--orbit-accent) !important;
+}
+
+/* Quota / status */
+#quotadisplay,
+.quotameter,
+.status-indicator {
+  border-radius: 999px !important;
+  overflow: hidden;
+}
+
+.quotameter .bar,
+.quota-bar {
+  background: linear-gradient(90deg, var(--orbit-accent), var(--orbit-cyan)) !important;
+}
+
+/* Links */
+body:not(.task-login) a {
+  color: var(--orbit-accent);
+}
+
+body:not(.task-login) a:hover {
+  color: var(--orbit-accent-deep);
+}
+
+html.dark-mode body:not(.task-login) a:hover,
+.dark-mode body:not(.task-login) a:hover {
+  color: var(--orbit-accent-bright);
+}
+
+/* Scrollbars (WebKit) */
+body:not(.task-login) ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+body:not(.task-login) ::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.45);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+body:not(.task-login) ::-webkit-scrollbar-thumb:hover {
+  background: rgba(37, 99, 235, 0.55);
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }
 
 /* Responsive login */
@@ -557,11 +1056,21 @@ a.button.mainaction,
   body.task-login #layout-content.orbit-login-layout {
     padding: 24px 14px 32px;
   }
+
+  #messagelist,
+  #compose-content,
+  .formcontent {
+    border-radius: 10px !important;
+  }
 }
 
 @media (max-width: 380px) {
   body.task-login #logo,
   .orbit-brand #logo {
     width: 180px;
+  }
+
+  .orbit-brand-badge {
+    letter-spacing: 0.1em;
   }
 }

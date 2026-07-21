@@ -113,6 +113,7 @@
     var h = 0;
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
     var raf = 0;
+    var linkDist = 110;
     var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     function resize() {
@@ -123,36 +124,61 @@
       canvas.style.width = w + 'px';
       canvas.style.height = h + 'px';
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      linkDist = Math.max(90, Math.min(140, Math.floor(Math.min(w, h) * 0.12)));
     }
 
     function seed() {
       stars = [];
       particles = [];
-      var n = Math.floor((w * h) / 14000);
+      var n = Math.floor((w * h) / 12000);
       for (var i = 0; i < n; i++) {
         stars.push({
           x: Math.random() * w,
           y: Math.random() * h,
-          r: Math.random() * 1.4 + 0.2,
-          a: Math.random() * 0.55 + 0.15,
+          r: Math.random() * 1.5 + 0.2,
+          a: Math.random() * 0.55 + 0.18,
           tw: Math.random() * Math.PI * 2,
-          sp: 0.004 + Math.random() * 0.01
+          sp: 0.0035 + Math.random() * 0.01
         });
       }
-      for (var j = 0; j < 28; j++) {
+      var pc = Math.min(42, Math.max(24, Math.floor((w * h) / 55000)));
+      for (var j = 0; j < pc; j++) {
         particles.push({
           x: Math.random() * w,
           y: Math.random() * h,
-          r: Math.random() * 2.2 + 0.6,
-          vx: (Math.random() - 0.5) * 0.18,
-          vy: -0.05 - Math.random() * 0.22,
-          a: Math.random() * 0.35 + 0.08
+          r: Math.random() * 2.4 + 0.7,
+          vx: (Math.random() - 0.5) * 0.2,
+          vy: -0.04 - Math.random() * 0.2,
+          a: Math.random() * 0.4 + 0.1,
+          pulse: Math.random() * Math.PI * 2
         });
+      }
+    }
+
+    function drawLinks() {
+      for (var i = 0; i < particles.length; i++) {
+        for (var j = i + 1; j < particles.length; j++) {
+          var a = particles[i];
+          var b = particles[j];
+          var dx = a.x - b.x;
+          var dy = a.y - b.y;
+          var d2 = dx * dx + dy * dy;
+          var max = linkDist * linkDist;
+          if (d2 > max) continue;
+          var alpha = (1 - d2 / max) * 0.18;
+          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(96, 165, 250,' + alpha + ')';
+          ctx.lineWidth = 1;
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
       }
     }
 
     function frame(t) {
       ctx.clearRect(0, 0, w, h);
+
       for (var i = 0; i < stars.length; i++) {
         var s = stars[i];
         var tw = 0.55 + 0.45 * Math.sin(t * s.sp + s.tw);
@@ -161,18 +187,32 @@
         ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
         ctx.fill();
       }
+
+      drawLinks();
+
       for (var j = 0; j < particles.length; j++) {
         var p = particles[j];
         p.x += p.vx;
         p.y += p.vy;
+        p.pulse += 0.02;
         if (p.y < -10) {
           p.y = h + 10;
           p.x = Math.random() * w;
         }
         if (p.x < -10) p.x = w + 10;
         if (p.x > w + 10) p.x = -10;
+
+        var glow = 0.75 + 0.25 * Math.sin(p.pulse);
+        var grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 4);
+        grd.addColorStop(0, 'rgba(147, 197, 253,' + (p.a * glow * 0.55) + ')');
+        grd.addColorStop(1, 'rgba(59, 130, 246, 0)');
         ctx.beginPath();
-        ctx.fillStyle = 'rgba(96, 165, 250,' + p.a + ')';
+        ctx.fillStyle = grd;
+        ctx.arc(p.x, p.y, p.r * 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(96, 165, 250,' + (p.a * glow) + ')';
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
         ctx.fill();
       }

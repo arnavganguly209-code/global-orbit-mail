@@ -1,26 +1,12 @@
-import { ok, fail, parseJson } from "@/lib/api/response";
-import { requireCustomerMutation } from "@/lib/api/actor";
-import { subscriptionService } from "@/services/customer/subscription";
+import { fail } from "@/lib/api/response";
 
-function statusFor(message: string) {
-  if (message === "Unauthorized") return 401;
-  if (message === "Forbidden" || message === "Invalid CSRF token") return 403;
-  if (message === "Plan not found") return 404;
-  return 400;
-}
-
-export async function POST(request: Request) {
-  try {
-    const actor = await requireCustomerMutation(request);
-    const body = await parseJson(request);
-    const subscription = await subscriptionService.activate(
-      body,
-      actor.organizationId!,
-      actor.sub,
-    );
-    return ok({ subscription }, undefined, "Payment complete — subscription activated");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Activation failed";
-    return fail(message, statusFor(message));
-  }
+/**
+ * Self-serve payment activation is disabled until the gateway launches.
+ * Accounts are activated only by Orbit Super Admin.
+ */
+export async function POST() {
+  return fail(
+    "Payment System Temporarily Offline. Online payment integration is currently under maintenance. Contact support@globalorbitmail.cloud or sales@globalorbitmail.cloud to activate your account.",
+    503,
+  );
 }

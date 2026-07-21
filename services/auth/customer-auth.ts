@@ -215,6 +215,61 @@ export async function customerLogin(request: Request) {
     );
   }
 
+  if (!user.organizationId) {
+    await recordLoginAttempt({
+      email: identifier,
+      userId: user.id,
+      ipAddress,
+      success: false,
+      reason: "no_organization",
+    });
+    throw Object.assign(
+      new Error("Your organization is not ready. Contact support@globalorbitmail.cloud"),
+      { status: 403 },
+    );
+  }
+
+  const organization = await prisma.organization.findFirst({
+    where: { id: user.organizationId, deletedAt: null },
+  });
+  if (!organization || organization.status === "SUSPENDED" || organization.status === "ARCHIVED") {
+    await recordLoginAttempt({
+      email: identifier,
+      userId: user.id,
+      ipAddress,
+      success: false,
+      reason: "org_inactive",
+    });
+    throw Object.assign(
+      new Error(
+        "Your organization is inactive or suspended. Contact support@globalorbitmail.cloud to restore access.",
+      ),
+      { status: 403 },
+    );
+  }
+
+  const activeSubscription = await prisma.subscription.findFirst({
+    where: {
+      organizationId: user.organizationId,
+      status: "ACTIVE",
+    },
+  });
+  if (!activeSubscription) {
+    await recordLoginAttempt({
+      email: identifier,
+      userId: user.id,
+      ipAddress,
+      success: false,
+      reason: "subscription_inactive",
+    });
+    throw Object.assign(
+      new Error(
+        "Your subscription is not active yet. Payment may be pending. Contact sales@globalorbitmail.cloud or support@globalorbitmail.cloud to activate your account.",
+      ),
+      { status: 403 },
+    );
+  }
+
   const rememberMe = Boolean(body.remember);
   const token = await createSessionToken(
     {

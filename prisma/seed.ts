@@ -3,8 +3,9 @@
  * Run: npx tsx prisma/seed.ts
  */
 
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
-import { hash } from "bcryptjs";
+import { hashPassword } from "../lib/auth/session";
 import { buildDnsRecordsForDomain } from "../lib/dns/records";
 
 const prisma = new PrismaClient();
@@ -73,7 +74,7 @@ async function main() {
     update: { name: "GLOBAL ORBIT PVT. LTD.", status: "ACTIVE" },
   });
 
-  const passwordHash = await hash("OrbitAdmin!2026", 12);
+  const passwordHash = await hashPassword("OrbitAdmin!2026");
   const admin = await prisma.user.upsert({
     where: { email: "admin@theglobalorbit.com" },
     create: {
@@ -86,6 +87,8 @@ async function main() {
       organizationId: org.id,
       twoFactorEnabled: false,
       emailVerified: new Date(),
+      failedLoginCount: 0,
+      lockedUntil: null,
     },
     update: {
       passwordHash,
@@ -94,6 +97,9 @@ async function main() {
       roleId: superRole.id,
       organizationId: org.id,
       emailVerified: new Date(),
+      failedLoginCount: 0,
+      lockedUntil: null,
+      deletedAt: null,
     },
   });
 

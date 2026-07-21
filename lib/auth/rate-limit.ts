@@ -1,5 +1,6 @@
 /**
  * Login rate limiting & account lockout — PostgreSQL backed.
+ * Keys off the account email (resolved from username or email at login).
  */
 
 import { prisma } from "@/lib/db";
@@ -16,8 +17,14 @@ export async function assertLoginAllowed(email: string, ipAddress?: string | nul
   const normalized = email.toLowerCase().trim();
   const now = new Date();
 
-  const user = await prisma.user.findUnique({
-    where: { email: normalized },
+  const user = await prisma.user.findFirst({
+    where: {
+      deletedAt: null,
+      OR: [
+        { email: { equals: normalized, mode: "insensitive" } },
+        { username: { equals: normalized, mode: "insensitive" } },
+      ],
+    },
     select: { id: true, lockedUntil: true, failedLoginCount: true },
   });
 
@@ -55,6 +62,7 @@ export async function assertLoginAllowed(email: string, ipAddress?: string | nul
 
 export async function recordLoginAttempt(input: {
   email: string;
+  userId?: string | null;
   ipAddress?: string | null;
   success: boolean;
   reason?: string;
@@ -69,21 +77,33 @@ export async function recordLoginAttempt(input: {
     },
   });
 
+  const user =
+    input.userId
+      ? await prisma.user.findUnique({ where: { id: input.userId } })
+      : await prisma.user.findFirst({
+          where: {
+            deletedAt: null,
+            OR: [
+              { email: { equals: email, mode: "insensitive" } },
+              { username: { equals: email, mode: "insensitive" } },
+            ],
+          },
+        });
+
+  if (!user) return;
+
   if (input.success) {
-    await prisma.user.updateMany({
-      where: { email },
+    await prisma.user.update({
+      where: { id: user.id },
       data: { failedLoginCount: 0, lockedUntil: null },
     });
     return;
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) return;
-
   const failedLoginCount = user.failedLoginCount + 1;
   const lockedUntil =
     failedLoginCount >= MAX_FAILED_LOGINS
-      ? new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000)
+      ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000)
       : null;
 
   await prisma.user.update({

@@ -1,5 +1,5 @@
-﻿import { ModulePlaceholder } from "@/features/admin/module-pages";
+﻿import { CustomersAdminPage } from "@/features/admin/customers-page";
 
 export default function Page() {
-  return <ModulePlaceholder title="Customers" />;
+  return <CustomersAdminPage />;
 }

@@ -1,5 +1,6 @@
 /**
- * Production admin login service — database-only credentials.
+ * Production admin login — Prisma User + bcrypt only.
+ * Accepts Administrator ID as email OR username.
  */
 
 import { cookies } from "next/headers";
@@ -20,8 +21,8 @@ import { writeActivity, writeAudit } from "@/lib/audit";
 import type { SystemRole } from "@/types";
 
 const loginBodySchema = z.object({
-  email: z.string().min(3).max(190),
-  password: z.string().min(8),
+  email: z.string().min(1).max(190),
+  const password = z.string().min(8).max(128),
   remember: z.boolean().optional().default(false),
 });
 
@@ -33,16 +34,20 @@ function clientIp(request: Request) {
 
 export async function adminLogin(request: Request) {
   const body = loginBodySchema.parse(await request.json());
-  const identifier = body.email.toLowerCase().trim();
+  const identifier = body.email.trim();
+  const password = body.password;
   const ipAddress = clientIp(request);
   const userAgent = request.headers.get("user-agent");
 
-  await assertLoginAllowed(identifier, ipAddress);
-
+  // Resolve user by email OR username before rate-limit account lookup
   const user = await userRepository.findByLogin(identifier);
+  const rateLimitKey = (user?.email ?? identifier).toLowerCase();
+
+  await assertLoginAllowed(rateLimitKey, ipAddress);
+
   if (!user || !user.passwordHash) {
     await recordLoginAttempt({
-      email: identifier,
+      email: rateLimitKey,
       ipAddress,
       success: false,
       reason: "unknown_user",
@@ -52,7 +57,8 @@ export async function adminLogin(request: Request) {
 
   if (user.status !== "ACTIVE") {
     await recordLoginAttempt({
-      email: identifier,
+      email: user.email,
+      userId: user.id,
       ipAddress,
       success: false,
       reason: "inactive",
@@ -60,10 +66,11 @@ export async function adminLogin(request: Request) {
     throw Object.assign(new Error("Account is not active"), { status: 403 });
   }
 
-  const valid = await verifyPassword(body.password, user.passwordHash);
+  const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) {
     await recordLoginAttempt({
-      email: identifier,
+      email: user.email,
+      userId: user.id,
       ipAddress,
       success: false,
       reason: "bad_password",
@@ -74,7 +81,8 @@ export async function adminLogin(request: Request) {
   const role = (user.role?.key ?? "MAILBOX_USER") as SystemRole;
   if (!["SUPER_ADMIN", "SUPPORT_STAFF", "RESELLER"].includes(role)) {
     await recordLoginAttempt({
-      email: identifier,
+      email: user.email,
+      userId: user.id,
       ipAddress,
       success: false,
       reason: "not_admin",
@@ -108,7 +116,13 @@ export async function adminLogin(request: Request) {
     data: { lastLoginAt: new Date(), failedLoginCount: 0, lockedUntil: null },
   });
 
-  await recordLoginAttempt({ email: identifier, ipAddress, success: true, reason: "ok" });
+  await recordLoginAttempt({
+    email: user.email,
+    userId: user.id,
+    ipAddress,
+    success: true,
+    reason: "ok",
+  });
 
   await writeAudit({
     actorId: user.id,
@@ -116,7 +130,9 @@ export async function adminLogin(request: Request) {
     resource: "session",
     resourceId: user.id,
     ipAddress,
-    metadata: { rememberMe, surface: "orbit" },
+    userAgent,
+    status: "SUCCESS",
+    metadata: { rememberMe, surface: "orbit", via: identifier.includes("@") ? "email" : "username" },
   });
 
   await writeActivity({
@@ -136,6 +152,7 @@ export async function adminLogin(request: Request) {
     user: {
       id: user.id,
       email: user.email,
+      username: user.username,
       name: user.name,
       role,
       image: user.image,

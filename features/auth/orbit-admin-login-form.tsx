@@ -39,8 +39,9 @@ export function OrbitAdminLoginForm() {
       const res = await fetch("/api/admin/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
-          email: values.administratorId,
+          email: values.administratorId.trim(),
           password: values.password,
           remember: values.remember ?? false,
         }),

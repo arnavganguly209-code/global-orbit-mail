@@ -4,7 +4,7 @@
 **Target:** real Roundcube at `/var/www/roundcube`  
 **Live URL:** https://webmail.globalorbitmail.cloud  
 
-This guide deploys the **Orbit** skin only.  
+**Orbit** is the enterprise webmail skin for **webmail.globalorbitmail.cloud** — a Gmail-like Elastic extension with glass panels, premium blue accent, and light/dark mode. This guide deploys that skin only.  
 It does **not** modify the Next.js `global-orbit-mail` application.
 
 Do **not** edit IMAP, SMTP, database, or session settings.  
@@ -160,7 +160,7 @@ Do **not** overwrite DB, IMAP, SMTP, or `des_key` when merging.
 | Compose | CSS on compose containers + buttons | Mail logic unchanged |
 | Contacts | CSS on directory/listing chrome | Logic unchanged |
 | Settings | Shared layout / form / dialog CSS | Logic unchanged |
-| Dark mode | `dark_mode_support: true` in `meta.json` | Uses Elastic dark-mode hooks |
+| Dark / light mode | `dark_mode_support: true` in `meta.json` + CSS tokens | Elastic toggle; Orbit styles both themes |
 
 ---
 

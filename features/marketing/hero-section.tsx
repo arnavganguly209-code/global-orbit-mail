@@ -3,7 +3,6 @@
 import * as React from "react";
 import { motion, useMotionValue, useSpring } from "framer-motion";
 import { ArrowRight, ArrowDown } from "lucide-react";
-import { BrandLogo } from "@/components/shared/brand-logo";
 import { Button } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
 import { external, routes } from "@/config/routes";
@@ -52,12 +51,8 @@ export function HeroSection() {
           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
           className="mx-auto max-w-5xl text-center"
         >
-          <div className="mb-10 flex justify-center">
-            <BrandLogo href={null} priority width={240} className="w-[200px] sm:w-[240px]" />
-          </div>
-
           <p className="mb-5 text-xs font-medium uppercase tracking-[0.28em] text-gold">
-            {brand.tagline}
+            {brand.product} · {brand.tagline}
           </p>
 
           <h1 className="font-display text-4xl font-semibold leading-[1.08] tracking-tight text-foreground sm:text-5xl md:text-6xl lg:text-7xl">

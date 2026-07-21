@@ -81,8 +81,12 @@ export const userRepository = {
   },
 
   async findByEmail(email: string) {
+    const value = email.toLowerCase().trim();
     return prisma.user.findFirst({
-      where: { email: email.toLowerCase(), deletedAt: null },
+      where: {
+        deletedAt: null,
+        email: { equals: value, mode: "insensitive" },
+      },
       include: { role: true },
     });
   },
@@ -92,7 +96,10 @@ export const userRepository = {
     return prisma.user.findFirst({
       where: {
         deletedAt: null,
-        OR: [{ email: value }, { username: value }],
+        OR: [
+          { email: { equals: value, mode: "insensitive" } },
+          { username: { equals: value, mode: "insensitive" } },
+        ],
       },
       include: { role: true },
     });
