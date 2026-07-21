@@ -8,7 +8,7 @@ import { BrandLogo } from "@/components/shared/brand-logo";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Container } from "@/components/ui/container";
-import { external } from "@/config/routes";
+import { routes } from "@/config/routes";
 import { navItems } from "@/constants/marketing";
 import { cn } from "@/lib/utils";
 
@@ -55,14 +55,10 @@ export function SiteHeader() {
             variant="outline"
             className="hidden border-white/10 bg-white/5 backdrop-blur-md hover:bg-white/10 sm:inline-flex"
           >
-            <a href={external.admin} target="_blank" rel="noopener noreferrer">
-              Admin Portal
-            </a>
+            <Link href={routes.signin}>Sign In</Link>
           </Button>
           <Button asChild className="gradient-blue border-0 shadow-lg shadow-primary/25">
-            <a href={external.webmail} target="_blank" rel="noopener noreferrer">
-              Sign In
-            </a>
+            <Link href={routes.signup}>Sign Up</Link>
           </Button>
           <Button
             type="button"
@@ -98,14 +94,14 @@ export function SiteHeader() {
               ))}
               <div className="mt-2 grid gap-2 sm:hidden">
                 <Button asChild variant="outline">
-                  <a href={external.admin} target="_blank" rel="noopener noreferrer">
-                    Admin Portal
-                  </a>
+                  <Link href={routes.signin} onClick={() => setOpen(false)}>
+                    Sign In
+                  </Link>
                 </Button>
                 <Button asChild>
-                  <a href={external.webmail} target="_blank" rel="noopener noreferrer">
-                    Sign In
-                  </a>
+                  <Link href={routes.signup} onClick={() => setOpen(false)}>
+                    Sign Up
+                  </Link>
                 </Button>
               </div>
             </Container>

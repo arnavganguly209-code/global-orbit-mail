@@ -16,8 +16,8 @@ function ModulePage({
     <AdminShell title={title} description={description}>
       <GlassPanel className="p-8">
         <p className="text-sm text-muted-foreground">
-          Production module surface is wired into navigation, permissions, and routing.
-          Operational controls below are ready for Phase 2B integration.
+          Production module surface is wired into Orbit navigation and PostgreSQL architecture.
+          Controls below are ready for live SaaS operations.
         </p>
         <ul className="mt-6 grid gap-3 sm:grid-cols-2">
           {points.map((point) => (
@@ -31,6 +31,21 @@ function ModulePage({
         </ul>
       </GlassPanel>
     </AdminShell>
+  );
+}
+
+export function ModulePlaceholder({ title }: { title: string }) {
+  return (
+    <ModulePage
+      title={title}
+      description={`${title} · Orbit staff console`}
+      points={[
+        "PostgreSQL-backed records",
+        "Audit logging ready",
+        "RBAC gated for SUPER_ADMIN",
+        "API surface prepared",
+      ]}
+    />
   );
 }
 

@@ -78,20 +78,123 @@ async function main() {
     where: { email: "admin@theglobalorbit.com" },
     create: {
       email: "admin@theglobalorbit.com",
+      username: "globalorbit",
       name: "Super Admin",
       passwordHash,
       status: "ACTIVE",
       roleId: superRole.id,
       organizationId: org.id,
       twoFactorEnabled: false,
+      emailVerified: new Date(),
     },
     update: {
       passwordHash,
+      username: "globalorbit",
       status: "ACTIVE",
       roleId: superRole.id,
       organizationId: org.id,
+      emailVerified: new Date(),
     },
   });
+
+  const plans = [
+    {
+      key: "starter",
+      name: "Business Starter",
+      description: "Professional email for individuals and small teams.",
+      monthlyPriceUsd: 2,
+      yearlyPriceUsd: 9,
+      twoYearPriceUsd: 18,
+      storageGb: 1,
+      mailboxLimit: 1,
+      domainLimit: 1,
+      features: [
+        "1 GB Storage",
+        "1 Mailbox",
+        "Custom Domain",
+        "Spam Protection",
+        "SSL",
+        "Professional Email",
+      ],
+      contactSales: false,
+      sortOrder: 1,
+    },
+    {
+      key: "business",
+      name: "Business Pro",
+      description: "Scale mailboxes and authentication for growing teams.",
+      monthlyPriceUsd: 7,
+      yearlyPriceUsd: 70,
+      twoYearPriceUsd: 120,
+      storageGb: 10,
+      mailboxLimit: 10,
+      domainLimit: 5,
+      features: [
+        "10 GB Storage",
+        "10 Mailboxes",
+        "White Label",
+        "Priority Support",
+        "Spam Protection",
+        "DKIM · SPF · DMARC",
+      ],
+      contactSales: false,
+      sortOrder: 2,
+    },
+    {
+      key: "enterprise",
+      name: "Enterprise",
+      description: "Unlimited scale with dedicated infrastructure.",
+      monthlyPriceUsd: 0,
+      yearlyPriceUsd: null,
+      twoYearPriceUsd: null,
+      storageGb: 0,
+      mailboxLimit: 0,
+      domainLimit: 0,
+      features: [
+        "Unlimited Domains",
+        "Unlimited Mailboxes",
+        "Dedicated Infrastructure",
+        "Dedicated IP",
+        "24/7 Support",
+      ],
+      contactSales: true,
+      sortOrder: 3,
+    },
+  ] as const;
+
+  for (const plan of plans) {
+    await prisma.plan.upsert({
+      where: { key: plan.key },
+      create: {
+        key: plan.key,
+        name: plan.name,
+        description: plan.description,
+        monthlyPriceUsd: plan.monthlyPriceUsd,
+        yearlyPriceUsd: plan.yearlyPriceUsd,
+        twoYearPriceUsd: plan.twoYearPriceUsd,
+        storageGb: plan.storageGb,
+        mailboxLimit: plan.mailboxLimit,
+        domainLimit: plan.domainLimit,
+        features: plan.features,
+        contactSales: plan.contactSales,
+        sortOrder: plan.sortOrder,
+        isPublic: true,
+      },
+      update: {
+        name: plan.name,
+        description: plan.description,
+        monthlyPriceUsd: plan.monthlyPriceUsd,
+        yearlyPriceUsd: plan.yearlyPriceUsd,
+        twoYearPriceUsd: plan.twoYearPriceUsd,
+        storageGb: plan.storageGb,
+        mailboxLimit: plan.mailboxLimit,
+        domainLimit: plan.domainLimit,
+        features: plan.features,
+        contactSales: plan.contactSales,
+        sortOrder: plan.sortOrder,
+      },
+    });
+  }
 
   const settings = [
     {
@@ -226,14 +329,14 @@ async function main() {
         organizationId: org.id,
         title: "Welcome to GLOBAL ORBIT MAIL",
         body: "Production authentication is active. Manage domains and mailboxes from the admin panel.",
-        href: "/admin",
+        href: "/orbit",
         read: false,
       },
     });
   }
 
   console.log("Seed complete");
-  console.log("Admin login: admin@theglobalorbit.com / OrbitAdmin!2026");
+  console.log("Orbit login: username globalorbit  OR  admin@theglobalorbit.com / OrbitAdmin!2026");
 }
 
 main()

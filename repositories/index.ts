@@ -86,6 +86,17 @@ export const userRepository = {
       include: { role: true },
     });
   },
+
+  async findByLogin(identifier: string) {
+    const value = identifier.toLowerCase().trim();
+    return prisma.user.findFirst({
+      where: {
+        deletedAt: null,
+        OR: [{ email: value }, { username: value }],
+      },
+      include: { role: true },
+    });
+  },
 };
 
 export const dnsRepository = {

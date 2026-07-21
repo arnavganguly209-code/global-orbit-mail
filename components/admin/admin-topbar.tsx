@@ -40,7 +40,7 @@ export function AdminTopbar({
   async function logout() {
     await adminFetch("/api/admin/auth/logout", { method: "POST" });
     toast.success("Signed out");
-    router.replace("/admin/login");
+    router.replace("/orbit/login");
     router.refresh();
   }
 
@@ -68,13 +68,13 @@ export function AdminTopbar({
       </div>
       <div className="flex items-center gap-2">
         <Button asChild variant="ghost" size="icon" aria-label="Notifications">
-          <Link href="/admin/logs">
+          <Link href="/orbit/logs">
             <Bell className="size-4" />
           </Link>
         </Button>
         <ThemeToggle />
         <Link
-          href="/admin/profile"
+          href="/orbit/profile"
           className="hidden items-center gap-2 rounded-xl border border-border/70 bg-card/50 px-3 py-1.5 text-right transition-colors hover:border-gold/40 sm:flex"
         >
           {data?.image ? (

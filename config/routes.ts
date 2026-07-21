@@ -6,14 +6,18 @@ import { brand } from "@/config/brand";
 
 export const external = {
   webmail: `https://${brand.portals.user}`,
-  admin: `https://${brand.portals.admin}`,
+  admin: `https://${brand.siteHost}/orbit`,
   company: brand.companyUrl,
 } as const;
 
 export const routes = {
   home: "/",
   login: "/login",
-  adminLogin: "/admin/login",
+  signin: "/signin",
+  signup: "/signup",
+  orbitLogin: "/orbit/login",
+  dashboard: "/dashboard",
+  webmail: "/webmail",
   sections: {
     features: "/#features",
     solutions: "/#solutions",
@@ -35,15 +39,15 @@ export const routes = {
   portal: {
     root: "/portal",
   },
-  admin: {
-    root: "/admin",
-    domains: "/admin/domains",
-    mailboxes: "/admin/mailboxes",
-    users: "/admin/users",
-    dns: "/admin/dns",
-    logs: "/admin/logs",
-    monitoring: "/admin/monitoring",
-    settings: "/admin/settings",
+  orbit: {
+    root: "/orbit",
+    domains: "/orbit/domains",
+    mailboxes: "/orbit/mailboxes",
+    users: "/orbit/users",
+    dns: "/orbit/dns",
+    logs: "/orbit/logs",
+    monitoring: "/orbit/monitoring",
+    settings: "/orbit/settings",
   },
   api: {
     health: "/api/health",

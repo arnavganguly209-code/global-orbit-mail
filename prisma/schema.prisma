@@ -132,6 +132,9 @@ model Organization {
   notifications Notification[]
   activities    Activity[]
   verifications Verification[]
+  subscriptions Subscription[]
+  orders        Order[]
+  invoices      Invoice[]
 
   @@index([deletedAt])
   @@map("organizations")
@@ -177,6 +180,7 @@ model RolePermission {
 model User {
   id               String     @id @default(uuid())
   email            String     @unique
+  username         String?    @unique
   name             String?
   image            String?
   passwordHash     String?
@@ -193,13 +197,14 @@ model User {
   updatedAt        DateTime   @updatedAt
   deletedAt        DateTime?
 
-  role          Role?          @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  organization  Organization?  @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  accounts      Account[]
-  sessions      Session[]
-  auditLogs     AuditLog[]     @relation("AuditActor")
-  activities    Activity[]     @relation("ActivityActor")
-  notifications Notification[]
+  role           Role?           @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  organization   Organization?   @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  accounts       Account[]
+  sessions       Session[]
+  auditLogs      AuditLog[]      @relation("AuditActor")
+  activities     Activity[]      @relation("ActivityActor")
+  notifications  Notification[]
+  subscriptions  Subscription[]  @relation("SubscriptionOwner")
 
   @@index([organizationId])
   @@index([roleId])
@@ -465,4 +470,134 @@ model SystemSetting {
 
   @@unique([organizationId, key])
   @@map("system_settings")
+}
+
+enum PlanInterval {
+  MONTHLY
+  YEARLY
+  TWO_YEAR
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  EXPIRED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  VOID
+}
+
+model Plan {
+  id              String       @id @default(uuid())
+  key             String       @unique
+  name            String
+  description     String?
+  monthlyPriceUsd Decimal      @db.Decimal(10, 2)
+  yearlyPriceUsd  Decimal?     @db.Decimal(10, 2)
+  twoYearPriceUsd Decimal?     @db.Decimal(10, 2)
+  storageGb       Int
+  mailboxLimit    Int
+  domainLimit     Int          @default(1)
+  features        Json
+  isPublic        Boolean      @default(true)
+  contactSales    Boolean      @default(false)
+  sortOrder       Int          @default(0)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id             String             @id @default(uuid())
+  organizationId String
+  ownerId        String?
+  planId         String
+  status         SubscriptionStatus @default(INCOMPLETE)
+  interval       PlanInterval       @default(MONTHLY)
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean        @default(false)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        User?        @relation("SubscriptionOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  plan         Plan         @relation(fields: [planId], references: [id])
+  orders       Order[]
+  invoices     Invoice[]
+
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+model Order {
+  id             String      @id @default(uuid())
+  organizationId String
+  subscriptionId String?
+  amountUsd      Decimal     @db.Decimal(10, 2)
+  currency       String      @default("USD")
+  status         OrderStatus @default(PENDING)
+  provider       String      @default("manual")
+  providerRef    String?
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("orders")
+}
+
+model Invoice {
+  id             String        @id @default(uuid())
+  organizationId String
+  subscriptionId String?
+  number         String        @unique
+  amountUsd      Decimal       @db.Decimal(10, 2)
+  status         InvoiceStatus @default(DRAFT)
+  issuedAt       DateTime      @default(now())
+  paidAt         DateTime?
+  pdfUrl         String?
+  createdAt      DateTime      @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@map("invoices")
+}
+
+model Coupon {
+  id            String    @id @default(uuid())
+  code          String    @unique
+  percentOff    Int?
+  amountOffUsd  Decimal?  @db.Decimal(10, 2)
+  active        Boolean   @default(true)
+  expiresAt     DateTime?
+  maxRedemptions Int?
+  createdAt     DateTime  @default(now())
+
+  @@map("coupons")
 }

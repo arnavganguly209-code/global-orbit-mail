@@ -24,14 +24,14 @@ export function AdminSidebar() {
   return (
     <aside className="hidden h-dvh w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar/90 backdrop-blur-xl lg:flex">
       <div className="flex h-16 items-center border-b border-sidebar-border px-4">
-        <BrandLogo href="/admin" width={160} className="w-[150px]" />
+        <BrandLogo href="/orbit" width={160} className="w-[150px]" />
       </div>
       <ScrollArea className="flex-1 px-3 py-4">
         <nav className="space-y-1">
           {adminNav.map((item) => {
             const active =
-              item.href === "/admin"
-                ? pathname === "/admin"
+              item.href === "/orbit"
+                ? pathname === "/orbit"
                 : pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
             return (

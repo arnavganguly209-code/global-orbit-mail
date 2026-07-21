@@ -21,12 +21,12 @@ function MobileNav({ open, onClose }: { open: boolean; onClose: () => void }) {
         onClick={onClose}
       />
       <div className="absolute inset-y-0 left-0 flex w-72 flex-col border-r border-border bg-[#070b14] p-4 shadow-2xl">
-        <BrandLogo href="/admin" width={160} className="mb-6 w-[150px]" />
+        <BrandLogo href="/orbit" width={160} className="mb-6 w-[150px]" />
         <nav className="space-y-1 overflow-y-auto">
           {adminNav.map((item) => {
             const active =
-              item.href === "/admin"
-                ? pathname === "/admin"
+              item.href === "/orbit"
+                ? pathname === "/orbit"
                 : pathname.startsWith(item.href);
             const Icon = item.icon;
             return (

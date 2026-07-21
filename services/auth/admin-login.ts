@@ -20,7 +20,7 @@ import { writeActivity, writeAudit } from "@/lib/audit";
 import type { SystemRole } from "@/types";
 
 const loginBodySchema = z.object({
-  email: z.string().email(),
+  email: z.string().min(3).max(190),
   password: z.string().min(8),
   remember: z.boolean().optional().default(false),
 });
@@ -33,16 +33,16 @@ function clientIp(request: Request) {
 
 export async function adminLogin(request: Request) {
   const body = loginBodySchema.parse(await request.json());
-  const email = body.email.toLowerCase().trim();
+  const identifier = body.email.toLowerCase().trim();
   const ipAddress = clientIp(request);
   const userAgent = request.headers.get("user-agent");
 
-  await assertLoginAllowed(email, ipAddress);
+  await assertLoginAllowed(identifier, ipAddress);
 
-  const user = await userRepository.findByEmail(email);
+  const user = await userRepository.findByLogin(identifier);
   if (!user || !user.passwordHash) {
     await recordLoginAttempt({
-      email,
+      email: identifier,
       ipAddress,
       success: false,
       reason: "unknown_user",
@@ -52,7 +52,7 @@ export async function adminLogin(request: Request) {
 
   if (user.status !== "ACTIVE") {
     await recordLoginAttempt({
-      email,
+      email: identifier,
       ipAddress,
       success: false,
       reason: "inactive",
@@ -63,7 +63,7 @@ export async function adminLogin(request: Request) {
   const valid = await verifyPassword(body.password, user.passwordHash);
   if (!valid) {
     await recordLoginAttempt({
-      email,
+      email: identifier,
       ipAddress,
       success: false,
       reason: "bad_password",
@@ -74,7 +74,7 @@ export async function adminLogin(request: Request) {
   const role = (user.role?.key ?? "MAILBOX_USER") as SystemRole;
   if (!["SUPER_ADMIN", "SUPPORT_STAFF", "RESELLER"].includes(role)) {
     await recordLoginAttempt({
-      email,
+      email: identifier,
       ipAddress,
       success: false,
       reason: "not_admin",
@@ -108,7 +108,7 @@ export async function adminLogin(request: Request) {
     data: { lastLoginAt: new Date(), failedLoginCount: 0, lockedUntil: null },
   });
 
-  await recordLoginAttempt({ email, ipAddress, success: true, reason: "ok" });
+  await recordLoginAttempt({ email: identifier, ipAddress, success: true, reason: "ok" });
 
   await writeAudit({
     actorId: user.id,
@@ -116,14 +116,14 @@ export async function adminLogin(request: Request) {
     resource: "session",
     resourceId: user.id,
     ipAddress,
-    metadata: { rememberMe },
+    metadata: { rememberMe, surface: "orbit" },
   });
 
   await writeActivity({
     actorId: user.id,
     organizationId: user.organizationId,
     category: "auth",
-    message: `${user.email} signed in to admin`,
+    message: `${user.email} signed in to Orbit admin`,
     severity: "info",
   });
 

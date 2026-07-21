@@ -17,14 +17,14 @@ export const domainService = {
     return domainRepository.list({ ...parsed, status });
   },
 
-  async create(body: unknown, actorId?: string | null) {
+  async create(body: unknown, actorId?: string | null, organizationId?: string | null) {
     const input = domainCreateSchema.parse(body);
     const existing = await domainRepository.getByName(input.name);
     if (existing) throw new Error("Domain already exists");
-    const organizationId = await getDefaultOrganizationId();
+    const orgId = organizationId ?? (await getDefaultOrganizationId());
     return domainRepository.create({
       name: input.name,
-      organizationId,
+      organizationId: orgId,
       actorId,
     });
   },

@@ -20,20 +20,30 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: "theglobalorbit.com",
+        hostname: "globalorbitmail.com",
       },
       {
         protocol: "https",
-        hostname: "webmail.theglobalorbit.com",
-      },
-      {
-        protocol: "https",
-        hostname: "orbit.theglobalorbit.com",
+        hostname: "webmail.globalorbitmail.com",
       },
     ],
   },
   experimental: {
     optimizePackageImports: ["lucide-react", "framer-motion", "date-fns"],
+  },
+  async redirects() {
+    return [
+      {
+        source: "/admin",
+        destination: "/orbit",
+        permanent: true,
+      },
+      {
+        source: "/admin/:path*",
+        destination: "/orbit/:path*",
+        permanent: true,
+      },
+    ];
   },
   async headers() {
     return [

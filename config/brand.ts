@@ -9,12 +9,12 @@ export const brand = {
   product: "GLOBAL ORBIT MAIL",
   tagline: "Enterprise Email Hosting",
   shortName: "Orbit Mail",
-  domain: "theglobalorbit.com",
-  siteHost: "mail.theglobalorbit.com",
-  companyUrl: "https://theglobalorbit.com/",
+  domain: "globalorbitmail.com",
+  siteHost: "globalorbitmail.com",
+  companyUrl: "https://globalorbitmail.com/",
   portals: {
-    user: "webmail.theglobalorbit.com",
-    admin: "admin.theglobalorbit.com",
+    user: "webmail.globalorbitmail.com",
+    admin: "globalorbitmail.com",
   },
   assets: {
     logo: "/brand/logo.png",

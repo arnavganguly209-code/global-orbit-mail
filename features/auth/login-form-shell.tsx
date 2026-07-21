@@ -55,7 +55,7 @@ export function LoginFormShell({
         throw new Error(json.message ?? "Login failed");
       }
       toast.success("Signed in");
-      router.replace(nextPath || "/admin");
+      router.replace(nextPath || "/orbit");
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Login failed");
@@ -65,12 +65,14 @@ export function LoginFormShell({
   return (
     <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)} noValidate>
       <div className="space-y-2">
-        <Label htmlFor={`${surface}-email`}>Email</Label>
+        <Label htmlFor={`${surface}-email`}>
+          {surface === "admin" ? "Username or email" : "Email"}
+        </Label>
         <Input
           id={`${surface}-email`}
-          type="email"
-          autoComplete="email"
-          placeholder="you@company.com"
+          type={surface === "admin" ? "text" : "email"}
+          autoComplete={surface === "admin" ? "username" : "email"}
+          placeholder={surface === "admin" ? "globalorbit" : "you@company.com"}
           {...form.register("email")}
         />
         {form.formState.errors.email ? (

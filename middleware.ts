@@ -1,6 +1,6 @@
 /**
  * GLOBAL ORBIT MAIL — Edge Middleware (Phase 3A)
- * Protects /admin UI routes. Security headers on matched paths.
+ * Protects /orbit, /dashboard, and /webmail UI routes. Security headers on matched paths.
  * API auth is enforced in route handlers (JSON 401), not redirects.
  */
 
@@ -8,11 +8,12 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { SESSION_COOKIE } from "@/lib/auth/constants";
 import { SECURITY_HEADERS } from "@/lib/security/headers";
+import { routes } from "@/config/routes";
 
 function withSecurity(response: NextResponse, pathname: string) {
   response.headers.set(
     "x-go-surface",
-    pathname.startsWith("/admin") ? "admin" : "app",
+    pathname.startsWith("/orbit") ? "admin" : "app",
   );
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     response.headers.set(key, value);
@@ -20,22 +21,39 @@ function withSecurity(response: NextResponse, pathname: string) {
   return response;
 }
 
-function isPublicAdminPath(pathname: string) {
-  return pathname === "/admin/login";
+function isPublicOrbitPath(pathname: string) {
+  return pathname === routes.orbitLogin;
+}
+
+function isPublicWebmailPath(pathname: string) {
+  return pathname === "/webmail/login" || pathname.startsWith("/webmail/login/");
+}
+
+function requiresSession(pathname: string) {
+  if (pathname.startsWith("/orbit") && !pathname.startsWith("/api/")) {
+    return !isPublicOrbitPath(pathname);
+  }
+  if (pathname === routes.dashboard || pathname.startsWith(`${routes.dashboard}/`)) {
+    return true;
+  }
+  if (pathname === routes.webmail || pathname.startsWith(`${routes.webmail}/`)) {
+    return !isPublicWebmailPath(pathname);
+  }
+  return false;
 }
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (
-    pathname.startsWith("/admin") &&
-    !pathname.startsWith("/api/") &&
-    !isPublicAdminPath(pathname)
-  ) {
+  if (requiresSession(pathname)) {
     const enforce = process.env.ADMIN_AUTH_ENFORCE !== "false";
     if (enforce && !request.cookies.get(SESSION_COOKIE)?.value) {
       const loginUrl = request.nextUrl.clone();
-      loginUrl.pathname = "/admin/login";
+      if (pathname.startsWith("/orbit")) {
+        loginUrl.pathname = routes.orbitLogin;
+      } else {
+        loginUrl.pathname = routes.signin;
+      }
       loginUrl.searchParams.set("next", pathname);
       return withSecurity(NextResponse.redirect(loginUrl), pathname);
     }
@@ -45,5 +63,14 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/portal/:path*", "/api/admin/:path*"],
+  matcher: [
+    "/orbit",
+    "/orbit/:path*",
+    "/dashboard",
+    "/dashboard/:path*",
+    "/webmail",
+    "/webmail/:path*",
+    "/portal/:path*",
+    "/api/admin/:path*",
+  ],
 };

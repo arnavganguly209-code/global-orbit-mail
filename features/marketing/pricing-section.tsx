@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/features/marketing/section-heading";
 import { pricingPlans } from "@/constants/marketing";
-import { external } from "@/config/routes";
+import { routes } from "@/config/routes";
 import { cn } from "@/lib/utils";
 
 export function PricingSection() {
@@ -60,6 +60,9 @@ export function PricingSection() {
                     <span className="text-sm text-muted-foreground">{plan.period}</span>
                   ) : null}
                 </div>
+                {"billingNote" in plan && plan.billingNote ? (
+                  <p className="mt-2 text-sm text-gold">{plan.billingNote}</p>
+                ) : null}
                 <ul className="mt-8 space-y-3">
                   {plan.features.map((feature) => (
                     <li key={feature} className="flex items-start gap-2 text-sm">
@@ -79,15 +82,7 @@ export function PricingSection() {
                     )}
                     variant={plan.featured ? "default" : "outline"}
                   >
-                    <a
-                      href={
-                        plan.id === "enterprise"
-                          ? "mailto:sales@theglobalorbit.com"
-                          : external.webmail
-                      }
-                      target={plan.id === "enterprise" ? undefined : "_blank"}
-                      rel={plan.id === "enterprise" ? undefined : "noopener noreferrer"}
-                    >
+                    <a href={"href" in plan && plan.href ? plan.href : routes.signup}>
                       {plan.cta}
                     </a>
                   </Button>
