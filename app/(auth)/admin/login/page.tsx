@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import { BrandLogo } from "@/components/shared/brand-logo";
 import { AuroraBackground } from "@/components/shared/aurora-background";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
-import { LoginFormShell } from "@/features/auth/login-form-shell";
-import { external } from "@/config/routes";
+import { AdminLoginForm } from "@/features/auth/admin-login-form";
+import { Loading } from "@/components/ui/loading";
 
 export const metadata: Metadata = {
   title: "Admin Portal",
@@ -33,19 +34,12 @@ export default function AdminLoginPage() {
               Command center
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Production admin access lives at{" "}
-              <a
-                href={external.admin}
-                className="text-gold underline-offset-4 hover:underline"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                admin.theglobalorbit.com
-              </a>
-              . This page is the premium UI foundation.
+              Database-backed admin authentication. Sessions are stored in PostgreSQL.
             </p>
             <div className="mt-8">
-              <LoginFormShell surface="admin" />
+              <Suspense fallback={<Loading label="Loading sign-in" />}>
+                <AdminLoginForm />
+              </Suspense>
             </div>
           </div>
         </div>

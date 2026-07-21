@@ -1,128 +1,217 @@
-import { getAdminStore, pushAudit, randomUUID, now, ORG_ID } from "@/lib/data/admin-store";
-import type { AdminUser, AuditLogEntry, DnsRecordView, PaginatedResult } from "@/types";
+import { prisma } from "@/lib/db";
+import { writeAudit } from "@/lib/audit";
+import { mapAudit, mapDnsRecord, mapUser } from "@/repositories/mappers";
+import type { AdminUser, AuditLogEntry, DnsRecordView, PaginatedResult, SystemRole } from "@/types";
+import type { Prisma, SystemRole as PrismaRole } from "@prisma/client";
 
 export const userRepository = {
-  list(params: { page: number; pageSize: number; search?: string }): PaginatedResult<AdminUser> {
-    const store = getAdminStore();
-    let items = [...store.users];
-    if (params.search) {
-      const q = params.search.toLowerCase();
-      items = items.filter(
-        (u) =>
-          u.email.toLowerCase().includes(q) ||
-          (u.name ?? "").toLowerCase().includes(q) ||
-          u.role.toLowerCase().includes(q),
-      );
-    }
-    const total = items.length;
-    const start = (params.page - 1) * params.pageSize;
+  async list(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+  }): Promise<PaginatedResult<AdminUser>> {
+    const where: Prisma.UserWhereInput = {
+      deletedAt: null,
+      ...(params.search
+        ? {
+            OR: [
+              { email: { contains: params.search, mode: "insensitive" } },
+              { name: { contains: params.search, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    };
+    const [total, rows] = await Promise.all([
+      prisma.user.count({ where }),
+      prisma.user.findMany({
+        where,
+        include: { role: true },
+        orderBy: { createdAt: "desc" },
+        skip: (params.page - 1) * params.pageSize,
+        take: params.pageSize,
+      }),
+    ]);
     return {
-      items: items.slice(start, start + params.pageSize),
+      items: rows.map(mapUser),
       total,
       page: params.page,
       pageSize: params.pageSize,
-      hasMore: start + params.pageSize < total,
+      hasMore: params.page * params.pageSize < total,
     };
   },
 
-  create(input: { email: string; name?: string; role: AdminUser["role"] }): AdminUser {
-    const store = getAdminStore();
-    if (store.users.some((u) => u.email.toLowerCase() === input.email.toLowerCase())) {
-      throw new Error("User already exists");
-    }
-    const user: AdminUser = {
-      id: `usr_${randomUUID().slice(0, 8)}`,
-      email: input.email.toLowerCase(),
-      name: input.name ?? null,
-      role: input.role,
-      status: "INVITED",
-      organizationId: ORG_ID,
-      lastLoginAt: null,
-      twoFactorEnabled: false,
-      createdAt: now(),
-    };
-    store.users.unshift(user);
-    pushAudit({
-      actorEmail: "admin@theglobalorbit.com",
+  async create(input: {
+    email: string;
+    name?: string;
+    role: SystemRole;
+    organizationId: string;
+    actorId?: string | null;
+  }) {
+    const role = await prisma.role.findUnique({ where: { key: input.role as PrismaRole } });
+    if (!role) throw new Error("Role not found");
+    const existing = await prisma.user.findFirst({
+      where: { email: input.email.toLowerCase(), deletedAt: null },
+    });
+    if (existing) throw new Error("User already exists");
+
+    const user = await prisma.user.create({
+      data: {
+        email: input.email.toLowerCase(),
+        name: input.name ?? null,
+        roleId: role.id,
+        organizationId: input.organizationId,
+        status: "INVITED",
+      },
+      include: { role: true },
+    });
+
+    await writeAudit({
+      actorId: input.actorId,
       action: "user.create",
       resource: "user",
       resourceId: user.id,
-      ipAddress: "127.0.0.1",
+      metadata: { email: user.email, role: input.role },
     });
-    return user;
+
+    return mapUser(user);
   },
 
-  count() {
-    return getAdminStore().users.length;
+  async count() {
+    return prisma.user.count({ where: { deletedAt: null } });
+  },
+
+  async findByEmail(email: string) {
+    return prisma.user.findFirst({
+      where: { email: email.toLowerCase(), deletedAt: null },
+      include: { role: true },
+    });
   },
 };
 
 export const dnsRepository = {
-  listByDomain(domainId: string): DnsRecordView[] {
-    return getAdminStore().dnsRecords.filter((r) => r.domainId === domainId);
+  async listByDomain(domainId: string): Promise<DnsRecordView[]> {
+    const rows = await prisma.dnsRecord.findMany({
+      where: { domainId, deletedAt: null },
+      orderBy: [{ type: "asc" }, { name: "asc" }],
+    });
+    return rows.map(mapDnsRecord);
   },
 
-  listAll(): DnsRecordView[] {
-    return getAdminStore().dnsRecords;
+  async listAll(): Promise<DnsRecordView[]> {
+    const rows = await prisma.dnsRecord.findMany({
+      where: { deletedAt: null },
+      orderBy: [{ type: "asc" }, { name: "asc" }],
+    });
+    return rows.map(mapDnsRecord);
   },
 };
 
 export const auditRepository = {
-  list(params: {
+  async list(params: {
     page: number;
     pageSize: number;
     search?: string;
     action?: string;
     actor?: string;
-  }): PaginatedResult<AuditLogEntry> {
-    const store = getAdminStore();
-    let items = [...store.auditLogs];
-    if (params.search) {
-      const q = params.search.toLowerCase();
-      items = items.filter(
-        (l) =>
-          l.action.toLowerCase().includes(q) ||
-          l.resource.toLowerCase().includes(q) ||
-          (l.actorEmail ?? "").toLowerCase().includes(q),
-      );
-    }
-    if (params.action) items = items.filter((l) => l.action === params.action);
-    if (params.actor) {
-      items = items.filter((l) => (l.actorEmail ?? "").includes(params.actor!));
-    }
-    const total = items.length;
-    const start = (params.page - 1) * params.pageSize;
+  }): Promise<PaginatedResult<AuditLogEntry>> {
+    const where: Prisma.AuditLogWhereInput = {
+      ...(params.action ? { action: params.action } : {}),
+      ...(params.actor
+        ? { actor: { email: { contains: params.actor, mode: "insensitive" } } }
+        : {}),
+      ...(params.search
+        ? {
+            OR: [
+              { action: { contains: params.search, mode: "insensitive" } },
+              { resource: { contains: params.search, mode: "insensitive" } },
+              { actor: { email: { contains: params.search, mode: "insensitive" } } },
+            ],
+          }
+        : {}),
+    };
+    const [total, rows] = await Promise.all([
+      prisma.auditLog.count({ where }),
+      prisma.auditLog.findMany({
+        where,
+        include: { actor: { select: { email: true } } },
+        orderBy: { createdAt: "desc" },
+        skip: (params.page - 1) * params.pageSize,
+        take: params.pageSize,
+      }),
+    ]);
     return {
-      items: items.slice(start, start + params.pageSize),
+      items: rows.map(mapAudit),
       total,
       page: params.page,
       pageSize: params.pageSize,
-      hasMore: start + params.pageSize < total,
+      hasMore: params.page * params.pageSize < total,
     };
   },
 
-  exportAll() {
-    return getAdminStore().auditLogs;
+  async exportAll() {
+    const rows = await prisma.auditLog.findMany({
+      include: { actor: { select: { email: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 5000,
+    });
+    return rows.map(mapAudit);
   },
 };
 
 export const settingsRepository = {
-  getAll() {
-    return getAdminStore().settings;
+  async getAll(organizationId: string) {
+    const rows = await prisma.systemSetting.findMany({
+      where: { organizationId },
+    });
+    const result: Record<string, unknown> = {};
+    for (const row of rows) {
+      result[row.key] = row.value;
+    }
+    return result;
   },
-  update(section: string, values: Record<string, unknown>) {
-    const store = getAdminStore();
-    store.settings[section] = {
-      ...(store.settings[section] as Record<string, unknown>),
+
+  async update(
+    organizationId: string,
+    section: string,
+    values: Record<string, unknown>,
+    actorId?: string | null,
+  ) {
+    const existing = await prisma.systemSetting.findUnique({
+      where: {
+        organizationId_key: { organizationId, key: section },
+      },
+    });
+    const merged = {
+      ...((existing?.value as Record<string, unknown>) ?? {}),
       ...values,
-    };
-    pushAudit({
-      actorEmail: "admin@theglobalorbit.com",
+    } as Prisma.InputJsonValue;
+    const row = await prisma.systemSetting.upsert({
+      where: {
+        organizationId_key: { organizationId, key: section },
+      },
+      create: {
+        organizationId,
+        key: section,
+        value: merged,
+      },
+      update: { value: merged },
+    });
+    await writeAudit({
+      actorId,
       action: "settings.update",
       resource: "system_setting",
       resourceId: section,
-      ipAddress: "127.0.0.1",
+      metadata: values as Prisma.InputJsonValue,
     });
-    return store.settings[section];
+    return row.value;
   },
 };
+
+export async function getDefaultOrganizationId() {
+  const org = await prisma.organization.findFirst({
+    where: { deletedAt: null },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!org) throw new Error("No organization seeded");
+  return org.id;
+}

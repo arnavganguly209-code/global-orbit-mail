@@ -258,7 +258,11 @@ export function DomainsAdminPage() {
                         type="button"
                         size="icon"
                         variant="ghost"
-                        onClick={() => deleteMutation.mutate(domain.id)}
+                        onClick={() => {
+                          if (window.confirm(`Delete domain ${domain.name}?`)) {
+                            deleteMutation.mutate(domain.id);
+                          }
+                        }}
                       >
                         <Trash2 className="size-4 text-destructive" />
                       </Button>

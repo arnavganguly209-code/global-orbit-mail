@@ -99,8 +99,10 @@ export function DnsAdminPage() {
                   <TableCell className="max-w-[180px] truncate font-mono text-xs">
                     {record.name}
                   </TableCell>
-                  <TableCell className="max-w-[320px] truncate font-mono text-xs">
-                    {record.value}
+                  <TableCell className="max-w-[360px]">
+                    <pre className="overflow-x-auto rounded-lg bg-black/40 p-2 font-mono text-[11px] text-muted-foreground">
+                      {record.value}
+                    </pre>
                   </TableCell>
                   <TableCell>
                     <StatusPill label={record.status} tone={record.tone} />

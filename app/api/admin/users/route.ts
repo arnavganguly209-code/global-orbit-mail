@@ -1,20 +1,25 @@
 import { ok, fail, created, parseJson } from "@/lib/api/response";
+import { requireAdminActor } from "@/lib/api/actor";
 import { userService } from "@/services/admin";
 
 export async function GET(request: Request) {
   try {
+    await requireAdminActor();
     const { searchParams } = new URL(request.url);
-    return ok(userService.list(Object.fromEntries(searchParams.entries())));
+    return ok(await userService.list(Object.fromEntries(searchParams.entries())));
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Users list failed", 400);
+    const message = error instanceof Error ? error.message : "Users list failed";
+    return fail(message, message === "Unauthorized" ? 401 : 400);
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const actor = await requireAdminActor();
     const body = await parseJson(request);
-    return created(userService.create(body), "User invited");
+    return created(await userService.create(body, actor.sub), "User invited");
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "User create failed", 400);
+    const message = error instanceof Error ? error.message : "User create failed";
+    return fail(message, message === "Unauthorized" ? 401 : 400);
   }
 }

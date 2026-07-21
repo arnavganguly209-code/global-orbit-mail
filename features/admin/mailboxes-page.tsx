@@ -2,7 +2,16 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Plus, Trash2 } from "lucide-react";
+import {
+  AtSign,
+  Forward,
+  KeyRound,
+  PauseCircle,
+  Pencil,
+  PlayCircle,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { StatusPill, statusToneFromValue } from "@/components/admin/status-pill";
@@ -38,17 +47,28 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Loading } from "@/components/ui/loading";
 import type { AdminDomain, AdminMailbox, ApiResponse, PaginatedResult } from "@/types";
 
+type AliasRow = { id: string; address: string };
+type ForwarderRow = { id: string; destination: string; keepCopy: boolean };
+
 export function MailboxesAdminPage() {
   const qc = useQueryClient();
   const [page, setPage] = React.useState(1);
   const [search, setSearch] = React.useState("");
   const [open, setOpen] = React.useState(false);
+  const [editMailbox, setEditMailbox] = React.useState<AdminMailbox | null>(null);
+  const [manageMailbox, setManageMailbox] = React.useState<AdminMailbox | null>(null);
+  const [aliasInput, setAliasInput] = React.useState("");
+  const [forwarderInput, setForwarderInput] = React.useState("");
   const [form, setForm] = React.useState({
     localPart: "",
     domainId: "",
     displayName: "",
     quotaMb: "2048",
     password: "",
+  });
+  const [editForm, setEditForm] = React.useState({
+    displayName: "",
+    quotaMb: "2048",
   });
 
   const { data, isLoading } = useQuery({
@@ -73,6 +93,28 @@ export function MailboxesAdminPage() {
       const json = (await res.json()) as ApiResponse<PaginatedResult<AdminDomain>>;
       if (!json.success) throw new Error("Failed");
       return json.data.items;
+    },
+  });
+
+  const { data: aliases = [], isLoading: aliasesLoading } = useQuery({
+    queryKey: ["admin-mailbox-aliases", manageMailbox?.id],
+    enabled: Boolean(manageMailbox?.id),
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/mailboxes/${manageMailbox!.id}/aliases`);
+      const json = (await res.json()) as ApiResponse<AliasRow[]>;
+      if (!json.success) throw new Error("Failed to load aliases");
+      return json.data;
+    },
+  });
+
+  const { data: forwarders = [], isLoading: forwardersLoading } = useQuery({
+    queryKey: ["admin-mailbox-forwarders", manageMailbox?.id],
+    enabled: Boolean(manageMailbox?.id),
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/mailboxes/${manageMailbox!.id}/forwarders`);
+      const json = (await res.json()) as ApiResponse<ForwarderRow[]>;
+      if (!json.success) throw new Error("Failed to load forwarders");
+      return json.data;
     },
   });
 
@@ -109,6 +151,46 @@ export function MailboxesAdminPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const editMutation = useMutation({
+    mutationFn: async () => {
+      if (!editMailbox) return;
+      const res = await fetch(`/api/admin/mailboxes/${editMailbox.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          displayName: editForm.displayName || null,
+          quotaMb: Number(editForm.quotaMb),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message ?? "Update failed");
+      return json.data;
+    },
+    onSuccess: () => {
+      toast.success("Mailbox updated");
+      setEditMailbox(null);
+      qc.invalidateQueries({ queryKey: ["admin-mailboxes"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: async (payload: { id: string; action: "suspend" | "activate" }) => {
+      const res = await fetch(`/api/admin/mailboxes/${payload.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: payload.action }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message ?? "Status update failed");
+    },
+    onSuccess: () => {
+      toast.success("Mailbox status updated");
+      qc.invalidateQueries({ queryKey: ["admin-mailboxes"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const resetMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/admin/mailboxes/${id}/reset-password`, {
@@ -119,7 +201,7 @@ export function MailboxesAdminPage() {
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.message ?? "Reset failed");
     },
-    onSuccess: () => toast.success("Password reset queued (VPS provisioning deferred)"),
+    onSuccess: () => toast.success("Password reset stored (VPS provisioning deferred)"),
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -133,6 +215,78 @@ export function MailboxesAdminPage() {
       toast.success("Mailbox deleted");
       qc.invalidateQueries({ queryKey: ["admin-mailboxes"] });
       qc.invalidateQueries({ queryKey: ["admin-domains"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const addAliasMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/admin/mailboxes/${manageMailbox!.id}/aliases`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: aliasInput }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message ?? "Alias failed");
+    },
+    onSuccess: () => {
+      toast.success("Alias added");
+      setAliasInput("");
+      qc.invalidateQueries({ queryKey: ["admin-mailbox-aliases"] });
+      qc.invalidateQueries({ queryKey: ["admin-mailboxes"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const removeAliasMutation = useMutation({
+    mutationFn: async (aliasId: string) => {
+      const res = await fetch(
+        `/api/admin/mailboxes/${manageMailbox!.id}/aliases/${aliasId}`,
+        { method: "DELETE" },
+      );
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message ?? "Delete failed");
+    },
+    onSuccess: () => {
+      toast.success("Alias removed");
+      qc.invalidateQueries({ queryKey: ["admin-mailbox-aliases"] });
+      qc.invalidateQueries({ queryKey: ["admin-mailboxes"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const addForwarderMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/admin/mailboxes/${manageMailbox!.id}/forwarders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destination: forwarderInput, keepCopy: true }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message ?? "Forwarder failed");
+    },
+    onSuccess: () => {
+      toast.success("Forwarder added");
+      setForwarderInput("");
+      qc.invalidateQueries({ queryKey: ["admin-mailbox-forwarders"] });
+      qc.invalidateQueries({ queryKey: ["admin-mailboxes"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const removeForwarderMutation = useMutation({
+    mutationFn: async (forwarderId: string) => {
+      const res = await fetch(
+        `/api/admin/mailboxes/${manageMailbox!.id}/forwarders/${forwarderId}`,
+        { method: "DELETE" },
+      );
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message ?? "Delete failed");
+    },
+    onSuccess: () => {
+      toast.success("Forwarder removed");
+      qc.invalidateQueries({ queryKey: ["admin-mailbox-forwarders"] });
+      qc.invalidateQueries({ queryKey: ["admin-mailboxes"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -271,6 +425,52 @@ export function MailboxesAdminPage() {
                         type="button"
                         size="icon"
                         variant="ghost"
+                        title="Edit"
+                        onClick={() => {
+                          setEditMailbox(mailbox);
+                          setEditForm({
+                            displayName: mailbox.displayName ?? "",
+                            quotaMb: String(mailbox.quotaMb),
+                          });
+                        }}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        title="Aliases & forwarders"
+                        onClick={() => setManageMailbox(mailbox)}
+                      >
+                        <AtSign className="size-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        title="Suspend"
+                        onClick={() =>
+                          statusMutation.mutate({ id: mailbox.id, action: "suspend" })
+                        }
+                      >
+                        <PauseCircle className="size-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        title="Activate"
+                        onClick={() =>
+                          statusMutation.mutate({ id: mailbox.id, action: "activate" })
+                        }
+                      >
+                        <PlayCircle className="size-4 text-emerald-400" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
                         title="Reset password"
                         onClick={() => resetMutation.mutate(mailbox.id)}
                       >
@@ -280,7 +480,11 @@ export function MailboxesAdminPage() {
                         type="button"
                         size="icon"
                         variant="ghost"
-                        onClick={() => deleteMutation.mutate(mailbox.id)}
+                        onClick={() => {
+                          if (window.confirm(`Delete mailbox ${mailbox.email}?`)) {
+                            deleteMutation.mutate(mailbox.id);
+                          }
+                        }}
                       >
                         <Trash2 className="size-4 text-destructive" />
                       </Button>
@@ -295,6 +499,129 @@ export function MailboxesAdminPage() {
           </div>
         </div>
       ) : null}
+
+      <Dialog open={Boolean(editMailbox)} onOpenChange={(v) => !v && setEditMailbox(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit {editMailbox?.email}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="space-y-2">
+              <Label>Display name</Label>
+              <Input
+                value={editForm.displayName}
+                onChange={(e) => setEditForm((f) => ({ ...f, displayName: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Quota (MB)</Label>
+              <Input
+                value={editForm.quotaMb}
+                onChange={(e) => setEditForm((f) => ({ ...f, quotaMb: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={() => editMutation.mutate()}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(manageMailbox)}
+        onOpenChange={(v) => {
+          if (!v) {
+            setManageMailbox(null);
+            setAliasInput("");
+            setForwarderInput("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Aliases & Forwarders · {manageMailbox?.email}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6">
+            <section className="space-y-3">
+              <div className="flex items-center gap-2 font-medium">
+                <AtSign className="size-4" /> Aliases
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="alias@domain.com"
+                  value={aliasInput}
+                  onChange={(e) => setAliasInput(e.target.value)}
+                />
+                <Button type="button" onClick={() => addAliasMutation.mutate()}>
+                  Add
+                </Button>
+              </div>
+              {aliasesLoading ? <Loading label="Loading aliases" /> : null}
+              <ul className="space-y-2">
+                {aliases.map((a) => (
+                  <li
+                    key={a.id}
+                    className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 text-sm"
+                  >
+                    <span className="font-mono text-xs">{a.address}</span>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => removeAliasMutation.mutate(a.id)}
+                    >
+                      <Trash2 className="size-3.5 text-destructive" />
+                    </Button>
+                  </li>
+                ))}
+                {!aliasesLoading && aliases.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No aliases yet.</p>
+                ) : null}
+              </ul>
+            </section>
+
+            <section className="space-y-3">
+              <div className="flex items-center gap-2 font-medium">
+                <Forward className="size-4" /> Forwarders
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="forward@elsewhere.com"
+                  value={forwarderInput}
+                  onChange={(e) => setForwarderInput(e.target.value)}
+                />
+                <Button type="button" onClick={() => addForwarderMutation.mutate()}>
+                  Add
+                </Button>
+              </div>
+              {forwardersLoading ? <Loading label="Loading forwarders" /> : null}
+              <ul className="space-y-2">
+                {forwarders.map((f) => (
+                  <li
+                    key={f.id}
+                    className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 text-sm"
+                  >
+                    <span className="font-mono text-xs">{f.destination}</span>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => removeForwarderMutation.mutate(f.id)}
+                    >
+                      <Trash2 className="size-3.5 text-destructive" />
+                    </Button>
+                  </li>
+                ))}
+                {!forwardersLoading && forwarders.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No forwarders yet.</p>
+                ) : null}
+              </ul>
+            </section>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AdminShell>
   );
 }

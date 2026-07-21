@@ -129,7 +129,7 @@ export interface DnsRecordView {
   name: string;
   value: string;
   priority?: number | null;
-  status: "EXPECTED" | "DETECTED" | "MISSING" | "MISMATCH" | "VERIFIED";
+  status: "EXPECTED" | "DETECTED" | "MISSING" | "MISMATCH" | "VERIFIED" | "PENDING";
   tone: VerificationTone;
 }
 

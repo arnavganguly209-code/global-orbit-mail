@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -11,25 +12,53 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { loginSchema, type LoginInput } from "@/lib/validations/auth";
 import { external } from "@/config/routes";
 
-export function LoginFormShell({ surface }: { surface: "user" | "admin" }) {
+export function LoginFormShell({
+  surface,
+  nextPath,
+}: {
+  surface: "user" | "admin";
+  nextPath?: string;
+}) {
+  const router = useRouter();
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: "",
+      email: surface === "admin" ? "admin@theglobalorbit.com" : "",
       password: "",
       remember: true,
     },
   });
 
-  const portalUrl = surface === "admin" ? external.admin : external.webmail;
+  async function onSubmit(values: LoginInput) {
+    if (surface === "user") {
+      toast.message("User portal login", {
+        description: "Redirecting to webmail.theglobalorbit.com",
+      });
+      window.setTimeout(() => {
+        window.location.href = external.webmail;
+      }, 400);
+      return;
+    }
 
-  function onSubmit(_values: LoginInput) {
-    toast.message("Opening production portal", {
-      description: `Redirecting to ${portalUrl.replace("https://", "")}`,
-    });
-    window.setTimeout(() => {
-      window.location.href = portalUrl;
-    }, 600);
+    try {
+      const res = await fetch("/api/admin/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: values.email,
+          password: values.password,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.message ?? "Login failed");
+      }
+      toast.success("Signed in");
+      router.replace(nextPath || "/admin");
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Login failed");
+    }
   }
 
   return (
@@ -50,12 +79,16 @@ export function LoginFormShell({ surface }: { surface: "user" | "admin" }) {
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
           <Label htmlFor={`${surface}-password`}>Password</Label>
-          <Link
-            href={portalUrl}
-            className="text-xs text-muted-foreground transition-colors hover:text-gold"
-          >
-            Forgot Password
-          </Link>
+          {surface === "user" ? (
+            <Link
+              href={external.webmail}
+              className="text-xs text-muted-foreground transition-colors hover:text-gold"
+            >
+              Forgot Password
+            </Link>
+          ) : (
+            <span className="text-xs text-muted-foreground">Seed: OrbitAdmin!2026</span>
+          )}
         </div>
         <Input
           id={`${surface}-password`}
@@ -82,10 +115,13 @@ export function LoginFormShell({ surface }: { surface: "user" | "admin" }) {
       </div>
       <Button
         type="submit"
-        className={`w-full ${surface === "admin" ? "gradient-blue-gold border-0 text-white" : "gradient-blue border-0"}`}
+        className={`w-full ${
+          surface === "admin" ? "gradient-blue-gold border-0 text-white" : "gradient-blue border-0"
+        }`}
         size="lg"
+        disabled={form.formState.isSubmitting}
       >
-        Sign In
+        {form.formState.isSubmitting ? "Signing in…" : "Sign In"}
       </Button>
     </form>
   );

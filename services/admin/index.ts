@@ -1,6 +1,7 @@
 import {
   auditRepository,
   dnsRepository,
+  getDefaultOrganizationId,
   settingsRepository,
   userRepository,
 } from "@/repositories";
@@ -11,7 +12,7 @@ import {
 } from "@/lib/validations/admin";
 
 export const userService = {
-  list(query: Record<string, string | string[] | undefined>) {
+  async list(query: Record<string, string | string[] | undefined>) {
     const parsed = auditQuerySchema
       .pick({ page: true, pageSize: true, search: true })
       .parse({
@@ -21,21 +22,22 @@ export const userService = {
       });
     return userRepository.list(parsed);
   },
-  create(body: unknown) {
+  async create(body: unknown, actorId?: string | null) {
     const input = userCreateSchema.parse(body);
-    return userRepository.create(input);
+    const organizationId = await getDefaultOrganizationId();
+    return userRepository.create({ ...input, organizationId, actorId });
   },
 };
 
 export const dnsService = {
-  list(domainId?: string) {
+  async list(domainId?: string) {
     if (domainId) return dnsRepository.listByDomain(domainId);
     return dnsRepository.listAll();
   },
 };
 
 export const auditService = {
-  list(query: Record<string, string | string[] | undefined>) {
+  async list(query: Record<string, string | string[] | undefined>) {
     const parsed = auditQuerySchema.parse({
       page: query.page,
       pageSize: query.pageSize,
@@ -45,8 +47,8 @@ export const auditService = {
     });
     return auditRepository.list(parsed);
   },
-  exportCsv() {
-    const rows = auditRepository.exportAll();
+  async exportCsv() {
+    const rows = await auditRepository.exportAll();
     const header = "id,actorEmail,action,resource,resourceId,ipAddress,createdAt";
     const lines = rows.map((r) =>
       [r.id, r.actorEmail, r.action, r.resource, r.resourceId, r.ipAddress, r.createdAt]
@@ -58,11 +60,13 @@ export const auditService = {
 };
 
 export const settingsService = {
-  get() {
-    return settingsRepository.getAll();
+  async get() {
+    const organizationId = await getDefaultOrganizationId();
+    return settingsRepository.getAll(organizationId);
   },
-  update(body: unknown) {
+  async update(body: unknown, actorId?: string | null) {
     const input = settingsUpdateSchema.parse(body);
-    return settingsRepository.update(input.section, input.values);
+    const organizationId = await getDefaultOrganizationId();
+    return settingsRepository.update(organizationId, input.section, input.values, actorId);
   },
 };

@@ -47,6 +47,15 @@ export const mailboxPasswordSchema = z.object({
   password: z.string().min(12).max(128),
 });
 
+export const aliasCreateSchema = z.object({
+  address: z.string().trim().email().max(254),
+});
+
+export const forwarderCreateSchema = z.object({
+  destination: z.string().trim().email().max(254),
+  keepCopy: z.boolean().default(true),
+});
+
 export const userCreateSchema = z.object({
   email: z.string().email(),
   name: z.string().trim().min(1).max(120).optional(),
@@ -54,7 +63,7 @@ export const userCreateSchema = z.object({
 });
 
 export const settingsUpdateSchema = z.object({
-  section: z.enum(["company", "brand", "smtp", "imap", "security"]),
+  section: z.enum(["company", "brand", "smtp", "imap", "security", "appearance"]),
   values: z.record(z.string(), z.unknown()),
 });
 

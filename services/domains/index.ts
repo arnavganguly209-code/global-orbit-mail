@@ -1,8 +1,13 @@
 import { domainRepository } from "@/repositories/domain.repository";
-import { domainCreateSchema, domainUpdateSchema, paginationSchema } from "@/lib/validations/admin";
+import {
+  domainCreateSchema,
+  domainUpdateSchema,
+  paginationSchema,
+} from "@/lib/validations/admin";
+import { getDefaultOrganizationId } from "@/repositories";
 
 export const domainService = {
-  list(query: Record<string, string | string[] | undefined>) {
+  async list(query: Record<string, string | string[] | undefined>) {
     const parsed = paginationSchema.parse({
       page: query.page,
       pageSize: query.pageSize,
@@ -12,29 +17,33 @@ export const domainService = {
     return domainRepository.list({ ...parsed, status });
   },
 
-  create(body: unknown) {
+  async create(body: unknown, actorId?: string | null) {
     const input = domainCreateSchema.parse(body);
-    if (domainRepository.getByName(input.name)) {
-      throw new Error("Domain already exists");
-    }
-    return domainRepository.create(input.name);
+    const existing = await domainRepository.getByName(input.name);
+    if (existing) throw new Error("Domain already exists");
+    const organizationId = await getDefaultOrganizationId();
+    return domainRepository.create({
+      name: input.name,
+      organizationId,
+      actorId,
+    });
   },
 
-  update(id: string, body: unknown) {
+  async update(id: string, body: unknown, actorId?: string | null) {
     const input = domainUpdateSchema.parse(body);
-    const updated = domainRepository.update(id, input);
+    const updated = await domainRepository.update(id, input, actorId);
     if (!updated) throw new Error("Domain not found");
     return updated;
   },
 
-  remove(id: string) {
-    const ok = domainRepository.remove(id);
+  async remove(id: string, actorId?: string | null) {
+    const ok = await domainRepository.softDelete(id, actorId);
     if (!ok) throw new Error("Domain not found");
     return true;
   },
 
-  get(id: string) {
-    const domain = domainRepository.getById(id);
+  async get(id: string) {
+    const domain = await domainRepository.getById(id);
     if (!domain) throw new Error("Domain not found");
     return domain;
   },

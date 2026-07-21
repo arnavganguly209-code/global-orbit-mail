@@ -1,21 +1,25 @@
 import { ok, fail, created, parseJson } from "@/lib/api/response";
+import { requireAdminActor } from "@/lib/api/actor";
 import { domainService } from "@/services/domains";
 
 export async function GET(request: Request) {
   try {
+    await requireAdminActor();
     const { searchParams } = new URL(request.url);
-    const query = Object.fromEntries(searchParams.entries());
-    return ok(domainService.list(query));
+    return ok(await domainService.list(Object.fromEntries(searchParams.entries())));
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Failed to list domains", 400);
+    const message = error instanceof Error ? error.message : "Failed to list domains";
+    return fail(message, message === "Unauthorized" ? 401 : 400);
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const actor = await requireAdminActor();
     const body = await parseJson(request);
-    return created(domainService.create(body), "Domain created");
+    return created(await domainService.create(body, actor.sub), "Domain created");
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Failed to create domain", 400);
+    const message = error instanceof Error ? error.message : "Failed to create domain";
+    return fail(message, message === "Unauthorized" ? 401 : 400);
   }
 }

@@ -84,7 +84,20 @@ export function AdminDashboardPage() {
                 </div>
                 <Activity className="size-4 text-gold" />
               </div>
-              <MailTrafficChart data={data.monitoring.series} />
+              <MailTrafficChart
+                data={
+                  data.monitoring.series.length > 0
+                    ? data.monitoring.series
+                    : [
+                        { label: "DB", mail: data.metrics.mailboxes, spam: 0 },
+                        { label: "Domains", mail: data.metrics.domains, spam: 0 },
+                        { label: "Users", mail: data.metrics.users, spam: 0 },
+                      ]
+                }
+              />
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Chart reflects live database counts until VPS mail telemetry is connected.
+              </p>
             </div>
 
             <div className="glass-surface space-y-4 rounded-2xl p-5">

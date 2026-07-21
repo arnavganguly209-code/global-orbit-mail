@@ -1,19 +1,28 @@
 import { ok, fail, parseJson } from "@/lib/api/response";
+import { requireAdminActor } from "@/lib/api/actor";
 import { settingsService } from "@/services/admin";
 
 export async function GET() {
   try {
-    return ok(settingsService.get());
+    await requireAdminActor();
+    return ok(await settingsService.get());
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Settings failed", 500);
+    const message = error instanceof Error ? error.message : "Settings failed";
+    return fail(message, message === "Unauthorized" ? 401 : 500);
   }
 }
 
 export async function PATCH(request: Request) {
   try {
+    const actor = await requireAdminActor();
     const body = await parseJson(request);
-    return ok(settingsService.update(body), undefined, "Settings updated");
+    return ok(await settingsService.update(body, actor.sub), undefined, "Settings updated");
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Settings update failed", 400);
+    const message = error instanceof Error ? error.message : "Settings update failed";
+    return fail(message, message === "Unauthorized" ? 401 : 400);
   }
+}
+
+export async function PUT(request: Request) {
+  return PATCH(request);
 }

@@ -1,21 +1,25 @@
 import { ok, fail, created, parseJson } from "@/lib/api/response";
+import { requireAdminActor } from "@/lib/api/actor";
 import { mailboxService } from "@/services/mailboxes";
 
 export async function GET(request: Request) {
   try {
+    await requireAdminActor();
     const { searchParams } = new URL(request.url);
-    const query = Object.fromEntries(searchParams.entries());
-    return ok(mailboxService.list(query));
+    return ok(await mailboxService.list(Object.fromEntries(searchParams.entries())));
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Failed to list mailboxes", 400);
+    const message = error instanceof Error ? error.message : "Failed to list mailboxes";
+    return fail(message, message === "Unauthorized" ? 401 : 400);
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const actor = await requireAdminActor();
     const body = await parseJson(request);
-    return created(mailboxService.create(body), "Mailbox created");
+    return created(await mailboxService.create(body, actor.sub), "Mailbox created");
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Failed to create mailbox", 400);
+    const message = error instanceof Error ? error.message : "Failed to create mailbox";
+    return fail(message, message === "Unauthorized" ? 401 : 400);
   }
 }

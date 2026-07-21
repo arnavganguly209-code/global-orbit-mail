@@ -1,82 +1,95 @@
 import { domainRepository } from "@/repositories/domain.repository";
 import { mailboxRepository } from "@/repositories/mailbox.repository";
 import { userRepository } from "@/repositories";
-import type { DashboardMetrics, MonitoringSnapshot } from "@/types";
+import { prisma } from "@/lib/db";
+import type { DashboardMetrics, MonitoringSnapshot, SystemHealthComponent } from "@/types";
 
-/**
- * Monitoring returns architecture-ready telemetry.
- * CPU/RAM/Disk are null until VPS integration is connected.
- */
+async function checkDatabase(): Promise<SystemHealthComponent> {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return {
+      id: "postgres",
+      name: "PostgreSQL",
+      status: "operational",
+      detail: "Database connection healthy",
+    };
+  } catch {
+    return {
+      id: "postgres",
+      name: "PostgreSQL",
+      status: "down",
+      detail: "Unable to reach database",
+    };
+  }
+}
+
 export const monitoringService = {
-  getSnapshot(): MonitoringSnapshot {
+  async getSnapshot(): Promise<MonitoringSnapshot> {
+    const database = await checkDatabase();
+    const auditCount = await prisma.auditLog.count().catch(() => 0);
+
     return {
       cpuPercent: null,
       ramPercent: null,
       diskPercent: null,
       mailQueue: null,
       components: [
+        database,
         {
-          id: "nginx",
-          name: "Nginx",
-          status: "awaiting_integration",
-          detail: "Edge proxy integration pending",
+          id: "api",
+          name: "Admin API",
+          status: "operational",
+          detail: "Enterprise REST routes online",
+        },
+        {
+          id: "application",
+          name: "Application",
+          status: "operational",
+          detail: `Audit trail active · ${auditCount} events`,
         },
         {
           id: "postfix",
           name: "Postfix",
           status: "awaiting_integration",
-          detail: "SMTP engine not connected in Phase 2A",
+          detail: "SMTP engine deferred to Phase 3",
         },
         {
           id: "dovecot",
           name: "Dovecot",
           status: "awaiting_integration",
-          detail: "IMAP engine not connected in Phase 2A",
+          detail: "IMAP engine deferred to Phase 3",
         },
         {
           id: "rspamd",
           name: "Rspamd",
           status: "awaiting_integration",
-          detail: "Spam filter telemetry pending",
-        },
-        {
-          id: "postgres",
-          name: "PostgreSQL",
-          status: "awaiting_integration",
-          detail: "Schema ready — database provisioning pending",
-        },
-        {
-          id: "api",
-          name: "Admin API",
-          status: "operational",
-          detail: "Enterprise API routes online",
+          detail: "Spam filter deferred to Phase 3",
         },
       ],
-      series: [
-        { label: "00:00", mail: 42, spam: 8 },
-        { label: "04:00", mail: 28, spam: 5 },
-        { label: "08:00", mail: 96, spam: 18 },
-        { label: "12:00", mail: 140, spam: 24 },
-        { label: "16:00", mail: 122, spam: 21 },
-        { label: "20:00", mail: 88, spam: 14 },
-      ],
+      series: [],
     };
   },
 };
 
 export const dashboardService = {
-  getMetrics(): DashboardMetrics {
-    const storage = mailboxRepository.storage();
-    const series = monitoringService.getSnapshot().series;
+  async getMetrics(): Promise<DashboardMetrics> {
+    const [domains, activeDomains, mailboxes, users, storage] = await Promise.all([
+      domainRepository.count(),
+      domainRepository.countActive(),
+      mailboxRepository.count(),
+      userRepository.count(),
+      mailboxRepository.storage(),
+    ]);
+
     return {
-      domains: domainRepository.count(),
-      activeDomains: domainRepository.countActive(),
-      mailboxes: mailboxRepository.count(),
-      users: userRepository.count(),
+      domains,
+      activeDomains,
+      mailboxes,
+      users,
       storageUsedGb: Number((storage.usedMb / 1024).toFixed(2)),
       storageQuotaGb: Number((storage.quotaMb / 1024).toFixed(2)),
-      spamBlocked24h: series.reduce((sum, point) => sum + point.spam, 0),
-      mailQueueDepth: series[series.length - 1]?.mail ?? 0,
+      spamBlocked24h: 0,
+      mailQueueDepth: 0,
     };
   },
 };
