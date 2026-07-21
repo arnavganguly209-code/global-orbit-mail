@@ -1,24 +1,33 @@
-import { generateKeyPairSync } from "node:crypto";
+/**
+ * DNS record blueprints + instruction payload (no Node built-ins).
+ * DKIM key generation lives in lib/dns/dkim.ts (server-only).
+ */
+
 import type { DnsRecordStatus, DnsRecordType } from "@prisma/client";
 
 const MAIL_HOST = process.env.MAIL_HOSTNAME ?? "mail.globalorbitmail.com";
 const WEBMAIL_HOST = process.env.WEBMAIL_HOSTNAME ?? "webmail.globalorbitmail.cloud";
 const AUTOCONFIG_HOST = process.env.AUTOCONFIG_HOSTNAME ?? WEBMAIL_HOST;
 const MAIL_IPV4 = process.env.MAIL_SERVER_IPV4 ?? "0.0.0.0";
+const MAIL_IPV6 = process.env.MAIL_SERVER_IPV6 ?? "";
 
 export type DnsRecordPurpose =
+  | "mail_a"
+  | "mail_aaaa"
   | "mx"
   | "spf"
   | "dkim"
   | "dmarc"
   | "autodiscover"
   | "autoconfig"
-  | "mail_a";
+  | "imap"
+  | "pop"
+  | "smtp";
 
 export type DnsRecordBlueprint = {
   type: DnsRecordType;
-  /** Provider publish type (TXT for SPF/DKIM/DMARC). */
-  publishType: "A" | "MX" | "TXT" | "CNAME";
+  /** Provider publish type shown in UI / clipboard. */
+  publishType: "A" | "AAAA" | "MX" | "TXT" | "CNAME" | "SRV";
   name: string;
   value: string;
   priority: number | null;
@@ -28,36 +37,6 @@ export type DnsRecordBlueprint = {
   label: string;
 };
 
-export type GeneratedDkimKey = {
-  selector: string;
-  publicKey: string;
-  privateKeyPem: string;
-  dnsValue: string;
-};
-
-/** Generate RSA-2048 DKIM keypair for a domain. */
-export function generateDkimKeypair(selector = "orbit"): GeneratedDkimKey {
-  const { publicKey, privateKey } = generateKeyPairSync("rsa", {
-    modulusLength: 2048,
-    publicKeyEncoding: { type: "spki", format: "pem" },
-    privateKeyEncoding: { type: "pkcs8", format: "pem" },
-  });
-
-  const publicKeyBody = publicKey
-    .replace(/-----BEGIN PUBLIC KEY-----/g, "")
-    .replace(/-----END PUBLIC KEY-----/g, "")
-    .replace(/\s+/g, "");
-
-  const dnsValue = `v=DKIM1; k=rsa; p=${publicKeyBody}`;
-
-  return {
-    selector,
-    publicKey: publicKeyBody,
-    privateKeyPem: privateKey,
-    dnsValue,
-  };
-}
-
 export function buildDnsRecordsForDomain(
   domainName: string,
   options?: {
@@ -66,6 +45,7 @@ export function buildDnsRecordsForDomain(
     mailHost?: string;
     webmailHost?: string;
     mailIpv4?: string;
+    mailIpv6?: string;
   },
 ): DnsRecordBlueprint[] {
   const name = domainName.toLowerCase().replace(/\.$/, "");
@@ -73,12 +53,13 @@ export function buildDnsRecordsForDomain(
   const webmailHost = (options?.webmailHost ?? WEBMAIL_HOST).replace(/\.$/, "");
   const autoconfigHost = (process.env.AUTOCONFIG_HOSTNAME ?? AUTOCONFIG_HOST).replace(/\.$/, "");
   const mailIpv4 = options?.mailIpv4 ?? MAIL_IPV4;
+  const mailIpv6 = (options?.mailIpv6 ?? MAIL_IPV6).trim();
   const selector = options?.dkimSelector ?? "orbit";
   const dkimValue =
     options?.dkimDnsValue ??
     "v=DKIM1; k=rsa; p=PENDING_GENERATE_ON_DOMAIN_CREATE";
 
-  return [
+  const records: DnsRecordBlueprint[] = [
     {
       type: "A",
       publishType: "A",
@@ -156,7 +137,56 @@ export function buildDnsRecordsForDomain(
       purpose: "autoconfig",
       label: "Autoconfig",
     },
+    {
+      type: "TXT",
+      publishType: "SRV",
+      name: `_imap._tcp.${name}`,
+      value: `0 1 993 ${mailHost}.`,
+      priority: 0,
+      status: "PENDING",
+      ttl: 3600,
+      purpose: "imap",
+      label: "IMAP (SRV)",
+    },
+    {
+      type: "TXT",
+      publishType: "SRV",
+      name: `_pop3._tcp.${name}`,
+      value: `0 1 995 ${mailHost}.`,
+      priority: 0,
+      status: "PENDING",
+      ttl: 3600,
+      purpose: "pop",
+      label: "POP3 (SRV)",
+    },
+    {
+      type: "TXT",
+      publishType: "SRV",
+      name: `_submission._tcp.${name}`,
+      value: `0 1 587 ${mailHost}.`,
+      priority: 0,
+      status: "PENDING",
+      ttl: 3600,
+      purpose: "smtp",
+      label: "SMTP (SRV)",
+    },
   ];
+
+  if (mailIpv6) {
+    records.splice(1, 0, {
+      type: "AAAA",
+      publishType: "AAAA",
+      name: `mail.${name}`,
+      value: mailIpv6,
+      priority: null,
+      status: "PENDING",
+      ttl: 3600,
+      purpose: "mail_aaaa",
+      label: "AAAA (mail)",
+    });
+  }
+
+  return records;
 }
 
 export type DnsInstructionRecord = {
@@ -193,24 +223,33 @@ export function toDnsInstructionJson(
     domain: domainName.toLowerCase(),
     generatedAt: new Date().toISOString(),
     mailHostname: MAIL_HOST,
+    title: "Required DNS Records",
     records: {
       a: byPurpose("mail_a"),
+      aaaa: byPurpose("mail_aaaa"),
       mx: byPurpose("mx"),
       spf: byPurpose("spf"),
       dkim: byPurpose("dkim"),
       dmarc: byPurpose("dmarc"),
       autodiscover: byPurpose("autodiscover"),
       autoconfig: byPurpose("autoconfig"),
+      imap: byPurpose("imap"),
+      pop: byPurpose("pop"),
+      smtp: byPurpose("smtp"),
     },
     flat: formatted,
     instructions: {
       a: "Create an A record for mail.<domain> pointing to the Global Orbit mail server IP.",
+      aaaa: "Optional AAAA for mail.<domain> when IPv6 is enabled.",
       mx: "Point MX to the Global Orbit mail host with priority 10.",
       spf: "Publish the SPF TXT on the apex domain.",
       dkim: "Publish the DKIM TXT at selector._domainkey.",
       dmarc: "Publish the DMARC TXT at _dmarc.",
       autodiscover: "CNAME autodiscover to the webmail host (Outlook).",
       autoconfig: "CNAME autoconfig to the webmail host (Thunderbird).",
+      imap: "SRV _imap._tcp for secure IMAP (993).",
+      pop: "SRV _pop3._tcp for secure POP3 (995).",
+      smtp: "SRV _submission._tcp for SMTP submission (587).",
     },
   };
 }
@@ -246,6 +285,7 @@ function formatRecord(record: {
 function inferPurpose(record: { type: string; name: string; value: string }): string {
   const type = record.type.toUpperCase();
   const name = record.name.toLowerCase();
+  if (type === "AAAA") return "mail_aaaa";
   if (type === "A" || name.startsWith("mail.")) return "mail_a";
   if (type === "MX") return "mx";
   if (type === "SPF" || record.value.startsWith("v=spf1")) return "spf";
@@ -253,6 +293,9 @@ function inferPurpose(record: { type: string; name: string; value: string }): st
   if (type === "DMARC" || name.startsWith("_dmarc.")) return "dmarc";
   if (name.startsWith("autodiscover.")) return "autodiscover";
   if (name.startsWith("autoconfig.")) return "autoconfig";
+  if (name.startsWith("_imap.")) return "imap";
+  if (name.startsWith("_pop3.")) return "pop";
+  if (name.startsWith("_submission.")) return "smtp";
   return "other";
 }
 
@@ -260,6 +303,8 @@ function labelForPurpose(purpose: string) {
   switch (purpose) {
     case "mail_a":
       return "A (mail)";
+    case "mail_aaaa":
+      return "AAAA (mail)";
     case "mx":
       return "MX";
     case "spf":
@@ -272,33 +317,15 @@ function labelForPurpose(purpose: string) {
       return "Autodiscover";
     case "autoconfig":
       return "Autoconfig";
+    case "imap":
+      return "IMAP (SRV)";
+    case "pop":
+      return "POP3 (SRV)";
+    case "smtp":
+      return "SMTP (SRV)";
     default:
       return purpose.toUpperCase();
   }
-}
-
-export function formatDnsRecordsForClipboard(
-  records: Array<{
-    type?: string;
-    publishType?: string;
-    label?: string;
-    host?: string;
-    name?: string;
-    value: string;
-    priority?: number | null;
-  }>,
-  domainName?: string,
-) {
-  const header = domainName ? `# DNS records for ${domainName}\n` : "";
-  const lines = records.map((r) => {
-    const host = r.host ?? r.name ?? "@";
-    const kind = r.publishType ?? r.type ?? "TXT";
-    const priority =
-      r.priority != null && String(kind).toUpperCase() === "MX" ? `\t${r.priority}` : "";
-    const label = r.label ? `# ${r.label}\n` : "";
-    return `${label}${kind}\t${host}\t${r.value}${priority}`;
-  });
-  return `${header}${lines.join("\n\n")}`;
 }
 
 export function getMailHostname() {

@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { mapDomain } from "@/repositories/mappers";
-import { buildDnsRecordsForDomain, generateDkimKeypair } from "@/lib/dns/records";
+import { buildDnsRecordsForDomain } from "@/lib/dns/records";
+import { generateDkimKeypair } from "@/lib/dns/dkim";
 import { MailProvisioningService } from "@/services/provisioning/mail-provisioning-service";
 import type { AdminDomain, PaginatedResult } from "@/types";
 import type { DomainStatus, Prisma } from "@prisma/client";

@@ -1,9 +1,9 @@
 import { prisma } from "@/lib/db";
 import {
   buildDnsRecordsForDomain,
-  generateDkimKeypair,
   toDnsInstructionJson,
 } from "@/lib/dns/records";
+import { generateDkimKeypair } from "@/lib/dns/dkim";
 
 export { buildDnsRecordsForDomain, generateDkimKeypair, toDnsInstructionJson };
 

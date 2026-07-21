@@ -39,7 +39,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Loading } from "@/components/ui/loading";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { adminFetch } from "@/lib/api/admin-fetch";
-import { formatDnsRecordsForClipboard } from "@/lib/dns/records";
+import { formatDnsRecordsForClipboard, formatSingleDnsRecordForClipboard } from "@/lib/dns/clipboard";
 import type {
   AdminDomain,
   ApiResponse,
@@ -102,16 +102,7 @@ async function copyText(text: string) {
 }
 
 function singleRecordClipboardText(record: DnsInstructionRecord) {
-  const lines = [
-    `Type: ${record.publishType}`,
-    `Host: ${record.host}`,
-    `Value: ${record.value}`,
-  ];
-  if (record.priority != null && record.publishType.toUpperCase() === "MX") {
-    lines.push(`Priority: ${record.priority}`);
-  }
-  if (record.ttl) lines.push(`TTL: ${record.ttl}`);
-  return lines.join("\n");
+  return formatSingleDnsRecordForClipboard(record);
 }
 
 async function fetchDomains(params: {
@@ -464,10 +455,10 @@ export function DomainsAdminPage() {
       >
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-hidden sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>DNS records — {dnsDialogDomain?.name}</DialogTitle>
+            <DialogTitle>Required DNS Records — {dnsDialogDomain?.name}</DialogTitle>
             <DialogDescription>
-              Generated records for mail delivery. Publish these at your DNS provider, then run
-              Verify.
+              Publish these records at your DNS provider. They are generated automatically even if
+              public DNS is not configured yet. Then run Verify.
             </DialogDescription>
           </DialogHeader>
 
@@ -488,7 +479,7 @@ export function DomainsAdminPage() {
                         </span>
                         <span className="font-mono text-xs text-muted-foreground">
                           {record.publishType}
-                          {record.priority != null ? ` · priority ${record.priority}` : ""}
+                          {record.priority != null ? ` · Priority ${record.priority}` : ""}
                           {record.ttl ? ` · TTL ${record.ttl}` : ""}
                         </span>
                       </div>
@@ -503,20 +494,34 @@ export function DomainsAdminPage() {
                         Copy
                       </Button>
                     </div>
-                    <dl className="grid gap-2 text-sm">
-                      <div>
+                    <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                      <div className="sm:col-span-2">
                         <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
                           Host
                         </dt>
                         <dd className="break-all font-mono text-xs">{record.host}</dd>
                       </div>
-                      <div>
+                      <div className="sm:col-span-2">
                         <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
                           Value
                         </dt>
                         <dd className="break-all font-mono text-xs leading-relaxed">
                           {record.value}
                         </dd>
+                      </div>
+                      {record.priority != null ? (
+                        <div>
+                          <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                            Priority
+                          </dt>
+                          <dd className="font-mono text-xs">{record.priority}</dd>
+                        </div>
+                      ) : null}
+                      <div>
+                        <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                          TTL
+                        </dt>
+                        <dd className="font-mono text-xs">{record.ttl}</dd>
                       </div>
                     </dl>
                   </div>
@@ -527,7 +532,7 @@ export function DomainsAdminPage() {
 
           <DialogFooter className="gap-2 sm:justify-between">
             <p className="text-xs text-muted-foreground">
-              Includes A (mail), MX, SPF, DKIM, DMARC, Autodiscover, Autoconfig
+              A · AAAA · MX · SPF · DKIM · DMARC · Autodiscover · Autoconfig · IMAP · POP · SMTP
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
