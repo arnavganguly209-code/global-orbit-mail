@@ -1,0 +1,15 @@
+/* GLOBAL ORBIT MAIL — embed/editor chrome */
+@import url("../../elastic/styles/embed.css");
+
+:root {
+  --orbit-accent: #3b82f6;
+}
+
+body {
+  background: #0a0f1a;
+  color: #e8eef9;
+}
+
+a {
+  color: #60a5fa;
+}

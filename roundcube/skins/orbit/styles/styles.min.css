@@ -1,0 +1,539 @@
+/* GLOBAL ORBIT MAIL — Orbit skin (extends Elastic)
+ * Isolates branding/UI. Does not alter mail/auth logic.
+ */
+
+@import url("../../elastic/styles/styles.min.css");
+
+:root {
+  --orbit-bg-0: #05080f;
+  --orbit-bg-1: #0a1220;
+  --orbit-blue: #3b82f6;
+  --orbit-blue-bright: #60a5fa;
+  --orbit-blue-deep: #1d4ed8;
+  --orbit-cyan: #38bdf8;
+  --orbit-glass: rgba(12, 18, 32, 0.55);
+  --orbit-glass-border: rgba(148, 163, 184, 0.22);
+  --orbit-text: #e8eef9;
+  --orbit-muted: #94a3b8;
+  --orbit-radius: 24px;
+  --orbit-shadow: 0 28px 80px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(59, 130, 246, 0.12);
+  --orbit-font: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Prefer branded web fonts when available on host */
+@font-face {
+  font-family: "Orbit Display";
+  src: local("Segoe UI Semibold"), local("Helvetica Neue"), local("Arial");
+  font-weight: 600;
+  font-display: swap;
+}
+
+/* ========== LOGIN STAGE ========== */
+body.task-login,
+html.task-login,
+body.login,
+#layout.task-login {
+  background: var(--orbit-bg-0) !important;
+  color: var(--orbit-text);
+  font-family: var(--orbit-font);
+  min-height: 100%;
+}
+
+body.task-login #layout,
+body.task-login #layout-content,
+.orbit-login-layout {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.orbit-login-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 700px at 50% -10%, rgba(37, 99, 235, 0.28), transparent 60%),
+    radial-gradient(900px 500px at 15% 85%, rgba(14, 165, 233, 0.12), transparent 55%),
+    radial-gradient(800px 480px at 90% 70%, rgba(29, 78, 216, 0.18), transparent 50%),
+    linear-gradient(165deg, #05080f 0%, #0a1220 45%, #070b14 100%);
+}
+
+.orbit-stars {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.orbit-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.55;
+  animation: orbit-drift 22s ease-in-out infinite alternate;
+}
+
+.orbit-glow-a {
+  width: 420px;
+  height: 420px;
+  left: 12%;
+  top: 18%;
+  background: rgba(37, 99, 235, 0.45);
+}
+
+.orbit-glow-b {
+  width: 520px;
+  height: 520px;
+  right: 8%;
+  bottom: 10%;
+  background: rgba(14, 165, 233, 0.28);
+  animation-duration: 28s;
+  animation-direction: alternate-reverse;
+}
+
+.orbit-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 35%, rgba(0, 0, 0, 0.55) 100%);
+}
+
+@keyframes orbit-drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(40px, -30px, 0) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-glow { animation: none; }
+}
+
+/* Login frame */
+body.task-login #layout-content.orbit-login-layout,
+.orbit-login-layout {
+  position: relative;
+  z-index: 1;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 32px 20px 40px;
+}
+
+.orbit-login-frame {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+
+.orbit-brand {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+body.task-login #logo,
+.orbit-brand #logo {
+  display: block;
+  width: 230px;
+  max-width: min(230px, 72vw);
+  height: auto;
+  margin: 0 auto 4px;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.35));
+}
+
+.orbit-product {
+  margin: 0;
+  font-family: "Orbit Display", var(--orbit-font);
+  font-size: clamp(1.35rem, 3.2vw, 1.75rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #f8fafc;
+  text-transform: uppercase;
+}
+
+.orbit-tagline {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--orbit-muted);
+  letter-spacing: 0.04em;
+  font-weight: 400;
+}
+
+/* Glass card */
+.orbit-card {
+  width: 100%;
+  background: var(--orbit-glass);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+  border: 1px solid var(--orbit-glass-border);
+  border-radius: var(--orbit-radius);
+  box-shadow: var(--orbit-shadow);
+  padding: 28px 28px 22px;
+}
+
+body.task-login #login-form,
+.orbit-propform {
+  margin: 0;
+  width: 100%;
+}
+
+body.task-login #login-form table,
+body.task-login #login-form .propform,
+.orbit-propform table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 14px;
+}
+
+body.task-login #login-form td.title,
+body.task-login #login-form label {
+  display: block;
+  color: var(--orbit-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+body.task-login #login-form td {
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  vertical-align: top;
+}
+
+body.task-login #rcmloginuser,
+body.task-login #rcmloginpwd,
+body.task-login #rcmloginlang,
+body.task-login input.form-control,
+body.task-login select.form-control {
+  width: 100% !important;
+  height: 52px !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  background: rgba(8, 12, 22, 0.72) !important;
+  color: var(--orbit-text) !important;
+  font-size: 1rem !important;
+  padding: 0 16px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+body.task-login #rcmloginuser:focus,
+body.task-login #rcmloginpwd:focus,
+body.task-login #rcmloginlang:focus,
+body.task-login input.form-control:focus,
+body.task-login select.form-control:focus {
+  outline: none !important;
+  border-color: rgba(96, 165, 250, 0.85) !important;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+  background: rgba(10, 16, 28, 0.9) !important;
+}
+
+body.task-login #rcmloginuser::placeholder,
+body.task-login #rcmloginpwd::placeholder {
+  color: rgba(148, 163, 184, 0.75);
+}
+
+.orbit-extras,
+.orbit-extras-row td {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.orbit-remember {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--orbit-muted);
+  font-size: 0.88rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.orbit-remember input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--orbit-blue);
+}
+
+.orbit-toggle-pass {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--orbit-blue-bright);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 2px;
+}
+
+.orbit-toggle-pass:hover {
+  color: #93c5fd;
+}
+
+.orbit-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 8px 0 4px;
+  font-size: 0.86rem;
+}
+
+.orbit-links a {
+  color: var(--orbit-muted);
+  text-decoration: none;
+}
+
+.orbit-links a:hover {
+  color: var(--orbit-blue-bright);
+}
+
+.orbit-dot {
+  color: rgba(148, 163, 184, 0.5);
+}
+
+/* Submit button */
+body.task-login #rcmloginsubmit,
+body.task-login .button.mainaction,
+body.task-login input.button.mainaction {
+  display: block;
+  width: 100% !important;
+  height: 52px !important;
+  margin-top: 10px !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  font-size: 1.02rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em;
+  color: #fff !important;
+  cursor: pointer;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 45%, #0ea5e9 100%) !important;
+  box-shadow:
+    0 10px 28px rgba(37, 99, 235, 0.45),
+    0 0 0 1px rgba(147, 197, 253, 0.25) inset !important;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+body.task-login #rcmloginsubmit:hover,
+body.task-login .button.mainaction:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+  box-shadow:
+    0 14px 36px rgba(37, 99, 235, 0.55),
+    0 0 0 1px rgba(147, 197, 253, 0.35) inset !important;
+}
+
+body.task-login #rcmloginsubmit:active {
+  transform: translateY(0);
+}
+
+body.task-login #rcmloginsubmit.orbit-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+
+body.task-login #rcmloginsubmit.orbit-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: orbit-spin 0.7s linear infinite;
+}
+
+@keyframes orbit-spin {
+  to { transform: rotate(360deg); }
+}
+
+body.task-login #login-footer,
+.orbit-login-footer {
+  display: none !important;
+}
+
+.orbit-dev-credit {
+  margin: 4px 0 0;
+  text-align: center;
+  font-size: 0.78rem;
+  color: rgba(148, 163, 184, 0.85);
+  letter-spacing: 0.02em;
+}
+
+.orbit-dev-credit a {
+  color: #cbd5e1;
+  text-decoration: none;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.orbit-dev-credit a:hover {
+  color: var(--orbit-blue-bright);
+  border-bottom-color: var(--orbit-blue-bright);
+}
+
+body.task-login .noscriptwarning {
+  position: relative;
+  z-index: 2;
+  color: #fecaca;
+  text-align: center;
+}
+
+/* Hide leftover Roundcube product strings on login if any slip through */
+body.task-login #login-footer .support-link {
+  display: none;
+}
+
+/* Dark mode toggle control (Elastic) */
+body.task-login .special-buttons,
+body.task-login #taskmenu {
+  z-index: 3;
+}
+
+body.task-login .dark-mode-toggle,
+body.task-login a.darkmode {
+  color: var(--orbit-muted) !important;
+}
+
+/* Language row polish */
+body.task-login #rcmloginlang {
+  cursor: pointer;
+}
+
+/* ========== POST-LOGIN APP SHELL ========== */
+:root {
+  --orbit-sidebar: #0b1220;
+  --orbit-toolbar: #0e1628;
+  --orbit-panel: #111827;
+  --orbit-accent: #3b82f6;
+}
+
+html.dark-mode,
+body.dark-mode,
+html[data-color-mode="dark"] {
+  color-scheme: dark;
+}
+
+#layout-menu,
+#mailboxlist,
+#directorylist,
+.listing.iconized {
+  background: var(--orbit-sidebar) !important;
+}
+
+#layout-menu {
+  border-right: 1px solid rgba(148, 163, 184, 0.12) !important;
+}
+
+#layout-list,
+#layout-content,
+#layout-sidebar {
+  background: #0a0f1a !important;
+}
+
+#messagelist thead th,
+.toolbar,
+#messagetoolbar,
+.header {
+  background: var(--orbit-toolbar) !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+#messagelist tbody tr:hover td,
+#messagelist tr.selected td {
+  background: rgba(59, 130, 246, 0.12) !important;
+}
+
+a.button,
+.button,
+.btn {
+  border-radius: 10px !important;
+}
+
+.button.mainaction,
+a.button.mainaction,
+.btn-primary {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+  border: 0 !important;
+  color: #fff !important;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
+}
+
+#mailboxlist li.mailbox.selected > a,
+#mailboxlist li.selected > a {
+  background: rgba(59, 130, 246, 0.18) !important;
+  color: #e2e8f0 !important;
+  border-radius: 10px;
+}
+
+#compose-content,
+#compose-body,
+.formcontent,
+.content {
+  border-radius: 12px;
+}
+
+#logo,
+#header .logo {
+  max-height: 36px;
+}
+
+/* Soften Elastic chrome toward SaaS */
+#layout {
+  background: #070b14 !important;
+}
+
+.popupmenu,
+.ui-dialog,
+.popover {
+  border-radius: 14px !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Responsive login */
+@media (max-width: 640px) {
+  .orbit-card {
+    padding: 22px 18px 18px;
+    border-radius: 20px;
+  }
+
+  body.task-login #logo,
+  .orbit-brand #logo {
+    width: 200px;
+  }
+
+  .orbit-product {
+    letter-spacing: 0.05em;
+  }
+
+  body.task-login #layout-content.orbit-login-layout {
+    padding: 24px 14px 32px;
+  }
+}
+
+@media (max-width: 380px) {
+  body.task-login #logo,
+  .orbit-brand #logo {
+    width: 180px;
+  }
+}

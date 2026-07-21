@@ -41,10 +41,39 @@ export const mailboxUpdateSchema = z.object({
   displayName: z.string().trim().max(120).nullable().optional(),
   quotaMb: z.coerce.number().int().min(100).max(102400).optional(),
   status: z.enum(["ACTIVE", "SUSPENDED", "DISABLED", "PENDING"]).optional(),
+  vacationEnabled: z.boolean().optional(),
+  vacationSubject: z.string().trim().max(200).nullable().optional(),
+  vacationBody: z.string().trim().max(10000).nullable().optional(),
+  vacationExpiresAt: z.string().datetime().nullable().optional(),
 });
 
-export const mailboxPasswordSchema = z.object({
-  password: z.string().min(12).max(128),
+export const mailboxPasswordSchema = z
+  .object({
+    password: z.string().min(12).max(128).optional(),
+    generate: z.boolean().optional(),
+    length: z.coerce.number().int().min(12).max(64).optional(),
+  })
+  .refine((v) => Boolean(v.password) || v.generate === true, {
+    message: "Provide password or set generate=true",
+  });
+
+export const domainVerifySchema = z.object({
+  domainId: z.string().uuid(),
+});
+
+export const passwordGenerateSchema = z.object({
+  mailboxId: z.string().uuid().optional(),
+  length: z.coerce.number().int().min(12).max(64).default(20),
+  apply: z.boolean().default(false),
+});
+
+export const storageQuerySchema = z.object({
+  organizationId: z.string().uuid().optional(),
+  mailboxId: z.string().uuid().optional(),
+  sync: z
+    .union([z.literal("true"), z.literal("false"), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === "true"),
 });
 
 export const aliasCreateSchema = z.object({

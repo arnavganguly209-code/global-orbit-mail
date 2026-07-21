@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { mapDomain } from "@/repositories/mappers";
+import { buildDnsRecordsForDomain, generateDkimKeypair } from "@/lib/dns/records";
+import { mailEngine } from "@/services/provisioning/mail-engine";
 import type { AdminDomain, PaginatedResult } from "@/types";
 import type { DomainStatus, Prisma } from "@prisma/client";
 
@@ -10,9 +12,11 @@ export const domainRepository = {
     pageSize: number;
     search?: string;
     status?: string;
+    organizationId?: string;
   }): Promise<PaginatedResult<AdminDomain>> {
     const where: Prisma.DomainWhereInput = {
       deletedAt: null,
+      ...(params.organizationId ? { organizationId: params.organizationId } : {}),
       ...(params.status ? { status: params.status as DomainStatus } : {}),
       ...(params.search
         ? {
@@ -63,6 +67,7 @@ export const domainRepository = {
     actorId?: string | null;
   }) {
     const name = input.name.toLowerCase();
+    const dkim = generateDkimKeypair("orbit");
 
     const domain = await prisma.$transaction(async (tx) => {
       const created = await tx.domain.create({
@@ -72,47 +77,66 @@ export const domainRepository = {
           status: "PENDING",
           sslStatus: "NONE",
           dnsStatus: "PENDING",
-          mailStatus: "DISABLED",
+          mailStatus: "PROVISIONING",
+          dkimSelector: dkim.selector,
+          dkimPublicKey: dkim.publicKey,
+          dkimPrivateKey: dkim.privateKeyPem,
         },
       });
 
-      const { buildDnsRecordsForDomain } = await import("@/lib/dns/records");
-      const records = buildDnsRecordsForDomain(created.name);
+      const records = buildDnsRecordsForDomain(created.name, {
+        dkimSelector: dkim.selector,
+        dkimDnsValue: dkim.dnsValue,
+      });
+
       await tx.dnsRecord.createMany({
-        data: records.map((record) => ({
+        data: records.map(({ purpose: _purpose, ...record }) => ({
           domainId: created.id,
           ...record,
         })),
       });
+
       await tx.verification.createMany({
         data: [
           {
             kind: "DNS_MX",
             state: "PENDING",
             domainId: created.id,
+            organizationId: input.organizationId,
             target: created.name,
-            detail: "MX verification architecture ready",
+            detail: "Awaiting live MX verification",
           },
           {
             kind: "DNS_SPF",
             state: "PENDING",
             domainId: created.id,
+            organizationId: input.organizationId,
             target: created.name,
-            detail: "SPF verification architecture ready",
+            detail: "Awaiting live SPF verification",
           },
           {
             kind: "DNS_DKIM",
             state: "PENDING",
             domainId: created.id,
-            target: created.name,
-            detail: "DKIM verification architecture ready",
+            organizationId: input.organizationId,
+            target: `${dkim.selector}._domainkey.${created.name}`,
+            detail: "Awaiting live DKIM verification",
           },
           {
             kind: "DNS_DMARC",
             state: "PENDING",
             domainId: created.id,
-            target: created.name,
-            detail: "DMARC verification architecture ready",
+            organizationId: input.organizationId,
+            target: `_dmarc.${created.name}`,
+            detail: "Awaiting live DMARC verification",
+          },
+          {
+            kind: "SSL",
+            state: "PENDING",
+            domainId: created.id,
+            organizationId: input.organizationId,
+            target: process.env.MAIL_HOSTNAME ?? "mail.globalorbitmail.com",
+            detail: "Awaiting TLS check on mail host",
           },
         ],
       });
@@ -123,15 +147,58 @@ export const domainRepository = {
       });
     });
 
+    const provision = await mailEngine.runTracked({
+      kind: "DOMAIN_CREATE",
+      command: "domain.create",
+      domainId: domain.id,
+      payload: {
+        domain: domain.name,
+        dkimSelector: dkim.selector,
+        dkimPublicKey: dkim.publicKey,
+        dkimPrivateKey: dkim.privateKeyPem,
+      },
+    });
+
+    if (provision.ok) {
+      await prisma.domain.update({
+        where: { id: domain.id },
+        data: { mailStatus: "ACTIVE", provisionedAt: new Date() },
+      });
+      await mailEngine.runTracked({
+        kind: "DKIM_SYNC",
+        command: "dkim.sync",
+        domainId: domain.id,
+        payload: {
+          domain: domain.name,
+          selector: dkim.selector,
+          privateKeyPem: dkim.privateKeyPem,
+          publicKey: dkim.publicKey,
+        },
+      });
+    } else {
+      await prisma.domain.update({
+        where: { id: domain.id },
+        data: { mailStatus: "ERROR" },
+      });
+    }
+
     await writeAudit({
       actorId: input.actorId,
       action: "domain.create",
       resource: "domain",
       resourceId: domain.id,
-      metadata: { name: domain.name },
+      metadata: {
+        name: domain.name,
+        provisioned: provision.ok,
+        jobId: provision.jobId,
+      },
     });
 
-    return mapDomain(domain);
+    const fresh = await prisma.domain.findFirstOrThrow({
+      where: { id: domain.id },
+      include: { _count: { select: { mailboxes: { where: { deletedAt: null } } } } },
+    });
+    return mapDomain(fresh);
   },
 
   async update(
@@ -159,10 +226,18 @@ export const domainRepository = {
   async softDelete(id: string, actorId?: string | null) {
     const existing = await prisma.domain.findFirst({ where: { id, deletedAt: null } });
     if (!existing) return false;
+
+    await mailEngine.runTracked({
+      kind: "DOMAIN_DELETE",
+      command: "domain.delete",
+      domainId: id,
+      payload: { domain: existing.name },
+    });
+
     await prisma.$transaction([
       prisma.domain.update({
         where: { id },
-        data: { deletedAt: new Date(), status: "SUSPENDED" },
+        data: { deletedAt: new Date(), status: "SUSPENDED", mailStatus: "DISABLED" },
       }),
       prisma.dnsRecord.updateMany({
         where: { domainId: id, deletedAt: null },
@@ -178,6 +253,7 @@ export const domainRepository = {
       action: "domain.delete",
       resource: "domain",
       resourceId: id,
+      metadata: { name: existing.name },
     });
     return true;
   },

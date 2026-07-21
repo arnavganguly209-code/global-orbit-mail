@@ -1,7 +1,5 @@
-﻿import { CustomerModulePage } from "@/features/customer/module-page";
+﻿import { CustomerInvoicesPage } from "@/features/customer/invoices-page";
 
 export default function Page() {
-  return (
-    <CustomerModulePage title="Invoices" description="Billing history" />
-  );
+  return <CustomerInvoicesPage />;
 }

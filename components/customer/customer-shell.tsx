@@ -1,88 +1,49 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
-import { BrandLogo } from "@/components/shared/brand-logo";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { AlertTriangle } from "lucide-react";
+import { CustomerSidebar, CustomerMobileNav } from "@/components/customer/customer-sidebar";
+import { CustomerTopbar } from "@/components/customer/customer-topbar";
 import { Button } from "@/components/ui/button";
-import { ThemeToggle } from "@/components/shared/theme-toggle";
-import { customerNav } from "@/config/customer-nav";
-import { adminFetch } from "@/lib/api/admin-fetch";
-import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 
 export function CustomerShell({
-  title,
-  description,
   children,
+  user,
+  hasActiveSubscription,
 }: {
-  title: string;
-  description?: string;
   children: React.ReactNode;
+  user: { name?: string | null; email: string };
+  hasActiveSubscription: boolean;
 }) {
-  const pathname = usePathname();
-  const router = useRouter();
-
-  async function logout() {
-    await adminFetch("/api/admin/auth/logout", { method: "POST" });
-    toast.success("Signed out");
-    router.replace("/signin");
-  }
+  const [mobileOpen, setMobileOpen] = React.useState(false);
 
   return (
     <div className="flex min-h-dvh bg-background">
-      <aside className="hidden w-64 shrink-0 border-r border-border/70 bg-card/40 backdrop-blur-xl lg:flex lg:flex-col">
-        <div className="flex h-16 items-center border-b border-border/70 px-4">
-          <BrandLogo href="/dashboard" width={150} />
-        </div>
-        <ScrollArea className="flex-1 px-3 py-4">
-          <nav className="space-y-1">
-            {customerNav.map((item) => {
-              const active =
-                item.href === "/dashboard"
-                  ? pathname === "/dashboard"
-                  : pathname.startsWith(item.href);
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
-                    active
-                      ? "bg-primary/15 text-foreground"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                  )}
-                >
-                  <Icon className={cn("size-4", active && "text-gold")} />
-                  {item.title}
-                </Link>
-              );
-            })}
-          </nav>
-        </ScrollArea>
-      </aside>
+      <div className="pointer-events-none fixed inset-0 -z-10 mesh-gradient opacity-80" />
+      <CustomerSidebar />
+      <CustomerMobileNav open={mobileOpen} onClose={() => setMobileOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between border-b border-border/70 px-4 sm:px-6">
-          <div>
-            <h1 className="font-display text-lg font-semibold">{title}</h1>
-            {description ? (
-              <p className="text-xs text-muted-foreground">{description}</p>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href="/webmail">Open Webmail</Link>
+        <CustomerTopbar
+          onMenuClick={() => setMobileOpen(true)}
+          userName={user.name}
+          userEmail={user.email}
+        />
+        {!hasActiveSubscription ? (
+          <div className="flex flex-col items-center justify-between gap-3 border-b border-gold/20 bg-gold/10 px-4 py-3 text-sm sm:flex-row sm:px-6">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="size-4 shrink-0 text-gold" />
+              <span>
+                Your workspace doesn&apos;t have an active subscription yet. Complete payment to
+                unlock domains, mailboxes, and DNS provisioning.
+              </span>
+            </div>
+            <Button asChild size="sm" className="shrink-0 gradient-blue border-0">
+              <Link href="/dashboard/billing">Complete Payment</Link>
             </Button>
-            <ThemeToggle />
-            <Button type="button" variant="ghost" size="sm" onClick={logout}>
-              <LogOut className="size-3.5" />
-              Logout
-            </Button>
           </div>
-        </header>
-        <main className="flex-1 p-4 sm:p-6">{children}</main>
+        ) : null}
+        <div className="flex-1 px-4 pb-8 pt-6 sm:px-6">{children}</div>
       </div>
     </div>
   );

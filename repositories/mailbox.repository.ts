@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
-import { hashPassword } from "@/lib/auth/session";
 import { mapMailbox } from "@/repositories/mappers";
+import { hashMailboxPassword } from "@/services/provisioning/password";
+import { mailEngine } from "@/services/provisioning/mail-engine";
 import type { AdminMailbox, PaginatedResult } from "@/types";
 import type { MailboxStatus, Prisma } from "@prisma/client";
 
@@ -21,9 +22,11 @@ export const mailboxRepository = {
     page: number;
     pageSize: number;
     search?: string;
+    organizationId?: string;
   }): Promise<PaginatedResult<AdminMailbox>> {
     const where: Prisma.MailboxWhereInput = {
       deletedAt: null,
+      ...(params.organizationId ? { organizationId: params.organizationId } : {}),
       ...(params.search
         ? {
             OR: [
@@ -85,45 +88,76 @@ export const mailboxRepository = {
     });
     if (existing) throw new Error("Mailbox already exists");
 
-    const passwordHash = await hashPassword(input.password);
+    const { passwordHash, mailPasswordHash } = await hashMailboxPassword(input.password);
+    const email = `${input.localPart.toLowerCase()}@${domain.name}`;
 
-    const mailbox = await prisma.$transaction(async (tx) => {
-      return tx.mailbox.create({
-        data: {
-          localPart: input.localPart.toLowerCase(),
-          domainId: domain.id,
-          organizationId: domain.organizationId,
-          displayName: input.displayName ?? null,
-          status: "PENDING",
-          passwordHash,
-          quota: {
-            create: {
-              quotaMb: input.quotaMb,
-              usedMb: 0,
-            },
+    const mailbox = await prisma.mailbox.create({
+      data: {
+        localPart: input.localPart.toLowerCase(),
+        domainId: domain.id,
+        organizationId: domain.organizationId,
+        displayName: input.displayName ?? null,
+        status: "PENDING",
+        passwordHash,
+        mailPasswordHash,
+        quota: {
+          create: {
+            quotaMb: input.quotaMb,
+            usedMb: 0,
           },
         },
-        include: mailboxInclude,
-      });
+      },
+      include: mailboxInclude,
     });
+
+    const provision = await mailEngine.runTracked({
+      kind: "MAILBOX_CREATE",
+      command: "mailbox.create",
+      mailboxId: mailbox.id,
+      domainId: domain.id,
+      payload: {
+        email,
+        mailPasswordHash,
+        quotaBytes: input.quotaMb * 1024 * 1024,
+        displayName: input.displayName ?? null,
+      },
+    });
+
+    if (provision.ok) {
+      await prisma.mailbox.update({
+        where: { id: mailbox.id },
+        data: { status: "ACTIVE", provisionedAt: new Date() },
+      });
+    }
 
     await writeAudit({
       actorId: input.actorId,
       action: "mailbox.create",
       resource: "mailbox",
       resourceId: mailbox.id,
-      metadata: { email: `${mailbox.localPart}@${domain.name}` },
+      metadata: { email, provisioned: provision.ok, jobId: provision.jobId },
     });
 
-    return mapMailbox(mailbox);
+    return this.getById(mailbox.id);
   },
 
   async update(
     id: string,
-    patch: { displayName?: string | null; status?: MailboxStatus; quotaMb?: number },
+    patch: {
+      displayName?: string | null;
+      status?: MailboxStatus;
+      quotaMb?: number;
+      vacationEnabled?: boolean;
+      vacationSubject?: string | null;
+      vacationBody?: string | null;
+      vacationExpiresAt?: Date | null;
+    },
     actorId?: string | null,
   ) {
-    const existing = await prisma.mailbox.findFirst({ where: { id, deletedAt: null } });
+    const existing = await prisma.mailbox.findFirst({
+      where: { id, deletedAt: null },
+      include: { domain: true, quota: true },
+    });
     if (!existing) return null;
 
     const mailbox = await prisma.mailbox.update({
@@ -131,6 +165,11 @@ export const mailboxRepository = {
       data: {
         displayName: patch.displayName === undefined ? undefined : patch.displayName,
         status: patch.status,
+        vacationEnabled: patch.vacationEnabled,
+        vacationSubject: patch.vacationSubject === undefined ? undefined : patch.vacationSubject,
+        vacationBody: patch.vacationBody === undefined ? undefined : patch.vacationBody,
+        vacationExpiresAt:
+          patch.vacationExpiresAt === undefined ? undefined : patch.vacationExpiresAt,
         ...(patch.quotaMb != null
           ? {
               quota: {
@@ -145,6 +184,40 @@ export const mailboxRepository = {
       include: mailboxInclude,
     });
 
+    if (patch.quotaMb != null) {
+      await mailEngine.runTracked({
+        kind: "MAILBOX_QUOTA",
+        command: "mailbox.quota",
+        mailboxId: id,
+        domainId: existing.domainId,
+        payload: {
+          email: `${existing.localPart}@${existing.domain.name}`,
+          quotaBytes: patch.quotaMb * 1024 * 1024,
+        },
+      });
+    }
+
+    if (
+      patch.vacationEnabled !== undefined ||
+      patch.vacationSubject !== undefined ||
+      patch.vacationBody !== undefined ||
+      patch.vacationExpiresAt !== undefined
+    ) {
+      await mailEngine.runTracked({
+        kind: "VACATION_SYNC",
+        command: "vacation.sync",
+        mailboxId: id,
+        domainId: existing.domainId,
+        payload: {
+          email: `${existing.localPart}@${existing.domain.name}`,
+          enabled: mailbox.vacationEnabled,
+          subject: mailbox.vacationSubject,
+          body: mailbox.vacationBody,
+          expiresAt: mailbox.vacationExpiresAt?.toISOString() ?? null,
+        },
+      });
+    }
+
     await writeAudit({
       actorId,
       action: "mailbox.update",
@@ -157,29 +230,97 @@ export const mailboxRepository = {
   },
 
   async setStatus(id: string, status: MailboxStatus, actorId?: string | null) {
+    const existing = await prisma.mailbox.findFirst({
+      where: { id, deletedAt: null },
+      include: { domain: true },
+    });
+    if (!existing) return null;
+
+    const email = `${existing.localPart}@${existing.domain.name}`;
+    if (status === "SUSPENDED") {
+      await mailEngine.runTracked({
+        kind: "MAILBOX_SUSPEND",
+        command: "mailbox.suspend",
+        mailboxId: id,
+        domainId: existing.domainId,
+        payload: { email },
+      });
+      await writeAudit({
+        actorId,
+        action: "mailbox.suspend",
+        resource: "mailbox",
+        resourceId: id,
+        metadata: { email },
+      });
+    } else if (status === "ACTIVE") {
+      await mailEngine.runTracked({
+        kind: "MAILBOX_UNSUSPEND",
+        command: "mailbox.unsuspend",
+        mailboxId: id,
+        domainId: existing.domainId,
+        payload: { email },
+      });
+      await writeAudit({
+        actorId,
+        action: "mailbox.unsuspend",
+        resource: "mailbox",
+        resourceId: id,
+        metadata: { email },
+      });
+    }
+
     return this.update(id, { status }, actorId);
   },
 
   async resetPassword(id: string, password: string, actorId?: string | null) {
-    const existing = await prisma.mailbox.findFirst({ where: { id, deletedAt: null } });
+    const existing = await prisma.mailbox.findFirst({
+      where: { id, deletedAt: null },
+      include: { domain: true },
+    });
     if (!existing) return null;
-    const passwordHash = await hashPassword(password);
+
+    const { passwordHash, mailPasswordHash } = await hashMailboxPassword(password);
+    const email = `${existing.localPart}@${existing.domain.name}`;
+
     await prisma.mailbox.update({
       where: { id },
-      data: { passwordHash },
+      data: { passwordHash, mailPasswordHash },
     });
+
+    const provision = await mailEngine.runTracked({
+      kind: "MAILBOX_PASSWORD",
+      command: "mailbox.password",
+      mailboxId: id,
+      domainId: existing.domainId,
+      payload: { email, mailPasswordHash },
+    });
+
     await writeAudit({
       actorId,
       action: "mailbox.password_reset",
       resource: "mailbox",
       resourceId: id,
+      metadata: { email, provisioned: provision.ok, jobId: provision.jobId },
     });
     return this.getById(id);
   },
 
   async softDelete(id: string, actorId?: string | null) {
-    const existing = await prisma.mailbox.findFirst({ where: { id, deletedAt: null } });
+    const existing = await prisma.mailbox.findFirst({
+      where: { id, deletedAt: null },
+      include: { domain: true },
+    });
     if (!existing) return false;
+
+    const email = `${existing.localPart}@${existing.domain.name}`;
+    await mailEngine.runTracked({
+      kind: "MAILBOX_DELETE",
+      command: "mailbox.delete",
+      mailboxId: id,
+      domainId: existing.domainId,
+      payload: { email },
+    });
+
     await prisma.$transaction([
       prisma.mailbox.update({
         where: { id },
@@ -199,6 +340,7 @@ export const mailboxRepository = {
       action: "mailbox.delete",
       resource: "mailbox",
       resourceId: id,
+      metadata: { email },
     });
     return true;
   },
@@ -225,10 +367,23 @@ export const mailboxRepository = {
   },
 
   async addAlias(mailboxId: string, address: string, actorId?: string | null) {
-    const mailbox = await prisma.mailbox.findFirst({ where: { id: mailboxId, deletedAt: null } });
+    const mailbox = await prisma.mailbox.findFirst({
+      where: { id: mailboxId, deletedAt: null },
+      include: { domain: true },
+    });
     if (!mailbox) return null;
     const alias = await prisma.alias.create({
       data: { mailboxId, address: address.toLowerCase() },
+    });
+    await mailEngine.runTracked({
+      kind: "ALIAS_SYNC",
+      command: "alias.sync",
+      mailboxId,
+      domainId: mailbox.domainId,
+      payload: {
+        address: alias.address,
+        goto: `${mailbox.localPart}@${mailbox.domain.name}`,
+      },
     });
     await writeAudit({
       actorId,
@@ -272,7 +427,10 @@ export const mailboxRepository = {
     keepCopy: boolean,
     actorId?: string | null,
   ) {
-    const mailbox = await prisma.mailbox.findFirst({ where: { id: mailboxId, deletedAt: null } });
+    const mailbox = await prisma.mailbox.findFirst({
+      where: { id: mailboxId, deletedAt: null },
+      include: { domain: true },
+    });
     if (!mailbox) return null;
     const forwarder = await prisma.forwarder.create({
       data: {
@@ -280,6 +438,15 @@ export const mailboxRepository = {
         destination: destination.toLowerCase(),
         keepCopy,
       },
+    });
+    const primary = `${mailbox.localPart}@${mailbox.domain.name}`;
+    const goto = keepCopy ? `${primary},${forwarder.destination}` : forwarder.destination;
+    await mailEngine.runTracked({
+      kind: "FORWARDER_SYNC",
+      command: "forwarder.sync",
+      mailboxId,
+      domainId: mailbox.domainId,
+      payload: { address: primary, goto },
     });
     await writeAudit({
       actorId,

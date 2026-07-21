@@ -5,6 +5,7 @@ import {
   paginationSchema,
 } from "@/lib/validations/admin";
 import { getDefaultOrganizationId } from "@/repositories";
+import { getDomainDnsPayload } from "@/services/dns/engine";
 
 export const domainService = {
   async list(query: Record<string, string | string[] | undefined>) {
@@ -22,11 +23,13 @@ export const domainService = {
     const existing = await domainRepository.getByName(input.name);
     if (existing) throw new Error("Domain already exists");
     const orgId = organizationId ?? (await getDefaultOrganizationId());
-    return domainRepository.create({
+    const domain = await domainRepository.create({
       name: input.name,
       organizationId: orgId,
       actorId,
     });
+    const dns = await getDomainDnsPayload(domain.id);
+    return { ...domain, dns };
   },
 
   async update(id: string, body: unknown, actorId?: string | null) {
@@ -45,6 +48,38 @@ export const domainService = {
   async get(id: string) {
     const domain = await domainRepository.getById(id);
     if (!domain) throw new Error("Domain not found");
-    return domain;
+    const dns = await getDomainDnsPayload(id);
+    return { ...domain, dns };
+  },
+
+  async listForOrganization(
+    query: Record<string, string | string[] | undefined>,
+    organizationId: string,
+  ) {
+    const parsed = paginationSchema.parse({
+      page: query.page,
+      pageSize: query.pageSize,
+      search: query.search,
+    });
+    const status = typeof query.status === "string" ? query.status : undefined;
+    return domainRepository.list({ ...parsed, status, organizationId });
+  },
+
+  async createForOrganization(body: unknown, organizationId: string, actorId?: string | null) {
+    const input = domainCreateSchema.parse(body);
+    const existing = await domainRepository.getByName(input.name);
+    if (existing) throw new Error("Domain already exists");
+    const domain = await domainRepository.create({ name: input.name, organizationId, actorId });
+    const dns = await getDomainDnsPayload(domain.id);
+    return { ...domain, dns };
+  },
+
+  async getForOrganization(id: string, organizationId: string) {
+    const domain = await domainRepository.getById(id);
+    if (!domain || domain.organizationId !== organizationId) {
+      throw new Error("Domain not found");
+    }
+    const dns = await getDomainDnsPayload(id);
+    return { ...domain, dns };
   },
 };

@@ -1,0 +1,58 @@
+<roundcube:include file="includes/layout.html" />
+
+<h1 class="voice"><roundcube:object name="productname" /> <roundcube:label name="login" /></h1>
+
+<div id="orbit-login-stage" class="orbit-login-stage" aria-hidden="true">
+	<canvas id="orbit-stars" class="orbit-stars"></canvas>
+	<div class="orbit-glow orbit-glow-a"></div>
+	<div class="orbit-glow orbit-glow-b"></div>
+	<div class="orbit-vignette"></div>
+</div>
+
+<div id="layout-content" class="selected no-navbar orbit-login-layout" role="main">
+	<div class="orbit-login-frame">
+		<div class="orbit-brand">
+			<roundcube:object name="logo" src="/images/logo.png" id="logo" alt="GLOBAL ORBIT MAIL" />
+			<p class="orbit-product">GLOBAL ORBIT MAIL</p>
+			<p class="orbit-tagline">Enterprise Cloud Email</p>
+		</div>
+
+		<div class="orbit-card">
+			<roundcube:form id="login-form" name="login-form" method="post" class="propform orbit-propform">
+				<roundcube:object name="loginform" form="login-form" size="40" submit=true class="form-control" />
+
+				<div class="orbit-extras" id="orbit-extras">
+					<label class="orbit-remember" for="orbit-remember">
+						<input type="checkbox" id="orbit-remember" name="orbit_remember" value="1" />
+						<span>Remember Me</span>
+					</label>
+					<button type="button" class="orbit-toggle-pass" id="orbit-toggle-pass" aria-pressed="false">Show</button>
+				</div>
+
+				<div class="orbit-links">
+					<roundcube:if condition="config:support_url" />
+						<a class="orbit-forgot" href="<roundcube:var name='config:support_url' />" target="_blank" rel="noopener noreferrer">Forgot Password</a>
+					<roundcube:else />
+						<a class="orbit-forgot" href="https://theglobalorbit.com" target="_blank" rel="noopener noreferrer">Forgot Password</a>
+					<roundcube:endif />
+				</div>
+
+				<div id="login-footer" class="orbit-login-footer" role="contentinfo">
+					<roundcube:container name="loginfooter" id="login-footer" />
+				</div>
+			</form>
+		</div>
+
+		<p class="orbit-dev-credit">
+			Software Developed by
+			<a href="https://theglobalorbit.com" target="_blank" rel="noopener noreferrer">GLOBAL ORBIT</a>
+		</p>
+	</div>
+</div>
+
+<noscript>
+	<p class="noscriptwarning"><roundcube:label name="noscriptwarning" /></p>
+</noscript>
+
+<script src="skins/orbit/js/login.js"></script>
+<roundcube:include file="includes/footer.html" />

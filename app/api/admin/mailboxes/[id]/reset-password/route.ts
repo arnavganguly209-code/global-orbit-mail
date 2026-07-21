@@ -12,7 +12,7 @@ export async function POST(request: Request, { params }: Params) {
     return ok(
       await mailboxService.resetPassword(id, body, actor.sub),
       undefined,
-      "Password reset stored",
+      "Password reset provisioned",
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Reset failed";

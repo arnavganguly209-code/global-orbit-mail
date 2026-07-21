@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import {
   Inbox,
   PenSquare,
@@ -16,11 +18,13 @@ import {
   Settings,
   Search,
   Paperclip,
+  LogOut,
 } from "lucide-react";
 import { BrandLogo } from "@/components/shared/brand-logo";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { customerFetch } from "@/lib/api/customer-fetch";
 import { cn } from "@/lib/utils";
 
 const folders = [
@@ -54,7 +58,20 @@ const demoMessages = [
 ];
 
 export function WebmailShell() {
+  const router = useRouter();
   const [folder, setFolder] = React.useState<(typeof folders)[number]["id"]>("inbox");
+
+  async function handleLogout() {
+    try {
+      await customerFetch("/api/webmail/auth/logout", { method: "POST" });
+    } catch {
+      // best-effort logout
+    } finally {
+      toast.success("Signed out");
+      router.push("/webmail/login");
+      router.refresh();
+    }
+  }
 
   return (
     <div className="flex min-h-dvh bg-[#070b14] text-foreground">
@@ -93,6 +110,9 @@ export function WebmailShell() {
           <ThemeToggle />
           <Button asChild variant="outline" size="sm">
             <Link href="/dashboard">Dashboard</Link>
+          </Button>
+          <Button variant="ghost" size="icon" aria-label="Sign out" onClick={handleLogout}>
+            <LogOut className="size-4" />
           </Button>
         </header>
         <div className="grid flex-1 md:grid-cols-[320px_1fr]">

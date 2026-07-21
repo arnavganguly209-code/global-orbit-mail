@@ -1,7 +1,5 @@
-﻿import { CustomerModulePage } from "@/features/customer/module-page";
+﻿import { CustomerSubscriptionPage } from "@/features/customer/subscription-page";
 
 export default function Page() {
-  return (
-    <CustomerModulePage title="My Subscription" description="Plan and renewal status" />
-  );
+  return <CustomerSubscriptionPage />;
 }

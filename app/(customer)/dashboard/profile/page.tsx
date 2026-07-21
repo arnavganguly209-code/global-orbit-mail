@@ -1,7 +1,5 @@
-﻿import { CustomerModulePage } from "@/features/customer/module-page";
+﻿import { CustomerProfilePage } from "@/features/customer/profile-page";
 
 export default function Page() {
-  return (
-    <CustomerModulePage title="Profile" description="Account profile" />
-  );
+  return <CustomerProfilePage />;
 }

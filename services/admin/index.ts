@@ -1,6 +1,5 @@
 import {
   auditRepository,
-  dnsRepository,
   getDefaultOrganizationId,
   settingsRepository,
   userRepository,
@@ -31,8 +30,8 @@ export const userService = {
 
 export const dnsService = {
   async list(domainId?: string) {
-    if (domainId) return dnsRepository.listByDomain(domainId);
-    return dnsRepository.listAll();
+    const { dnsAdminService } = await import("@/services/dns/admin");
+    return dnsAdminService.list(domainId);
   },
 };
 

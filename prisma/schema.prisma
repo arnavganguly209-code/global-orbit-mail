@@ -281,6 +281,13 @@ model Domain {
   dnsStatus      DnsStatus    @default(PENDING)
   mailStatus     MailStatus   @default(DISABLED)
   organizationId String
+  /// DKIM selector (default orbit)
+  dkimSelector   String       @default("orbit")
+  /// Public key material for TXT record (p=...)
+  dkimPublicKey  String?      @db.Text
+  /// Private key PEM for OpenDKIM / Rspamd signing (server-side only)
+  dkimPrivateKey String?      @db.Text
+  provisionedAt  DateTime?
   verifiedAt     DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
@@ -290,6 +297,7 @@ model Domain {
   mailboxes     Mailbox[]
   dnsRecords    DnsRecord[]
   verifications Verification[]
+  provisionJobs ProvisionJob[]
 
   @@unique([organizationId, name])
   @@index([status])
@@ -305,7 +313,15 @@ model Mailbox {
   organizationId String
   displayName    String?
   status         MailboxStatus @default(PENDING)
+  /// App-layer bcrypt hash
   passwordHash   String?
+  /// Dovecot-scheme password string, e.g. {BLF-CRYPT}...
+  mailPasswordHash String?
+  vacationEnabled  Boolean     @default(false)
+  vacationSubject  String?
+  vacationBody     String?     @db.Text
+  vacationExpiresAt DateTime?
+  provisionedAt  DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   deletedAt      DateTime?
@@ -315,12 +331,62 @@ model Mailbox {
   quota        MailboxQuota?
   aliases      Alias[]
   forwarders   Forwarder[]
+  provisionJobs ProvisionJob[]
 
   @@unique([localPart, domainId])
   @@index([organizationId])
   @@index([status])
   @@index([deletedAt])
   @@map("mailboxes")
+}
+
+enum ProvisionJobKind {
+  DOMAIN_CREATE
+  DOMAIN_DELETE
+  MAILBOX_CREATE
+  MAILBOX_DELETE
+  MAILBOX_SUSPEND
+  MAILBOX_UNSUSPEND
+  MAILBOX_PASSWORD
+  MAILBOX_QUOTA
+  ALIAS_SYNC
+  FORWARDER_SYNC
+  VACATION_SYNC
+  DKIM_SYNC
+  STORAGE_SYNC
+}
+
+enum ProvisionJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// Async / sync mail-stack provisioning jobs (Postfix/Dovecot agent)
+model ProvisionJob {
+  id         String             @id @default(uuid())
+  kind       ProvisionJobKind
+  status     ProvisionJobStatus @default(QUEUED)
+  domainId   String?
+  mailboxId  String?
+  payload    Json?
+  result     Json?
+  error      String?            @db.Text
+  attempts   Int                @default(0)
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  domain  Domain?  @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  mailbox Mailbox? @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([kind])
+  @@index([domainId])
+  @@index([mailboxId])
+  @@map("provision_jobs")
 }
 
 model MailboxQuota {

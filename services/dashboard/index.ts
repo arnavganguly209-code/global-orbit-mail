@@ -2,6 +2,7 @@ import { domainRepository } from "@/repositories/domain.repository";
 import { mailboxRepository } from "@/repositories/mailbox.repository";
 import { userRepository } from "@/repositories";
 import { prisma } from "@/lib/db";
+import { systemHealthService } from "@/services/system/health";
 import type {
   AuditLogEntry,
   DashboardMetrics,
@@ -9,68 +10,29 @@ import type {
   SystemHealthComponent,
 } from "@/types";
 
-async function checkDatabase(): Promise<SystemHealthComponent> {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    return {
-      id: "postgres",
-      name: "PostgreSQL",
-      status: "operational",
-      detail: "Database connection healthy",
-    };
-  } catch {
-    return {
-      id: "postgres",
-      name: "PostgreSQL",
-      status: "down",
-      detail: "Unable to reach database",
-    };
-  }
+function mapHealthStatus(
+  status: string,
+): SystemHealthComponent["status"] {
+  if (status === "operational") return "operational";
+  if (status === "degraded") return "degraded";
+  if (status === "down") return "down";
+  return "awaiting_integration";
 }
 
 export const monitoringService = {
   async getSnapshot(): Promise<MonitoringSnapshot> {
-    const database = await checkDatabase();
-    const auditCount = await prisma.auditLog.count().catch(() => 0);
-
+    const report = await systemHealthService.getReport(null, { audit: false });
     return {
-      cpuPercent: null,
-      ramPercent: null,
-      diskPercent: null,
+      cpuPercent: report.cpuPercent,
+      ramPercent: report.ramPercent,
+      diskPercent: report.diskPercent,
       mailQueue: null,
-      components: [
-        database,
-        {
-          id: "api",
-          name: "Admin API",
-          status: "operational",
-          detail: "Enterprise REST routes online",
-        },
-        {
-          id: "application",
-          name: "Application",
-          status: "operational",
-          detail: `Audit trail active · ${auditCount} events`,
-        },
-        {
-          id: "postfix",
-          name: "Postfix",
-          status: "awaiting_integration",
-          detail: "SMTP engine deferred to Phase 3B",
-        },
-        {
-          id: "dovecot",
-          name: "Dovecot",
-          status: "awaiting_integration",
-          detail: "IMAP engine deferred to Phase 3B",
-        },
-        {
-          id: "rspamd",
-          name: "Rspamd",
-          status: "awaiting_integration",
-          detail: "Spam filter deferred to Phase 3B",
-        },
-      ],
+      components: report.components.map((c) => ({
+        id: c.id,
+        name: c.name,
+        status: mapHealthStatus(c.status),
+        detail: c.detail,
+      })),
       series: [],
     };
   },

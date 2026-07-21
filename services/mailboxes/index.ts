@@ -1,3 +1,4 @@
+import { prisma } from "@/lib/db";
 import { mailboxRepository } from "@/repositories/mailbox.repository";
 import {
   aliasCreateSchema,
@@ -7,6 +8,7 @@ import {
   mailboxUpdateSchema,
   paginationSchema,
 } from "@/lib/validations/admin";
+import { generateSecurePassword } from "@/services/provisioning/password";
 
 export const mailboxService = {
   async list(query: Record<string, string | string[] | undefined>) {
@@ -34,7 +36,19 @@ export const mailboxService = {
 
   async update(id: string, body: unknown, actorId?: string | null) {
     const input = mailboxUpdateSchema.parse(body);
-    const updated = await mailboxRepository.update(id, input, actorId);
+    const updated = await mailboxRepository.update(
+      id,
+      {
+        ...input,
+        vacationExpiresAt:
+          input.vacationExpiresAt === undefined
+            ? undefined
+            : input.vacationExpiresAt === null
+              ? null
+              : new Date(input.vacationExpiresAt),
+      },
+      actorId,
+    );
     if (!updated) throw new Error("Mailbox not found");
     return updated;
   },
@@ -53,9 +67,18 @@ export const mailboxService = {
 
   async resetPassword(id: string, body: unknown, actorId?: string | null) {
     const input = mailboxPasswordSchema.parse(body);
-    const mailbox = await mailboxRepository.resetPassword(id, input.password, actorId);
+    const generated = input.generate === true || !input.password;
+    const password = generated
+      ? generateSecurePassword(input.length ?? 20)
+      : (input.password as string);
+    const mailbox = await mailboxRepository.resetPassword(id, password, actorId);
     if (!mailbox) throw new Error("Mailbox not found");
-    return { id: mailbox.id, reset: true };
+    return {
+      id: mailbox.id,
+      reset: true,
+      generated,
+      password: generated ? password : undefined,
+    };
   },
 
   async remove(id: string, actorId?: string | null) {
@@ -101,5 +124,36 @@ export const mailboxService = {
     const ok = await mailboxRepository.removeForwarder(mailboxId, forwarderId, actorId);
     if (!ok) throw new Error("Forwarder not found");
     return true;
+  },
+
+  async listForOrganization(
+    query: Record<string, string | string[] | undefined>,
+    organizationId: string,
+  ) {
+    const parsed = paginationSchema.parse({
+      page: query.page,
+      pageSize: query.pageSize,
+      search: query.search,
+    });
+    return mailboxRepository.list({ ...parsed, organizationId });
+  },
+
+  async createForOrganization(body: unknown, organizationId: string, actorId?: string | null) {
+    const input = mailboxCreateSchema.parse(body);
+    const domain = await prisma.domain.findFirst({
+      where: { id: input.domainId, organizationId, deletedAt: null },
+    });
+    if (!domain) throw new Error("Domain not found");
+
+    const mailbox = await mailboxRepository.create({
+      localPart: input.localPart,
+      domainId: input.domainId,
+      displayName: input.displayName,
+      quotaMb: input.quotaMb,
+      password: input.password,
+      actorId,
+    });
+    if (!mailbox) throw new Error("Domain not found");
+    return mailbox;
   },
 };
