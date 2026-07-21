@@ -22,7 +22,7 @@ import type { SystemRole } from "@/types";
 
 const loginBodySchema = z.object({
   email: z.string().min(1).max(190),
-  const password = z.string().min(8).max(128),
+  password: z.string().min(8).max(128),
   remember: z.boolean().optional().default(false),
 });
 
