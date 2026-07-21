@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { StatusPill, statusToneFromValue } from "@/components/admin/status-pill";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Search } from "@/components/ui/search";
@@ -46,15 +47,45 @@ import { Pagination } from "@/components/ui/pagination";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Loading } from "@/components/ui/loading";
 import { adminFetch } from "@/lib/api/admin-fetch";
+import { cn } from "@/lib/utils";
 import type { AdminDomain, AdminMailbox, ApiResponse, PaginatedResult } from "@/types";
 
 type AliasRow = { id: string; address: string };
 type ForwarderRow = { id: string; destination: string; keepCopy: boolean };
 
+function formatRelative(iso: string | null): string {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const diffSec = Math.round((Date.now() - then) / 1000);
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 48) return `${diffHr}h ago`;
+  const diffDay = Math.round(diffHr / 24);
+  if (diffDay < 30) return `${diffDay}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function usageBarClass(percent: number) {
+  if (percent >= 90) return "bg-red-400";
+  if (percent >= 75) return "bg-amber-300";
+  return "bg-primary";
+}
+
+function avatarInitial(mailbox: AdminMailbox) {
+  const source = mailbox.displayName?.trim() || mailbox.localPart || mailbox.email;
+  return source.charAt(0).toUpperCase();
+}
+
 export function MailboxesAdminPage() {
   const qc = useQueryClient();
   const [page, setPage] = React.useState(1);
   const [search, setSearch] = React.useState("");
+  const [status, setStatus] = React.useState("ALL");
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [editMailbox, setEditMailbox] = React.useState<AdminMailbox | null>(null);
   const [manageMailbox, setManageMailbox] = React.useState<AdminMailbox | null>(null);
@@ -86,6 +117,16 @@ export function MailboxesAdminPage() {
       return json.data;
     },
   });
+
+  const items = React.useMemo(() => {
+    const list = data?.items ?? [];
+    if (status === "ALL") return list;
+    return list.filter((m) => m.status === status);
+  }, [data?.items, status]);
+
+  React.useEffect(() => {
+    setSelected(new Set());
+  }, [page, search, status, data?.items]);
 
   const { data: domainsData } = useQuery({
     queryKey: ["admin-domains-options"],
@@ -299,6 +340,79 @@ export function MailboxesAdminPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const allVisibleSelected =
+    items.length > 0 && items.every((m) => selected.has(m.id));
+
+  function toggleAllVisible(checked: boolean) {
+    if (!checked) {
+      setSelected(new Set());
+      return;
+    }
+    setSelected(new Set(items.map((m) => m.id)));
+  }
+
+  function toggleOne(id: string, checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  async function runBulkSuspend() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Disable (suspend) ${ids.length} mailbox(es)?`)) return;
+    setBulkBusy(true);
+    let ok = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        const res = await adminFetch(`/api/admin/mailboxes/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "suspend" }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) throw new Error(json.message ?? "Failed");
+        ok += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setBulkBusy(false);
+    setSelected(new Set());
+    qc.invalidateQueries({ queryKey: ["admin-mailboxes"] });
+    if (failed === 0) toast.success(`Disabled ${ok} mailbox(es)`);
+    else toast.error(`Disabled ${ok}, failed ${failed}`);
+  }
+
+  async function runBulkDelete() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Permanently delete ${ids.length} mailbox(es)?`)) return;
+    setBulkBusy(true);
+    let ok = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        const res = await adminFetch(`/api/admin/mailboxes/${id}`, { method: "DELETE" });
+        const json = await res.json();
+        if (!res.ok || !json.success) throw new Error(json.message ?? "Failed");
+        ok += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setBulkBusy(false);
+    setSelected(new Set());
+    qc.invalidateQueries({ queryKey: ["admin-mailboxes"] });
+    qc.invalidateQueries({ queryKey: ["admin-domains"] });
+    if (failed === 0) toast.success(`Deleted ${ok} mailbox(es)`);
+    else toast.error(`Deleted ${ok}, failed ${failed}`);
+  }
+
   const pageCount = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
@@ -376,130 +490,226 @@ export function MailboxesAdminPage() {
         </Dialog>
       }
     >
-      <Search
-        className="mb-4"
-        containerClassName="mb-4 max-w-md"
-        placeholder="Search mailboxes…"
-        value={search}
-        onChange={(e) => {
-          setPage(1);
-          setSearch(e.target.value);
-        }}
-      />
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Search
+          placeholder="Search mailboxes…"
+          value={search}
+          onChange={(e) => {
+            setPage(1);
+            setSearch(e.target.value);
+          }}
+          containerClassName="flex-1"
+        />
+        <Select
+          value={status}
+          onValueChange={(value) => {
+            setPage(1);
+            setStatus(value);
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-48">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All statuses</SelectItem>
+            <SelectItem value="ACTIVE">Active</SelectItem>
+            <SelectItem value="SUSPENDED">Suspended</SelectItem>
+            <SelectItem value="DISABLED">Disabled</SelectItem>
+            <SelectItem value="PENDING">Pending</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {selected.size > 0 ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+          <p className="mr-auto text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{selected.size}</span> selected
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={bulkBusy}
+            onClick={() => void runBulkSuspend()}
+          >
+            <PauseCircle className="size-3.5" />
+            Bulk Disable
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="destructive"
+            disabled={bulkBusy}
+            onClick={() => void runBulkDelete()}
+          >
+            <Trash2 className="size-3.5" />
+            Bulk Delete
+          </Button>
+        </div>
+      ) : null}
 
       {isLoading ? <Loading label="Loading mailboxes" /> : null}
-      {data && data.items.length === 0 ? (
+      {!isLoading && items.length === 0 ? (
         <EmptyState title="No mailboxes" description="Create a mailbox on an existing domain." />
       ) : null}
 
-      {data && data.items.length > 0 ? (
+      {items.length > 0 ? (
         <div className="glass-surface overflow-hidden rounded-2xl">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Email</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allVisibleSelected}
+                    onCheckedChange={(v) => toggleAllVisible(v === true)}
+                    aria-label="Select all"
+                  />
+                </TableHead>
+                <TableHead>Mailbox</TableHead>
+                <TableHead>Domain</TableHead>
                 <TableHead>Quota</TableHead>
-                <TableHead>Aliases</TableHead>
-                <TableHead>Forwarders</TableHead>
+                <TableHead>Used</TableHead>
+                <TableHead>Remaining</TableHead>
+                <TableHead>Usage</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Last login</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.items.map((mailbox) => (
-                <TableRow key={mailbox.id}>
-                  <TableCell>
-                    <div>
-                      <p className="font-medium">{mailbox.email}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {mailbox.displayName ?? "—"}
-                      </p>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <StatusPill
-                      label={mailbox.status}
-                      tone={statusToneFromValue(mailbox.status)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {mailbox.usedMb} / {mailbox.quotaMb} MB
-                  </TableCell>
-                  <TableCell>{mailbox.aliasCount}</TableCell>
-                  <TableCell>{mailbox.forwarderCount}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex gap-1">
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        title="Edit"
-                        onClick={() => {
-                          setEditMailbox(mailbox);
-                          setEditForm({
-                            displayName: mailbox.displayName ?? "",
-                            quotaMb: String(mailbox.quotaMb),
-                          });
-                        }}
-                      >
-                        <Pencil className="size-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        title="Aliases & forwarders"
-                        onClick={() => setManageMailbox(mailbox)}
-                      >
-                        <AtSign className="size-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        title="Suspend"
-                        onClick={() =>
-                          statusMutation.mutate({ id: mailbox.id, action: "suspend" })
-                        }
-                      >
-                        <PauseCircle className="size-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        title="Activate"
-                        onClick={() =>
-                          statusMutation.mutate({ id: mailbox.id, action: "activate" })
-                        }
-                      >
-                        <PlayCircle className="size-4 text-emerald-400" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        title="Reset password"
-                        onClick={() => resetMutation.mutate(mailbox.id)}
-                      >
-                        <KeyRound className="size-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => {
-                          if (window.confirm(`Delete mailbox ${mailbox.email}?`)) {
-                            deleteMutation.mutate(mailbox.id);
+              {items.map((mailbox) => {
+                const remaining =
+                  mailbox.remainingMb ??
+                  Math.max(0, mailbox.quotaMb - mailbox.usedMb);
+                const usage =
+                  mailbox.usagePercent ??
+                  (mailbox.quotaMb > 0
+                    ? Math.round((mailbox.usedMb / mailbox.quotaMb) * 100)
+                    : 0);
+                return (
+                  <TableRow key={mailbox.id} data-state={selected.has(mailbox.id) ? "selected" : undefined}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selected.has(mailbox.id)}
+                        onCheckedChange={(v) => toggleOne(mailbox.id, v === true)}
+                        aria-label={`Select ${mailbox.email}`}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
+                          {avatarInitial(mailbox)}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{mailbox.email}</p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {mailbox.displayName ?? "—"}
+                          </p>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {mailbox.domainName}
+                    </TableCell>
+                    <TableCell className="tabular-nums text-sm">{mailbox.quotaMb} MB</TableCell>
+                    <TableCell className="tabular-nums text-sm">{mailbox.usedMb} MB</TableCell>
+                    <TableCell className="tabular-nums text-sm">{remaining} MB</TableCell>
+                    <TableCell>
+                      <div className="min-w-[88px] space-y-1">
+                        <div className="flex items-center justify-between text-[11px] tabular-nums text-muted-foreground">
+                          <span>{usage}%</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className={cn("h-full rounded-full transition-all", usageBarClass(usage))}
+                            style={{ width: `${Math.min(100, Math.max(0, usage))}%` }}
+                          />
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <StatusPill
+                        label={mailbox.status}
+                        tone={statusToneFromValue(mailbox.status)}
+                      />
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                      {formatRelative(mailbox.lastLoginAt)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="inline-flex gap-1">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          title="Edit"
+                          onClick={() => {
+                            setEditMailbox(mailbox);
+                            setEditForm({
+                              displayName: mailbox.displayName ?? "",
+                              quotaMb: String(mailbox.quotaMb),
+                            });
+                          }}
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          title="Aliases & forwarders"
+                          onClick={() => setManageMailbox(mailbox)}
+                        >
+                          <AtSign className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          title="Suspend"
+                          onClick={() =>
+                            statusMutation.mutate({ id: mailbox.id, action: "suspend" })
                           }
-                        }}
-                      >
-                        <Trash2 className="size-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+                        >
+                          <PauseCircle className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          title="Activate"
+                          onClick={() =>
+                            statusMutation.mutate({ id: mailbox.id, action: "activate" })
+                          }
+                        >
+                          <PlayCircle className="size-4 text-emerald-400" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          title="Reset password"
+                          onClick={() => resetMutation.mutate(mailbox.id)}
+                        >
+                          <KeyRound className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => {
+                            if (window.confirm(`Delete mailbox ${mailbox.email}?`)) {
+                              deleteMutation.mutate(mailbox.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="size-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
           <div className="border-t border-border/60 p-4">

@@ -322,6 +322,7 @@ model Mailbox {
   vacationBody     String?     @db.Text
   vacationExpiresAt DateTime?
   provisionedAt  DateTime?
+  lastLoginAt    DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   deletedAt      DateTime?
@@ -479,6 +480,10 @@ model AuditLog {
   resourceId String?
   metadata   Json?
   ipAddress  String?
+  userAgent  String?  @db.Text
+  status     String   @default("SUCCESS")
+  oldValue   Json?
+  newValue   Json?
   createdAt  DateTime @default(now())
 
   actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
@@ -486,6 +491,7 @@ model AuditLog {
   @@index([createdAt])
   @@index([action])
   @@index([actorId])
+  @@index([status])
   @@map("audit_logs")
 }
 

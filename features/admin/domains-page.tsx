@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { StatusPill, statusToneFromValue } from "@/components/admin/status-pill";
@@ -37,7 +37,85 @@ import { Pagination } from "@/components/ui/pagination";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Loading } from "@/components/ui/loading";
 import { adminFetch } from "@/lib/api/admin-fetch";
-import type { AdminDomain, ApiResponse, PaginatedResult } from "@/types";
+import type {
+  AdminDomain,
+  ApiResponse,
+  DnsRecordView,
+  PaginatedResult,
+  VerificationTone,
+} from "@/types";
+
+type DnsFlatRecord = {
+  type: string;
+  host?: string;
+  name?: string;
+  value: string;
+  priority?: number | null;
+  ttl?: number;
+};
+
+type DomainCreateResult = AdminDomain & {
+  dns?: {
+    domain?: string;
+    flat?: DnsFlatRecord[];
+    records?: Record<string, DnsFlatRecord[]>;
+  };
+};
+
+type VerifyReport = {
+  domainId: string;
+  domain: string;
+  overall: string;
+};
+
+function dnsHealthTone(status: string): VerificationTone {
+  const v = status.toUpperCase();
+  if (v === "VERIFIED") return "success";
+  if (["PENDING", "PARTIAL", "VERIFYING"].includes(v)) return "warning";
+  if (["FAILED", "MISMATCH"].includes(v)) return "danger";
+  return statusToneFromValue(status);
+}
+
+function formatDnsRecordsText(
+  records: Array<{
+    type: string;
+    name?: string;
+    host?: string;
+    value: string;
+    priority?: number | null;
+  }>,
+  domainName?: string,
+) {
+  const header = domainName ? `# DNS records for ${domainName}\n` : "";
+  const lines = records.map((r) => {
+    const host = r.name ?? r.host ?? "@";
+    const priority =
+      r.priority != null && r.type.toUpperCase() === "MX" ? ` ${r.priority}` : "";
+    return `${r.type}\t${host}\t${r.value}${priority}`;
+  });
+  return `${header}${lines.join("\n")}`;
+}
+
+async function copyDnsForDomain(domainId: string, domainName: string) {
+  const res = await adminFetch(`/api/admin/dns?domainId=${encodeURIComponent(domainId)}`);
+  const json = (await res.json()) as ApiResponse<DnsRecordView[]>;
+  if (!res.ok || !json.success) {
+    throw new Error(json.message ?? "Failed to load DNS records");
+  }
+  if (!json.data.length) {
+    throw new Error("No DNS records found for this domain");
+  }
+  const text = formatDnsRecordsText(
+    json.data.map((r) => ({
+      type: r.type,
+      name: r.name,
+      value: r.value,
+      priority: r.priority,
+    })),
+    domainName,
+  );
+  await navigator.clipboard.writeText(text);
+}
 
 async function fetchDomains(params: {
   page: number;
@@ -64,10 +142,13 @@ export function DomainsAdminPage() {
   const [createOpen, setCreateOpen] = React.useState(false);
   const [editDomain, setEditDomain] = React.useState<AdminDomain | null>(null);
   const [domainName, setDomainName] = React.useState("");
+  const [verifyingId, setVerifyingId] = React.useState<string | null>(null);
+  const [copyingId, setCopyingId] = React.useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-domains", page, search, status],
     queryFn: () => fetchDomains({ page, search, status }),
+    refetchInterval: 60_000,
   });
 
   const createMutation = useMutation({
@@ -79,13 +160,34 @@ export function DomainsAdminPage() {
       });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.message ?? "Create failed");
-      return json.data;
+      return json.data as DomainCreateResult;
     },
-    onSuccess: () => {
-      toast.success("Domain created");
+    onSuccess: (created) => {
       setCreateOpen(false);
       setDomainName("");
       qc.invalidateQueries({ queryKey: ["admin-domains"] });
+
+      const flat = created.dns?.flat ?? [];
+      if (flat.length > 0) {
+        toast.success("Domain created — DNS records generated", {
+          action: {
+            label: "Copy DNS",
+            onClick: () => {
+              void (async () => {
+                try {
+                  const text = formatDnsRecordsText(flat, created.name);
+                  await navigator.clipboard.writeText(text);
+                  toast.success("DNS records copied");
+                } catch {
+                  toast.error("Could not copy DNS records");
+                }
+              })();
+            },
+          },
+        });
+      } else {
+        toast.success("Domain created");
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -121,6 +223,41 @@ export function DomainsAdminPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const verifyMutation = useMutation({
+    mutationFn: async (domainId: string) => {
+      setVerifyingId(domainId);
+      const res = await adminFetch("/api/admin/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domainId }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message ?? "Verification failed");
+      return json.data as VerifyReport;
+    },
+    onSuccess: (report) => {
+      toast.success(`DNS verification: ${report.overall}`, {
+        description: report.domain,
+      });
+      qc.invalidateQueries({ queryKey: ["admin-domains"] });
+      qc.invalidateQueries({ queryKey: ["admin-dns"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+    onSettled: () => setVerifyingId(null),
+  });
+
+  async function handleCopyDns(domain: AdminDomain) {
+    setCopyingId(domain.id);
+    try {
+      await copyDnsForDomain(domain.id, domain.name);
+      toast.success("DNS records copied");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Copy failed");
+    } finally {
+      setCopyingId(null);
+    }
+  }
 
   const pageCount = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
@@ -210,7 +347,7 @@ export function DomainsAdminPage() {
                 <TableHead>Domain</TableHead>
                 <TableHead>Verification</TableHead>
                 <TableHead>SSL</TableHead>
-                <TableHead>DNS</TableHead>
+                <TableHead>DNS health</TableHead>
                 <TableHead>Mail</TableHead>
                 <TableHead>Mailboxes</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -219,7 +356,12 @@ export function DomainsAdminPage() {
             <TableBody>
               {data.items.map((domain) => (
                 <TableRow key={domain.id}>
-                  <TableCell className="font-medium">{domain.name}</TableCell>
+                  <TableCell>
+                    <p className="font-medium tracking-tight">{domain.name}</p>
+                    <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                      {domain.id.slice(0, 8)}
+                    </p>
+                  </TableCell>
                   <TableCell>
                     <StatusPill
                       label={domain.status}
@@ -235,7 +377,7 @@ export function DomainsAdminPage() {
                   <TableCell>
                     <StatusPill
                       label={domain.dnsStatus}
-                      tone={statusToneFromValue(domain.dnsStatus)}
+                      tone={dnsHealthTone(domain.dnsStatus)}
                     />
                   </TableCell>
                   <TableCell>
@@ -244,13 +386,36 @@ export function DomainsAdminPage() {
                       tone={statusToneFromValue(domain.mailStatus)}
                     />
                   </TableCell>
-                  <TableCell>{domain.mailboxCount}</TableCell>
+                  <TableCell className="tabular-nums">{domain.mailboxCount}</TableCell>
                   <TableCell className="text-right">
-                    <div className="inline-flex gap-1">
+                    <div className="inline-flex flex-wrap items-center justify-end gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1.5 border-primary/25 text-xs"
+                        disabled={verifyingId === domain.id}
+                        onClick={() => verifyMutation.mutate(domain.id)}
+                      >
+                        <ShieldCheck className="size-3.5 text-primary" />
+                        {verifyingId === domain.id ? "…" : "Verify"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1.5 border-gold/30 text-xs"
+                        disabled={copyingId === domain.id}
+                        onClick={() => void handleCopyDns(domain)}
+                      >
+                        <Copy className="size-3.5 text-gold" />
+                        {copyingId === domain.id ? "…" : "Copy DNS"}
+                      </Button>
                       <Button
                         type="button"
                         size="icon"
                         variant="ghost"
+                        title="Edit"
                         onClick={() => setEditDomain(domain)}
                       >
                         <Pencil className="size-4" />
@@ -259,6 +424,7 @@ export function DomainsAdminPage() {
                         type="button"
                         size="icon"
                         variant="ghost"
+                        title="Delete"
                         onClick={() => {
                           if (window.confirm(`Delete domain ${domain.name}?`)) {
                             deleteMutation.mutate(domain.id);

@@ -20,6 +20,15 @@ export async function requireAdminActor(): Promise<SessionPayload> {
   return session;
 }
 
+/** Provisioning, DNS verify, server settings, security — Super Admin only. */
+export async function requireSuperAdminActor(): Promise<SessionPayload> {
+  const session = await requireAdminActor();
+  if (session.role !== "SUPER_ADMIN") {
+    throw new Error("Forbidden: Super Admin required");
+  }
+  return session;
+}
+
 export async function requireCustomerActor(): Promise<SessionPayload> {
   const session = await getSessionFromCookies();
   if (!session) {
@@ -37,6 +46,13 @@ export async function requireCustomerActor(): Promise<SessionPayload> {
 /** Session + CSRF for POST/PUT/PATCH/DELETE admin mutations. */
 export async function requireAdminMutation(request: Request): Promise<SessionPayload> {
   const actor = await requireAdminActor();
+  await assertCsrf(request);
+  return actor;
+}
+
+/** Super Admin + CSRF for destructive / provision / verify / settings mutations. */
+export async function requireSuperAdminMutation(request: Request): Promise<SessionPayload> {
+  const actor = await requireSuperAdminActor();
   await assertCsrf(request);
   return actor;
 }

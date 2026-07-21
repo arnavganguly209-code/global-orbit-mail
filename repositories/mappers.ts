@@ -42,6 +42,11 @@ export function mapMailbox(
     _count?: { aliases: number; forwarders: number };
   },
 ): AdminMailbox {
+  const quotaMb = mailbox.quota?.quotaMb ?? 2048;
+  const usedMb = mailbox.quota?.usedMb ?? 0;
+  const remainingMb = Math.max(0, quotaMb - usedMb);
+  const usagePercent =
+    quotaMb > 0 ? Number(Math.min(100, (usedMb / quotaMb) * 100).toFixed(1)) : 0;
   return {
     id: mailbox.id,
     email: `${mailbox.localPart}@${mailbox.domain.name}`,
@@ -49,11 +54,14 @@ export function mapMailbox(
     domainId: mailbox.domainId,
     domainName: mailbox.domain.name,
     displayName: mailbox.displayName,
-    quotaMb: mailbox.quota?.quotaMb ?? 2048,
-    usedMb: mailbox.quota?.usedMb ?? 0,
+    quotaMb,
+    usedMb,
+    remainingMb,
+    usagePercent,
     status: mailbox.status,
     aliasCount: mailbox._count?.aliases ?? 0,
     forwarderCount: mailbox._count?.forwarders ?? 0,
+    lastLoginAt: mailbox.lastLoginAt?.toISOString() ?? null,
     createdAt: mailbox.createdAt.toISOString(),
   };
 }

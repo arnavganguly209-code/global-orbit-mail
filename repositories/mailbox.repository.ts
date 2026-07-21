@@ -3,6 +3,7 @@ import { writeAudit } from "@/lib/audit";
 import { mapMailbox } from "@/repositories/mappers";
 import { hashMailboxPassword } from "@/services/provisioning/password";
 import { mailEngine } from "@/services/provisioning/mail-engine";
+import { MailProvisioningService } from "@/services/provisioning/mail-provisioning-service";
 import type { AdminMailbox, PaginatedResult } from "@/types";
 import type { MailboxStatus, Prisma } from "@prisma/client";
 
@@ -110,32 +111,23 @@ export const mailboxRepository = {
       include: mailboxInclude,
     });
 
-    const provision = await mailEngine.runTracked({
-      kind: "MAILBOX_CREATE",
-      command: "mailbox.create",
+    await MailProvisioningService.provisionMailbox({
       mailboxId: mailbox.id,
       domainId: domain.id,
-      payload: {
-        email,
-        mailPasswordHash,
-        quotaBytes: input.quotaMb * 1024 * 1024,
-        displayName: input.displayName ?? null,
-      },
+      email,
+      mailPasswordHash,
+      quotaBytes: input.quotaMb * 1024 * 1024,
+      displayName: input.displayName ?? null,
+      audit: { actorId: input.actorId },
     });
-
-    if (provision.ok) {
-      await prisma.mailbox.update({
-        where: { id: mailbox.id },
-        data: { status: "ACTIVE", provisionedAt: new Date() },
-      });
-    }
 
     await writeAudit({
       actorId: input.actorId,
       action: "mailbox.create",
       resource: "mailbox",
       resourceId: mailbox.id,
-      metadata: { email, provisioned: provision.ok, jobId: provision.jobId },
+      status: "SUCCESS",
+      newValue: { email, quotaMb: input.quotaMb, displayName: input.displayName ?? null },
     });
 
     return this.getById(mailbox.id);
@@ -159,6 +151,8 @@ export const mailboxRepository = {
       include: { domain: true, quota: true },
     });
     if (!existing) return null;
+
+    const email = `${existing.localPart}@${existing.domain.name}`;
 
     const mailbox = await prisma.mailbox.update({
       where: { id },
@@ -185,15 +179,12 @@ export const mailboxRepository = {
     });
 
     if (patch.quotaMb != null) {
-      await mailEngine.runTracked({
-        kind: "MAILBOX_QUOTA",
-        command: "mailbox.quota",
+      await MailProvisioningService.updateQuota({
         mailboxId: id,
         domainId: existing.domainId,
-        payload: {
-          email: `${existing.localPart}@${existing.domain.name}`,
-          quotaBytes: patch.quotaMb * 1024 * 1024,
-        },
+        email,
+        quotaBytes: patch.quotaMb * 1024 * 1024,
+        audit: { actorId },
       });
     }
 
@@ -203,13 +194,14 @@ export const mailboxRepository = {
       patch.vacationBody !== undefined ||
       patch.vacationExpiresAt !== undefined
     ) {
+      // Vacation sync stays on mailEngine until MailProvisioningService adds VACATION_SYNC.
       await mailEngine.runTracked({
         kind: "VACATION_SYNC",
         command: "vacation.sync",
         mailboxId: id,
         domainId: existing.domainId,
         payload: {
-          email: `${existing.localPart}@${existing.domain.name}`,
+          email,
           enabled: mailbox.vacationEnabled,
           subject: mailbox.vacationSubject,
           body: mailbox.vacationBody,
@@ -223,7 +215,14 @@ export const mailboxRepository = {
       action: "mailbox.update",
       resource: "mailbox",
       resourceId: id,
-      metadata: patch,
+      status: "SUCCESS",
+      oldValue: {
+        displayName: existing.displayName,
+        status: existing.status,
+        quotaMb: existing.quota?.quotaMb ?? null,
+        vacationEnabled: existing.vacationEnabled,
+      },
+      newValue: patch,
     });
 
     return mapMailbox(mailbox);
@@ -237,37 +236,25 @@ export const mailboxRepository = {
     if (!existing) return null;
 
     const email = `${existing.localPart}@${existing.domain.name}`;
-    if (status === "SUSPENDED") {
-      await mailEngine.runTracked({
-        kind: "MAILBOX_SUSPEND",
-        command: "mailbox.suspend",
-        mailboxId: id,
-        domainId: existing.domainId,
-        payload: { email },
-      });
-      await writeAudit({
-        actorId,
-        action: "mailbox.suspend",
-        resource: "mailbox",
-        resourceId: id,
-        metadata: { email },
-      });
-    } else if (status === "ACTIVE") {
-      await mailEngine.runTracked({
-        kind: "MAILBOX_UNSUSPEND",
-        command: "mailbox.unsuspend",
-        mailboxId: id,
-        domainId: existing.domainId,
-        payload: { email },
-      });
-      await writeAudit({
-        actorId,
-        action: "mailbox.unsuspend",
-        resource: "mailbox",
-        resourceId: id,
-        metadata: { email },
-      });
-    }
+    const active = status === "ACTIVE";
+
+    await MailProvisioningService.setMailboxActive({
+      mailboxId: id,
+      domainId: existing.domainId,
+      email,
+      active,
+      audit: { actorId },
+    });
+
+    await writeAudit({
+      actorId,
+      action: active ? "mailbox.unsuspend" : "mailbox.suspend",
+      resource: "mailbox",
+      resourceId: id,
+      status: "SUCCESS",
+      oldValue: { status: existing.status, email },
+      newValue: { status, email, active },
+    });
 
     return this.update(id, { status }, actorId);
   },
@@ -287,12 +274,12 @@ export const mailboxRepository = {
       data: { passwordHash, mailPasswordHash },
     });
 
-    const provision = await mailEngine.runTracked({
-      kind: "MAILBOX_PASSWORD",
-      command: "mailbox.password",
+    await MailProvisioningService.updatePassword({
       mailboxId: id,
       domainId: existing.domainId,
-      payload: { email, mailPasswordHash },
+      email,
+      mailPasswordHash,
+      audit: { actorId },
     });
 
     await writeAudit({
@@ -300,7 +287,8 @@ export const mailboxRepository = {
       action: "mailbox.password_reset",
       resource: "mailbox",
       resourceId: id,
-      metadata: { email, provisioned: provision.ok, jobId: provision.jobId },
+      status: "SUCCESS",
+      newValue: { email, passwordChanged: true },
     });
     return this.getById(id);
   },
@@ -313,12 +301,11 @@ export const mailboxRepository = {
     if (!existing) return false;
 
     const email = `${existing.localPart}@${existing.domain.name}`;
-    await mailEngine.runTracked({
-      kind: "MAILBOX_DELETE",
-      command: "mailbox.delete",
+    await MailProvisioningService.deprovisionMailbox({
       mailboxId: id,
       domainId: existing.domainId,
-      payload: { email },
+      email,
+      audit: { actorId },
     });
 
     await prisma.$transaction([
@@ -340,7 +327,8 @@ export const mailboxRepository = {
       action: "mailbox.delete",
       resource: "mailbox",
       resourceId: id,
-      metadata: { email },
+      status: "SUCCESS",
+      oldValue: { email, status: existing.status },
     });
     return true;
   },
@@ -375,22 +363,21 @@ export const mailboxRepository = {
     const alias = await prisma.alias.create({
       data: { mailboxId, address: address.toLowerCase() },
     });
-    await mailEngine.runTracked({
-      kind: "ALIAS_SYNC",
-      command: "alias.sync",
+    const goto = `${mailbox.localPart}@${mailbox.domain.name}`;
+    await MailProvisioningService.syncAlias({
       mailboxId,
       domainId: mailbox.domainId,
-      payload: {
-        address: alias.address,
-        goto: `${mailbox.localPart}@${mailbox.domain.name}`,
-      },
+      address: alias.address,
+      goto,
+      audit: { actorId },
     });
     await writeAudit({
       actorId,
       action: "mailbox.alias_create",
       resource: "alias",
       resourceId: alias.id,
-      metadata: { mailboxId, address: alias.address },
+      status: "SUCCESS",
+      newValue: { mailboxId, address: alias.address, goto },
     });
     return alias;
   },
@@ -409,7 +396,8 @@ export const mailboxRepository = {
       action: "mailbox.alias_delete",
       resource: "alias",
       resourceId: aliasId,
-      metadata: { mailboxId },
+      status: "SUCCESS",
+      oldValue: { mailboxId, address: alias.address },
     });
     return true;
   },
@@ -441,19 +429,26 @@ export const mailboxRepository = {
     });
     const primary = `${mailbox.localPart}@${mailbox.domain.name}`;
     const goto = keepCopy ? `${primary},${forwarder.destination}` : forwarder.destination;
-    await mailEngine.runTracked({
-      kind: "FORWARDER_SYNC",
-      command: "forwarder.sync",
+    await MailProvisioningService.syncForwarder({
       mailboxId,
       domainId: mailbox.domainId,
-      payload: { address: primary, goto },
+      address: primary,
+      goto,
+      audit: { actorId },
     });
     await writeAudit({
       actorId,
       action: "mailbox.forwarder_create",
       resource: "forwarder",
       resourceId: forwarder.id,
-      metadata: { mailboxId, destination: forwarder.destination },
+      status: "SUCCESS",
+      newValue: {
+        mailboxId,
+        destination: forwarder.destination,
+        keepCopy,
+        address: primary,
+        goto,
+      },
     });
     return forwarder;
   },
@@ -472,7 +467,8 @@ export const mailboxRepository = {
       action: "mailbox.forwarder_delete",
       resource: "forwarder",
       resourceId: forwarderId,
-      metadata: { mailboxId },
+      status: "SUCCESS",
+      oldValue: { mailboxId, destination: forwarder.destination },
     });
     return true;
   },

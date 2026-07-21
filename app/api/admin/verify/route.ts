@@ -1,21 +1,29 @@
 import { ok, fail, parseJson } from "@/lib/api/response";
-import { requireAdminActor, requireAdminMutation } from "@/lib/api/actor";
-import { requirePermission } from "@/lib/auth/permissions";
+import { requireSuperAdminActor, requireSuperAdminMutation } from "@/lib/api/actor";
 import { verifyService } from "@/services/dns/admin";
 import { assertApiRateLimit } from "@/lib/api/rate-limit";
+import { requestAuditContext, writeAudit } from "@/lib/audit";
 
 /**
- * POST /api/admin/verify
- * Body: { domainId: uuid }
- * Live MX/SPF/DKIM/DMARC/SSL verification.
+ * POST /api/admin/verify — Super Admin only
  */
 export async function POST(request: Request) {
   try {
-    const actor = await requireAdminMutation(request);
-    requirePermission(actor.role, "dns:write");
+    const actor = await requireSuperAdminMutation(request);
     await assertApiRateLimit(`verify:${actor.sub}`, 30, 60_000);
     const body = await parseJson(request);
+    const ctx = requestAuditContext(request);
     const report = await verifyService.verify(body, actor.sub);
+    await writeAudit({
+      actorId: actor.sub,
+      action: "dns.verify",
+      resource: "domain",
+      resourceId: report.domainId,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      status: report.overall === "VERIFIED" ? "SUCCESS" : "PARTIAL",
+      newValue: report as unknown as object,
+    });
     return ok(report, undefined, `DNS verification ${report.overall}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Verification failed";
@@ -35,18 +43,14 @@ export async function POST(request: Request) {
   }
 }
 
-/**
- * GET /api/admin/verify?domainId=
- * Convenience read of last verification by running a fresh check when domainId set.
- */
 export async function GET(request: Request) {
   try {
-    const actor = await requireAdminActor();
-    requirePermission(actor.role, "dns:read");
+    await requireSuperAdminActor();
     const domainId = new URL(request.url).searchParams.get("domainId");
     if (!domainId) {
       return fail("domainId query parameter is required", 400);
     }
+    const actor = await requireSuperAdminActor();
     await assertApiRateLimit(`verify-get:${actor.sub}`, 60, 60_000);
     const report = await verifyService.verifyById(domainId, actor.sub);
     return ok(report);
@@ -54,7 +58,13 @@ export async function GET(request: Request) {
     const message = error instanceof Error ? error.message : "Verification failed";
     return fail(
       message,
-      message === "Unauthorized" ? 401 : message === "Domain not found" ? 404 : 400,
+      message === "Unauthorized"
+        ? 401
+        : message.startsWith("Forbidden")
+          ? 403
+          : message === "Domain not found"
+            ? 404
+            : 400,
     );
   }
 }

@@ -1,9 +1,10 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { LoginFormShell } from "@/features/auth/login-form-shell";
+import { OrbitAdminLoginForm } from "@/features/auth/orbit-admin-login-form";
 
+/** Orbit Super Admin login — premium console form (no demo credentials). */
 export function AdminLoginForm() {
-  const searchParams = useSearchParams();
-  return <LoginFormShell surface="admin" nextPath={searchParams.get("next") ?? "/orbit"} />;
+  useSearchParams(); // keep suspense boundary compatible with prior usage
+  return <OrbitAdminLoginForm />;
 }

@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { mapDomain } from "@/repositories/mappers";
 import { buildDnsRecordsForDomain, generateDkimKeypair } from "@/lib/dns/records";
-import { mailEngine } from "@/services/provisioning/mail-engine";
+import { MailProvisioningService } from "@/services/provisioning/mail-provisioning-service";
 import type { AdminDomain, PaginatedResult } from "@/types";
 import type { DomainStatus, Prisma } from "@prisma/client";
 
@@ -147,57 +147,31 @@ export const domainRepository = {
       });
     });
 
-    const provision = await mailEngine.runTracked({
-      kind: "DOMAIN_CREATE",
-      command: "domain.create",
+    await MailProvisioningService.provisionDomain({
       domainId: domain.id,
-      payload: {
-        domain: domain.name,
-        dkimSelector: dkim.selector,
-        dkimPublicKey: dkim.publicKey,
-        dkimPrivateKey: dkim.privateKeyPem,
-      },
+      domainName: domain.name,
+      dkimSelector: dkim.selector,
+      dkimPublicKey: dkim.publicKey,
+      dkimPrivateKey: dkim.privateKeyPem,
+      audit: { actorId: input.actorId },
     });
-
-    if (provision.ok) {
-      await prisma.domain.update({
-        where: { id: domain.id },
-        data: { mailStatus: "ACTIVE", provisionedAt: new Date() },
-      });
-      await mailEngine.runTracked({
-        kind: "DKIM_SYNC",
-        command: "dkim.sync",
-        domainId: domain.id,
-        payload: {
-          domain: domain.name,
-          selector: dkim.selector,
-          privateKeyPem: dkim.privateKeyPem,
-          publicKey: dkim.publicKey,
-        },
-      });
-    } else {
-      await prisma.domain.update({
-        where: { id: domain.id },
-        data: { mailStatus: "ERROR" },
-      });
-    }
 
     await writeAudit({
       actorId: input.actorId,
       action: "domain.create",
       resource: "domain",
       resourceId: domain.id,
-      metadata: {
-        name: domain.name,
-        provisioned: provision.ok,
-        jobId: provision.jobId,
-      },
+      status: "SUCCESS",
+      newValue: { name: domain.name },
     });
 
-    const fresh = await prisma.domain.findFirstOrThrow({
-      where: { id: domain.id },
+    const fresh = await prisma.domain.findFirst({
+      where: { id: domain.id, deletedAt: null },
       include: { _count: { select: { mailboxes: { where: { deletedAt: null } } } } },
     });
+    if (!fresh) {
+      throw new Error("Domain provisioning failed and was rolled back");
+    }
     return mapDomain(fresh);
   },
 
@@ -227,11 +201,10 @@ export const domainRepository = {
     const existing = await prisma.domain.findFirst({ where: { id, deletedAt: null } });
     if (!existing) return false;
 
-    await mailEngine.runTracked({
-      kind: "DOMAIN_DELETE",
-      command: "domain.delete",
+    await MailProvisioningService.deprovisionDomain({
       domainId: id,
-      payload: { domain: existing.name },
+      domainName: existing.name,
+      audit: { actorId },
     });
 
     await prisma.$transaction([
@@ -253,7 +226,8 @@ export const domainRepository = {
       action: "domain.delete",
       resource: "domain",
       resourceId: id,
-      metadata: { name: existing.name },
+      status: "SUCCESS",
+      oldValue: { name: existing.name },
     });
     return true;
   },

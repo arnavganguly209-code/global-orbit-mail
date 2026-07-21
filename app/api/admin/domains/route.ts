@@ -1,10 +1,15 @@
 import { ok, fail, created, parseJson } from "@/lib/api/response";
-import { requireAdminActor, requireAdminMutation } from "@/lib/api/actor";
+import { requireAdminActor, requireSuperAdminMutation } from "@/lib/api/actor";
 import { domainService } from "@/services/domains";
 
 function statusFor(message: string) {
   if (message === "Unauthorized") return 401;
-  if (message === "Forbidden" || message === "Invalid CSRF token") return 403;
+  if (
+    message === "Forbidden" ||
+    message === "Invalid CSRF token" ||
+    message.startsWith("Forbidden:")
+  )
+    return 403;
   return 400;
 }
 
@@ -21,9 +26,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const actor = await requireAdminMutation(request);
+    const actor = await requireSuperAdminMutation(request);
     const body = await parseJson(request);
-    return created(await domainService.create(body, actor.sub), "Domain created");
+    return created(
+      await domainService.create(body, actor.sub, null),
+      "Domain created and provisioned",
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create domain";
     return fail(message, statusFor(message));

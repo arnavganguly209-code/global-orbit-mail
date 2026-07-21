@@ -104,9 +104,12 @@ export interface AdminMailbox {
   displayName: string | null;
   quotaMb: number;
   usedMb: number;
+  remainingMb: number;
+  usagePercent: number;
   status: "ACTIVE" | "SUSPENDED" | "DISABLED" | "PENDING";
   aliasCount: number;
   forwarderCount: number;
+  lastLoginAt: string | null;
   createdAt: string;
 }
 

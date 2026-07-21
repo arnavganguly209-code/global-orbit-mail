@@ -335,8 +335,7 @@ async function main() {
     });
   }
 
-  console.log("Seed complete");
-  console.log("Orbit login: username globalorbit  OR  admin@theglobalorbit.com / OrbitAdmin!2026");
+  console.log("Orbit seed complete. Use Super Admin credentials from your secure ops vault (not printed).");
 }
 
 main()

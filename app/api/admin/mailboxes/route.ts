@@ -1,6 +1,20 @@
 import { ok, fail, created, parseJson } from "@/lib/api/response";
-import { requireAdminActor, requireAdminMutation } from "@/lib/api/actor";
+import {
+  requireAdminActor,
+  requireSuperAdminMutation,
+} from "@/lib/api/actor";
 import { mailboxService } from "@/services/mailboxes";
+
+function statusFor(message: string) {
+  if (message === "Unauthorized") return 401;
+  if (
+    message === "Forbidden" ||
+    message.startsWith("Forbidden:") ||
+    message === "Invalid CSRF token"
+  )
+    return 403;
+  return 400;
+}
 
 export async function GET(request: Request) {
   try {
@@ -9,17 +23,17 @@ export async function GET(request: Request) {
     return ok(await mailboxService.list(Object.fromEntries(searchParams.entries())));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to list mailboxes";
-    return fail(message, message === "Unauthorized" ? 401 : 400);
+    return fail(message, statusFor(message));
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const actor = await requireAdminMutation(request);
+    const actor = await requireSuperAdminMutation(request);
     const body = await parseJson(request);
-    return created(await mailboxService.create(body, actor.sub), "Mailbox created");
+    return created(await mailboxService.create(body, actor.sub), "Mailbox created and provisioned");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create mailbox";
-    return fail(message, message === "Unauthorized" ? 401 : 400);
+    return fail(message, statusFor(message));
   }
 }

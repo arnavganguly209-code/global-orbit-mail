@@ -463,6 +463,34 @@ html[data-color-mode="dark"] {
   background: rgba(59, 130, 246, 0.12) !important;
 }
 
+/* Gmail-like compose / message chrome */
+#compose-content,
+.formcontent.compose,
+#messagecontframe,
+#messagebody {
+  background: #0c121e !important;
+}
+
+#composebody,
+#composebodycontainer textarea,
+.mce-content-body {
+  background: #0a0f1a !important;
+  color: #e8eef9 !important;
+  border-radius: 12px !important;
+}
+
+#contacts-table tr:hover td,
+#directorylist li:hover {
+  background: rgba(59, 130, 246, 0.1) !important;
+}
+
+.settings-default .formcontent,
+#preferences-details,
+.propform fieldset {
+  border-radius: 14px !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
 a.button,
 .button,
 .btn {
