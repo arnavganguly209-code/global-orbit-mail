@@ -10,6 +10,16 @@ import { normalizeApexDomain, isValidApexDomain } from "@/lib/dns/domain-name";
 
 export const domainService = {
   async list(query: Record<string, string | string[] | undefined>) {
+    if (query.mailboxable === "1" || query.mailboxable === "true") {
+      const items = await domainRepository.listMailboxable();
+      return {
+        items,
+        total: items.length,
+        page: 1,
+        pageSize: items.length || 100,
+        hasMore: false,
+      };
+    }
     const parsed = paginationSchema.parse({
       page: query.page,
       pageSize: query.pageSize,
@@ -73,6 +83,16 @@ export const domainService = {
     query: Record<string, string | string[] | undefined>,
     organizationId: string,
   ) {
+    if (query.mailboxable === "1" || query.mailboxable === "true") {
+      const items = await domainRepository.listMailboxable({ organizationId });
+      return {
+        items,
+        total: items.length,
+        page: 1,
+        pageSize: items.length || 100,
+        hasMore: false,
+      };
+    }
     const parsed = paginationSchema.parse({
       page: query.page,
       pageSize: query.pageSize,

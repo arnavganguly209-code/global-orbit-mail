@@ -369,4 +369,36 @@ export const domainRepository = {
   async countActive() {
     return prisma.domain.count({ where: { deletedAt: null, status: "ACTIVE" } });
   },
+
+  /**
+   * Domains eligible for mailbox creation.
+   * Prefers Ready/Active/Verified; falls back to any usable domain so the
+   * dropdown is never empty when domains exist.
+   */
+  async listMailboxable(params?: { organizationId?: string }): Promise<AdminDomain[]> {
+    const baseWhere: Prisma.DomainWhereInput = {
+      deletedAt: null,
+      status: { notIn: ["SUSPENDED", "FAILED"] },
+      ...(params?.organizationId ? { organizationId: params.organizationId } : {}),
+    };
+
+    const ready = await prisma.domain.findMany({
+      where: {
+        ...baseWhere,
+        OR: [{ status: "ACTIVE" }, { dnsStatus: "VERIFIED" }],
+      },
+      include: { _count: { select: { mailboxes: { where: { deletedAt: null } } } } },
+      orderBy: { name: "asc" },
+      take: 500,
+    });
+    if (ready.length > 0) return ready.map(mapDomain);
+
+    const fallback = await prisma.domain.findMany({
+      where: baseWhere,
+      include: { _count: { select: { mailboxes: { where: { deletedAt: null } } } } },
+      orderBy: { name: "asc" },
+      take: 500,
+    });
+    return fallback.map(mapDomain);
+  },
 };

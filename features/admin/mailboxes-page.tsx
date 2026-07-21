@@ -47,6 +47,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Loading } from "@/components/ui/loading";
 import { adminFetch } from "@/lib/api/admin-fetch";
+import { MailboxCreateFields } from "@/components/mailboxes/mailbox-create-fields";
 import { cn } from "@/lib/utils";
 import type { AdminDomain, AdminMailbox, ApiResponse, PaginatedResult } from "@/types";
 
@@ -128,15 +129,19 @@ export function MailboxesAdminPage() {
     setSelected(new Set());
   }, [page, search, status, data?.items]);
 
-  const { data: domainsData } = useQuery({
+  const { data: domainsData, isLoading: domainsLoading, refetch: refetchDomains } = useQuery({
     queryKey: ["admin-domains-options"],
     queryFn: async () => {
-      const res = await adminFetch("/api/admin/domains?page=1&pageSize=100");
+      const res = await adminFetch("/api/admin/domains?mailboxable=1");
       const json = (await res.json()) as ApiResponse<PaginatedResult<AdminDomain>>;
-      if (!json.success) throw new Error("Failed");
-      return json.data.items;
+      if (!json.success) throw new Error("Failed to load domains");
+      return json.data.items ?? [];
     },
   });
+
+  React.useEffect(() => {
+    if (open) void refetchDomains();
+  }, [open, refetchDomains]);
 
   const { data: aliases = [], isLoading: aliasesLoading } = useQuery({
     queryKey: ["admin-mailbox-aliases", manageMailbox?.id],
@@ -189,6 +194,7 @@ export function MailboxesAdminPage() {
       });
       qc.invalidateQueries({ queryKey: ["admin-mailboxes"] });
       qc.invalidateQueries({ queryKey: ["admin-domains"] });
+      qc.invalidateQueries({ queryKey: ["admin-domains-options"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -431,59 +437,26 @@ export function MailboxesAdminPage() {
             <DialogHeader>
               <DialogTitle>Create Mailbox</DialogTitle>
             </DialogHeader>
-            <div className="grid gap-3">
-              <div className="space-y-2">
-                <Label>Local part</Label>
-                <Input
-                  value={form.localPart}
-                  onChange={(e) => setForm((f) => ({ ...f, localPart: e.target.value }))}
-                  placeholder="name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Domain</Label>
-                <Select
-                  value={form.domainId}
-                  onValueChange={(domainId) => setForm((f) => ({ ...f, domainId }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select domain" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(domainsData ?? []).map((d) => (
-                      <SelectItem key={d.id} value={d.id}>
-                        {d.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Display name</Label>
-                <Input
-                  value={form.displayName}
-                  onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Quota (MB)</Label>
-                <Input
-                  value={form.quotaMb}
-                  onChange={(e) => setForm((f) => ({ ...f, quotaMb: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Password</Label>
-                <Input
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                />
-              </div>
-            </div>
+            <MailboxCreateFields
+              form={form}
+              onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+              domains={domainsData ?? []}
+              domainsLoading={domainsLoading}
+              domainsHref="/orbit/domains"
+            />
             <DialogFooter>
-              <Button type="button" onClick={() => createMutation.mutate()}>
-                Create
+              <Button
+                type="button"
+                onClick={() => createMutation.mutate()}
+                disabled={
+                  createMutation.isPending ||
+                  !form.domainId ||
+                  !form.localPart ||
+                  form.password.length < 12 ||
+                  !(domainsData ?? []).length
+                }
+              >
+                {createMutation.isPending ? "Creating…" : "Create"}
               </Button>
             </DialogFooter>
           </DialogContent>

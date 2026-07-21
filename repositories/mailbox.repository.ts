@@ -98,7 +98,7 @@ export const mailboxRepository = {
         domainId: domain.id,
         organizationId: domain.organizationId,
         displayName: input.displayName ?? null,
-        status: "PENDING",
+        status: "ACTIVE",
         passwordHash,
         mailPasswordHash,
         quota: {
@@ -111,15 +111,25 @@ export const mailboxRepository = {
       include: mailboxInclude,
     });
 
-    await MailProvisioningService.provisionMailbox({
-      mailboxId: mailbox.id,
-      domainId: domain.id,
-      email,
-      mailPasswordHash,
-      quotaBytes: input.quotaMb * 1024 * 1024,
-      displayName: input.displayName ?? null,
-      audit: { actorId: input.actorId },
-    });
+    try {
+      await MailProvisioningService.provisionMailbox({
+        mailboxId: mailbox.id,
+        domainId: domain.id,
+        email,
+        mailPasswordHash,
+        quotaBytes: input.quotaMb * 1024 * 1024,
+        displayName: input.displayName ?? null,
+        audit: { actorId: input.actorId },
+      });
+    } catch (error) {
+      await prisma.mailbox.update({
+        where: { id: mailbox.id },
+        data: { status: "DISABLED" },
+      });
+      throw error instanceof Error
+        ? error
+        : new Error("Mailbox provisioning failed. Please try again.");
+    }
 
     await writeAudit({
       actorId: input.actorId,
