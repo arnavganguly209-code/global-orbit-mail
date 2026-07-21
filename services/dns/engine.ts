@@ -6,6 +6,7 @@ import {
   toDnsInstructionJson,
   type SpfMergeRecommendation,
 } from "@/lib/dns/records";
+import { getConfiguredMailHostname } from "@/lib/dns/mail-host";
 import { generateDkimKeypair } from "@/lib/dns/dkim";
 import { resolveMailServerIpv4, resolveMailServerIpv6 } from "@/lib/dns/mail-ip";
 import { promises as dns } from "node:dns";
@@ -85,7 +86,7 @@ export async function provisionDnsForDomain(
         kind: "SSL",
         state: "PENDING",
         domainId,
-        target: process.env.MAIL_HOSTNAME ?? "mail.globalorbitmail.com",
+        target: getConfiguredMailHostname(),
         detail: "Awaiting TLS check on mail host",
       },
     ],
@@ -227,10 +228,7 @@ export async function getDomainDnsPayload(domainId: string) {
   }
 
   const annotated = await markAlreadyPublished(apex, generated);
-  const mailHost = (process.env.MAIL_HOSTNAME ?? "mail.globalorbitmail.com")
-    .replace(/\.$/, "")
-    .replace(/^www\./i, "")
-    .toLowerCase();
+  const mailHost = getConfiguredMailHostname();
 
   const existingSpf = await detectExistingSpf(apex);
   const spfMerge: SpfMergeRecommendation | null = existingSpf

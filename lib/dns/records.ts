@@ -10,12 +10,13 @@ import {
   isValidApexDomain,
   domainLookupVariants,
 } from "@/lib/dns/domain-name";
+import {
+  getConfiguredAutoconfigHostname,
+  getConfiguredMailHostname,
+  getConfiguredWebmailHostname,
+} from "@/lib/dns/mail-host";
 
 export { normalizeApexDomain, isValidApexDomain, domainLookupVariants };
-
-const MAIL_HOST = process.env.MAIL_HOSTNAME ?? "mail.globalorbitmail.com";
-const WEBMAIL_HOST = process.env.WEBMAIL_HOSTNAME ?? "webmail.globalorbitmail.cloud";
-const AUTOCONFIG_HOST = process.env.AUTOCONFIG_HOSTNAME ?? WEBMAIL_HOST;
 
 export type DnsRecordPurpose =
   | "mail_a"
@@ -48,21 +49,15 @@ export type DnsRecordBlueprint = {
 };
 
 function sharedMailHost() {
-  return (process.env.MAIL_HOSTNAME ?? MAIL_HOST).replace(/\.$/, "").replace(/^www\./i, "").toLowerCase();
+  return getConfiguredMailHostname();
 }
 
 function sharedWebmailHost() {
-  return (process.env.WEBMAIL_HOSTNAME ?? WEBMAIL_HOST)
-    .replace(/\.$/, "")
-    .replace(/^www\./i, "")
-    .toLowerCase();
+  return getConfiguredWebmailHostname();
 }
 
 function sharedAutoconfigHost() {
-  return (process.env.AUTOCONFIG_HOSTNAME ?? AUTOCONFIG_HOST)
-    .replace(/\.$/, "")
-    .replace(/^www\./i, "")
-    .toLowerCase();
+  return getConfiguredAutoconfigHostname();
 }
 
 /**
@@ -133,7 +128,7 @@ export function buildDnsRecordsForDomain(
       publishType: "TXT",
       name: apex,
       host: "@",
-      value: `v=spf1 mx a:${mailHost} ~all`,
+      value: `v=spf1 mx a:${mailHost} -all`,
       priority: null,
       status: "PENDING",
       ttl: 3600,
@@ -308,11 +303,11 @@ export function recommendSpfMerge(existingSpf: string, mailHost: string): SpfMer
 
   let recommended = existing;
   if (!/\bv=spf1\b/i.test(recommended)) {
-    recommended = `v=spf1 ${token} ~all`;
+    recommended = `v=spf1 ${token} -all`;
   } else if (/\s(~all|-all|\?all|\+all)\s*$/i.test(recommended)) {
     recommended = recommended.replace(/\s(~all|-all|\?all|\+all)\s*$/i, ` ${token} $1`);
   } else {
-    recommended = `${recommended} ${token} ~all`;
+    recommended = `${recommended} ${token} -all`;
   }
 
   return {

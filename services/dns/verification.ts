@@ -226,7 +226,7 @@ export const dnsVerificationService = {
     const spf: CheckResult = {
       ok: spfOk,
       label: "SPF",
-      expected: expectedSpf?.value ?? `v=spf1 mx a:${mailHost} ~all`,
+      expected: expectedSpf?.value ?? `v=spf1 mx a:${mailHost} -all`,
       observed: spfObserved.filter((v) => v.toLowerCase().includes("v=spf1")),
       detail: spfOk ? "SPF TXT verified" : "SPF TXT missing or mismatch",
     };

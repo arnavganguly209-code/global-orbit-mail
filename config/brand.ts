@@ -13,7 +13,7 @@ export const brand = {
   siteHost: "globalorbitmail.com",
   companyUrl: "https://globalorbitmail.com/",
   portals: {
-    user: "webmail.globalorbitmail.com",
+    user: "webmail.globalorbitmail.cloud",
     admin: "globalorbitmail.com",
   },
   assets: {

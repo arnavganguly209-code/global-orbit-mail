@@ -24,7 +24,11 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: "https",
-        hostname: "webmail.globalorbitmail.com",
+        hostname: "webmail.globalorbitmail.cloud",
+      },
+      {
+        protocol: "https",
+        hostname: "mail.globalorbitmail.cloud",
       },
     ],
   },

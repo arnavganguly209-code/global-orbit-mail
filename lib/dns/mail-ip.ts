@@ -4,6 +4,7 @@
  */
 
 import { promises as dns } from "node:dns";
+import { getConfiguredMailHostname } from "@/lib/dns/mail-host";
 
 const PLACEHOLDER_IPS = new Set([
   "",
@@ -40,11 +41,7 @@ export async function resolveMailServerIpv4(): Promise<string> {
   const configured = process.env.MAIL_SERVER_IPV4?.trim() ?? "";
   if (isUsableIpv4(configured)) return configured;
 
-  const host = (process.env.MAIL_HOSTNAME ?? "mail.globalorbitmail.com")
-    .trim()
-    .toLowerCase()
-    .replace(/\.$/, "")
-    .replace(/^www\./, "");
+  const host = getConfiguredMailHostname();
 
   try {
     const addrs = await dns.resolve4(host);
@@ -63,11 +60,7 @@ export async function resolveMailServerIpv6(): Promise<string | null> {
   const configured = process.env.MAIL_SERVER_IPV6?.trim() ?? "";
   if (isUsableIpv6(configured)) return configured;
 
-  const host = (process.env.MAIL_HOSTNAME ?? "mail.globalorbitmail.com")
-    .trim()
-    .toLowerCase()
-    .replace(/\.$/, "")
-    .replace(/^www\./, "");
+  const host = getConfiguredMailHostname();
 
   try {
     const addrs = await dns.resolve6(host);

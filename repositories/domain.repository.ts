@@ -3,6 +3,7 @@ import { writeAudit } from "@/lib/audit";
 import { mapDomain } from "@/repositories/mappers";
 import { buildDnsRecordsForDomain } from "@/lib/dns/records";
 import { domainLookupVariants, isValidApexDomain, normalizeApexDomain } from "@/lib/dns/domain-name";
+import { getConfiguredMailHostname } from "@/lib/dns/mail-host";
 import { generateDkimKeypair } from "@/lib/dns/dkim";
 import { resolveMailServerIpv4, resolveMailServerIpv6 } from "@/lib/dns/mail-ip";
 import { MailProvisioningService } from "@/services/provisioning/mail-provisioning-service";
@@ -264,7 +265,7 @@ export const domainRepository = {
             state: "PENDING",
             domainId: created.id,
             organizationId: input.organizationId,
-            target: process.env.MAIL_HOSTNAME ?? "mail.globalorbitmail.com",
+            target: getConfiguredMailHostname(),
             detail: "Awaiting TLS check on mail host",
           },
         ],
