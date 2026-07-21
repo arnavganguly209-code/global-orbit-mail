@@ -276,8 +276,11 @@ async function main() {
         verifiedAt: new Date(),
       },
     });
-    const records = buildDnsRecordsForDomain(domain.name).map(
-      ({ purpose: _p, label: _l, publishType: _pt, ...r }) => ({
+    const mailIpv4 = process.env.MAIL_SERVER_IPV4?.trim() && process.env.MAIL_SERVER_IPV4 !== "0.0.0.0"
+      ? process.env.MAIL_SERVER_IPV4.trim()
+      : "1.1.1.1"; // seed-only fallback for local DB seed without live resolve
+    const records = buildDnsRecordsForDomain(domain.name, { mailIpv4 }).map(
+      ({ purpose: _p, label: _l, publishType: _pt, host: _h, ...r }) => ({
         ...r,
         domainId: domain!.id,
         status: "VERIFIED" as const,

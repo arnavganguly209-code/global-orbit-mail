@@ -12,7 +12,21 @@ export const domainCreateSchema = z.object({
     .trim()
     .min(3)
     .max(253)
-    .regex(/^[a-z0-9.-]+\.[a-z]{2,}$/i, "Enter a valid domain name"),
+    .transform((value) =>
+      value
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//i, "")
+        .replace(/[/?#].*$/, "")
+        .replace(/\.$/, "")
+        .replace(/^www\./i, ""),
+    )
+    .refine((value) => /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(value), {
+      message: "Enter a valid root domain (without www)",
+    })
+    .refine((value) => !value.startsWith("www."), {
+      message: "Use the root domain for email (example.com), not www.example.com",
+    }),
 });
 
 export const domainUpdateSchema = z.object({

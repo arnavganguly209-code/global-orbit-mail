@@ -1,23 +1,39 @@
 import { prisma } from "@/lib/db";
 import {
   buildDnsRecordsForDomain,
+  normalizeApexDomain,
   toDnsInstructionJson,
 } from "@/lib/dns/records";
 import { generateDkimKeypair } from "@/lib/dns/dkim";
+import { resolveMailServerIpv4, resolveMailServerIpv6 } from "@/lib/dns/mail-ip";
+import { promises as dns } from "node:dns";
 
-export { buildDnsRecordsForDomain, generateDkimKeypair, toDnsInstructionJson };
+export { buildDnsRecordsForDomain, generateDkimKeypair, toDnsInstructionJson, normalizeApexDomain };
+
+function toDbRecord(
+  domainId: string,
+  record: ReturnType<typeof buildDnsRecordsForDomain>[number],
+) {
+  const { purpose: _p, label: _l, publishType: _pt, host: _h, ...rest } = record;
+  return { domainId, ...rest };
+}
 
 export async function provisionDnsForDomain(
   domainId: string,
   domainName: string,
   options?: { dkimSelector?: string; dkimDnsValue?: string },
 ) {
-  const records = buildDnsRecordsForDomain(domainName, options);
+  const apex = normalizeApexDomain(domainName);
+  const mailIpv4 = await resolveMailServerIpv4();
+  const mailIpv6 = await resolveMailServerIpv6();
+  const records = buildDnsRecordsForDomain(apex, {
+    ...options,
+    mailIpv4,
+    mailIpv6,
+  });
+
   await prisma.dnsRecord.createMany({
-    data: records.map(({ purpose: _purpose, label: _label, publishType: _publishType, ...record }) => ({
-      domainId,
-      ...record,
-    })),
+    data: records.map((record) => toDbRecord(domainId, record)),
   });
 
   await prisma.verification.createMany({
@@ -26,28 +42,28 @@ export async function provisionDnsForDomain(
         kind: "DNS_MX",
         state: "PENDING",
         domainId,
-        target: domainName,
+        target: apex,
         detail: "Awaiting live MX verification",
       },
       {
         kind: "DNS_SPF",
         state: "PENDING",
         domainId,
-        target: domainName,
+        target: apex,
         detail: "Awaiting live SPF verification",
       },
       {
         kind: "DNS_DKIM",
         state: "PENDING",
         domainId,
-        target: domainName,
+        target: apex,
         detail: "Awaiting live DKIM verification",
       },
       {
         kind: "DNS_DMARC",
         state: "PENDING",
         domainId,
-        target: domainName,
+        target: apex,
         detail: "Awaiting live DMARC verification",
       },
       {
@@ -66,10 +82,51 @@ export async function provisionDnsForDomain(
   });
 }
 
+async function markAlreadyPublished(
+  apex: string,
+  records: ReturnType<typeof buildDnsRecordsForDomain>,
+) {
+  return Promise.all(
+    records.map(async (record) => {
+      let alreadyPublished = false;
+      try {
+        if (record.publishType === "MX" || record.type === "MX") {
+          const mx = await dns.resolveMx(apex);
+          const expected = record.value.replace(/\.$/, "").toLowerCase();
+          alreadyPublished = mx.some(
+            (row) => row.exchange.replace(/\.$/, "").toLowerCase() === expected,
+          );
+        } else if (record.publishType === "A" || record.type === "A") {
+          const addrs = await dns.resolve4(record.name);
+          alreadyPublished = addrs.includes(record.value);
+        } else if (record.publishType === "CNAME" || record.type === "CNAME") {
+          const cnames = await dns.resolveCname(record.name);
+          const expected = record.value.replace(/\.$/, "").toLowerCase();
+          alreadyPublished = cnames.some(
+            (row) => row.replace(/\.$/, "").toLowerCase() === expected,
+          );
+        } else if (
+          record.publishType === "TXT" ||
+          record.type === "TXT" ||
+          record.type === "SPF" ||
+          record.type === "DKIM" ||
+          record.type === "DMARC"
+        ) {
+          const txts = await dns.resolveTxt(record.name);
+          const flat = txts.map((parts) => parts.join(""));
+          alreadyPublished = flat.some((txt) => txt.includes(record.value.slice(0, 24)));
+        }
+      } catch {
+        alreadyPublished = false;
+      }
+      return { ...record, alreadyPublished };
+    }),
+  );
+}
+
 /**
- * Always return the full generated DNS instruction set for a domain.
- * Does not require existing dns_records rows — generates from domain + DKIM material.
- * Persists DKIM keys and missing records so later Verify / Copy stay consistent.
+ * Always return apex mail DNS instructions.
+ * Never requires public DNS to exist first. Never emits www hosts or 0.0.0.0.
  */
 export async function getDomainDnsPayload(domainId: string) {
   const domain = await prisma.domain.findFirst({
@@ -82,6 +139,14 @@ export async function getDomainDnsPayload(domainId: string) {
     },
   });
   if (!domain) return null;
+
+  const apex = normalizeApexDomain(domain.name);
+  if (apex !== domain.name.toLowerCase()) {
+    await prisma.domain.update({
+      where: { id: domain.id },
+      data: { name: apex },
+    });
+  }
 
   let dkimSelector = domain.dkimSelector?.trim() || "orbit";
   let dkimDnsValue: string | undefined;
@@ -111,33 +176,47 @@ export async function getDomainDnsPayload(domainId: string) {
     }
   }
 
-  const generated = buildDnsRecordsForDomain(domain.name, {
+  const mailIpv4 = await resolveMailServerIpv4();
+  const mailIpv6 = await resolveMailServerIpv6();
+  const generated = buildDnsRecordsForDomain(apex, {
     dkimSelector,
     dkimDnsValue,
+    mailIpv4,
+    mailIpv6,
   });
 
-  // Persist generated records when the domain has none yet (Copy DNS / create gaps).
-  if (domain.dnsRecords.length === 0) {
+  // Replace stale/wrong DB rows (e.g. mail.www.*) with correct apex mail records.
+  const hasWwwPollution = domain.dnsRecords.some(
+    (r) => r.name.includes(".www.") || r.name.startsWith("www.") || r.value === "0.0.0.0",
+  );
+  if (domain.dnsRecords.length === 0 || hasWwwPollution) {
+    if (hasWwwPollution) {
+      await prisma.dnsRecord.updateMany({
+        where: { domainId: domain.id, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+    }
     await prisma.dnsRecord.createMany({
-      data: generated.map(({ purpose: _p, label: _l, publishType: _pt, ...record }) => ({
-        domainId: domain.id,
-        ...record,
-      })),
+      data: generated.map((record) => toDbRecord(domain.id, record)),
     });
   }
 
+  const annotated = await markAlreadyPublished(apex, generated);
+
   return toDnsInstructionJson(
-    domain.name,
-    generated.map((r) => ({
+    apex,
+    annotated.map((r) => ({
       type: r.type,
       publishType: r.publishType,
       name: r.name,
+      host: r.host,
       value: r.value,
       priority: r.priority,
       ttl: r.ttl,
-      status: r.status,
+      status: r.alreadyPublished ? "DETECTED" : r.status,
       purpose: r.purpose,
       label: r.label,
+      alreadyPublished: r.alreadyPublished,
     })),
   );
 }

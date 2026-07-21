@@ -51,18 +51,22 @@ type DnsInstructionRecord = {
   type: string;
   publishType: string;
   host: string;
+  fqdn?: string;
   value: string;
   priority: number | null;
   ttl: number;
   status: string;
   purpose: string;
   label: string;
+  alreadyPublished?: boolean;
 };
 
 type DnsInstructionPayload = {
   domain: string;
   generatedAt: string;
   mailHostname?: string;
+  title?: string;
+  notice?: string;
   flat: DnsInstructionRecord[];
   records?: Record<string, DnsInstructionRecord[]>;
 };
@@ -457,8 +461,8 @@ export function DomainsAdminPage() {
           <DialogHeader>
             <DialogTitle>Required DNS Records — {dnsDialogDomain?.name}</DialogTitle>
             <DialogDescription>
-              Publish these records at your DNS provider. They are generated automatically even if
-              public DNS is not configured yet. Then run Verify.
+              Additional mail DNS only. Do not change existing website records (including www). Host{" "}
+              <span className="font-mono">@</span> is the root domain.
             </DialogDescription>
           </DialogHeader>
 
@@ -467,6 +471,11 @@ export function DomainsAdminPage() {
           {!dnsLoading && dnsPayload ? (
             <ScrollArea className="max-h-[55vh] pr-3">
               <div className="space-y-3">
+                {dnsPayload.notice ? (
+                  <p className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                    {dnsPayload.notice}
+                  </p>
+                ) : null}
                 {dnsPayload.flat.map((record) => (
                   <div
                     key={`${record.purpose}-${record.host}-${record.publishType}`}
@@ -482,6 +491,11 @@ export function DomainsAdminPage() {
                           {record.priority != null ? ` · Priority ${record.priority}` : ""}
                           {record.ttl ? ` · TTL ${record.ttl}` : ""}
                         </span>
+                        {record.alreadyPublished ? (
+                          <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+                            Already published
+                          </span>
+                        ) : null}
                       </div>
                       <Button
                         type="button"
@@ -495,11 +509,19 @@ export function DomainsAdminPage() {
                       </Button>
                     </div>
                     <dl className="grid gap-2 text-sm sm:grid-cols-2">
-                      <div className="sm:col-span-2">
+                      <div>
                         <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
                           Host
                         </dt>
                         <dd className="break-all font-mono text-xs">{record.host}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                          FQDN
+                        </dt>
+                        <dd className="break-all font-mono text-xs">
+                          {record.fqdn ?? record.host}
+                        </dd>
                       </div>
                       <div className="sm:col-span-2">
                         <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">

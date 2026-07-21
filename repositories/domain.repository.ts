@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { mapDomain } from "@/repositories/mappers";
-import { buildDnsRecordsForDomain } from "@/lib/dns/records";
+import { buildDnsRecordsForDomain, normalizeApexDomain } from "@/lib/dns/records";
 import { generateDkimKeypair } from "@/lib/dns/dkim";
+import { resolveMailServerIpv4, resolveMailServerIpv6 } from "@/lib/dns/mail-ip";
 import { MailProvisioningService } from "@/services/provisioning/mail-provisioning-service";
 import type { AdminDomain, PaginatedResult } from "@/types";
 import type { DomainStatus, Prisma } from "@prisma/client";
@@ -67,8 +68,13 @@ export const domainRepository = {
     organizationId: string;
     actorId?: string | null;
   }) {
-    const name = input.name.toLowerCase();
+    const name = normalizeApexDomain(input.name);
+    if (!name || name.startsWith("www.")) {
+      throw new Error("Domain must be the root domain (without www)");
+    }
     const dkim = generateDkimKeypair("orbit");
+    const mailIpv4 = await resolveMailServerIpv4();
+    const mailIpv6 = await resolveMailServerIpv6();
 
     const domain = await prisma.$transaction(async (tx) => {
       const created = await tx.domain.create({
@@ -88,10 +94,12 @@ export const domainRepository = {
       const records = buildDnsRecordsForDomain(created.name, {
         dkimSelector: dkim.selector,
         dkimDnsValue: dkim.dnsValue,
+        mailIpv4,
+        mailIpv6,
       });
 
       await tx.dnsRecord.createMany({
-        data: records.map(({ purpose: _purpose, label: _label, publishType: _publishType, ...record }) => ({
+        data: records.map(({ purpose: _purpose, label: _label, publishType: _publishType, host: _host, ...record }) => ({
           domainId: created.id,
           ...record,
         })),
