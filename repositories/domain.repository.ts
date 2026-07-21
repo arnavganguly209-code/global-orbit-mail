@@ -90,7 +90,7 @@ export const domainRepository = {
       });
 
       await tx.dnsRecord.createMany({
-        data: records.map(({ purpose: _purpose, ...record }) => ({
+        data: records.map(({ purpose: _purpose, label: _label, publishType: _publishType, ...record }) => ({
           domainId: created.id,
           ...record,
         })),

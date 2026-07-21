@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/admin/admin-shell";
-import { StatusPill } from "@/components/admin/status-pill";
+import { StatusPill, statusToneFromValue } from "@/components/admin/status-pill";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -24,7 +24,56 @@ import {
 } from "@/components/ui/table";
 import { Loading } from "@/components/ui/loading";
 import { adminFetch } from "@/lib/api/admin-fetch";
-import type { AdminDomain, ApiResponse, DnsRecordView, PaginatedResult } from "@/types";
+import type { AdminDomain, ApiResponse, PaginatedResult } from "@/types";
+
+type DnsRow = {
+  id: string;
+  type: string;
+  name: string;
+  value: string;
+  priority?: number | null;
+  status: string;
+  label?: string;
+  publishType?: string;
+};
+
+function normalizeDnsRows(data: unknown): DnsRow[] {
+  if (Array.isArray(data)) {
+    return data.map((row, index) => {
+      const r = row as Record<string, unknown>;
+      return {
+        id: String(r.id ?? `${r.type}-${r.name}-${index}`),
+        type: String(r.type ?? "TXT"),
+        name: String(r.name ?? r.host ?? ""),
+        value: String(r.value ?? ""),
+        priority: (r.priority as number | null | undefined) ?? null,
+        status: String(r.status ?? "PENDING"),
+        label: typeof r.label === "string" ? r.label : undefined,
+        publishType: typeof r.publishType === "string" ? r.publishType : undefined,
+      };
+    });
+  }
+
+  if (data && typeof data === "object" && "flat" in data) {
+    const flat = (data as { flat: unknown }).flat;
+    if (!Array.isArray(flat)) return [];
+    return flat.map((row, index) => {
+      const r = row as Record<string, unknown>;
+      return {
+        id: String(r.id ?? `${r.purpose ?? r.type}-${r.host ?? r.name}-${index}`),
+        type: String(r.publishType ?? r.type ?? "TXT"),
+        name: String(r.host ?? r.name ?? ""),
+        value: String(r.value ?? ""),
+        priority: (r.priority as number | null | undefined) ?? null,
+        status: String(r.status ?? "PENDING"),
+        label: typeof r.label === "string" ? r.label : undefined,
+        publishType: typeof r.publishType === "string" ? r.publishType : undefined,
+      };
+    });
+  }
+
+  return [];
+}
 
 export function DnsAdminPage() {
   const [domainId, setDomainId] = React.useState<string>("ALL");
@@ -45,9 +94,9 @@ export function DnsAdminPage() {
     queryFn: async () => {
       const qs = domainId !== "ALL" ? `?domainId=${domainId}` : "";
       const res = await adminFetch(`/api/admin/dns${qs}`);
-      const json = (await res.json()) as ApiResponse<DnsRecordView[]>;
+      const json = (await res.json()) as ApiResponse<unknown>;
       if (!json.success) throw new Error("Failed to load DNS");
-      return json.data;
+      return normalizeDnsRows(json.data);
     },
   });
 
@@ -58,10 +107,28 @@ export function DnsAdminPage() {
     window.setTimeout(() => setCopied(null), 1500);
   }
 
+  async function copyAll() {
+    if (!records?.length) return;
+    const text = records
+      .map((r) => {
+        const prio = r.priority != null && r.type.toUpperCase() === "MX" ? `\t${r.priority}` : "";
+        return `${r.type}\t${r.name}\t${r.value}${prio}`;
+      })
+      .join("\n");
+    await navigator.clipboard.writeText(text);
+    toast.success("All DNS records copied");
+  }
+
   return (
     <AdminShell
       title="DNS Manager"
-      description="MX · SPF · DKIM · DMARC records with verification indicators"
+      description="A · MX · SPF · DKIM · DMARC · Autodiscover · Autoconfig"
+      actions={
+        <Button type="button" variant="outline" disabled={!records?.length} onClick={() => void copyAll()}>
+          <Copy className="size-4" />
+          Copy All DNS
+        </Button>
+      }
     >
       <div className="mb-4 max-w-sm">
         <Select value={domainId} onValueChange={setDomainId}>
@@ -86,8 +153,9 @@ export function DnsAdminPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Record</TableHead>
                 <TableHead>Type</TableHead>
-                <TableHead>Name</TableHead>
+                <TableHead>Host</TableHead>
                 <TableHead>Value</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Copy</TableHead>
@@ -96,6 +164,9 @@ export function DnsAdminPage() {
             <TableBody>
               {records.map((record) => (
                 <TableRow key={record.id}>
+                  <TableCell className="text-xs font-semibold text-primary">
+                    {record.label ?? record.type}
+                  </TableCell>
                   <TableCell className="font-mono text-xs text-gold">{record.type}</TableCell>
                   <TableCell className="max-w-[180px] truncate font-mono text-xs">
                     {record.name}
@@ -106,7 +177,7 @@ export function DnsAdminPage() {
                     </pre>
                   </TableCell>
                   <TableCell>
-                    <StatusPill label={record.status} tone={record.tone} />
+                    <StatusPill label={record.status} tone={statusToneFromValue(record.status)} />
                   </TableCell>
                   <TableCell className="text-right">
                     <Button

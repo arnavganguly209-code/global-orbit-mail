@@ -276,11 +276,13 @@ async function main() {
         verifiedAt: new Date(),
       },
     });
-    const records = buildDnsRecordsForDomain(domain.name).map((r) => ({
-      ...r,
-      domainId: domain!.id,
-      status: "VERIFIED" as const,
-    }));
+    const records = buildDnsRecordsForDomain(domain.name).map(
+      ({ purpose: _p, label: _l, publishType: _pt, ...r }) => ({
+        ...r,
+        domainId: domain!.id,
+        status: "VERIFIED" as const,
+      }),
+    );
     await prisma.dnsRecord.createMany({ data: records });
   }
 
