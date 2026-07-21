@@ -1,21 +1,21 @@
 # GLOBAL ORBIT MAIL — Dovecot auth repair (production)
 
-## Symptom
-
-Roundcube reaches Dovecot but:
+## Exact failure
 
 ```
-passdb: auth failed
+doveadm auth test recaption@zenspanp.com "<password>"
+→ passdb: auth failed
 ```
 
-## Cause
+## Exact root cause (most common)
 
-Orbit stored the bcrypt hash on `mailboxes.mailPasswordHash` but Dovecot passdb
-queries `virtual_users`. Earlier agent stubs returned success without syncing.
+Orbit previously wrote **bcrypt `{BLF-CRYPT}$2b$…`** into app DB, while production Dovecot
+almost always expects **`SHA512-CRYPT` (`$6$…`)** from `doveadm pw`, and passdb reads
+**`virtual_users`** on the **mail host** database — not a remote app DB.
 
-## Fix (on the mail VPS)
+If those diverge → `passdb: auth failed`.
 
-### 1. Deploy updated agent + SQL config
+## One command that MUST succeed (run as root on mail VPS)
 
 ```bash
 cd /path/to/global-orbit-mail
@@ -23,47 +23,37 @@ git pull
 sudo cp deploy/vps/mail-agent.sh /opt/global-orbit/bin/mail-agent.sh
 sudo chmod 755 /opt/global-orbit/bin/mail-agent.sh
 sudo cp deploy/vps/dovecot-sql.conf.ext /etc/dovecot/dovecot-sql.conf.ext
-# Edit connect= to match DATABASE_URL
+# Edit connect= to the SAME Postgres Dovecot already uses
 sudo nano /etc/dovecot/dovecot-sql.conf.ext
-```
-
-Ensure `/etc/dovecot/conf.d/auth-sql.conf.ext` uses that file for passdb + userdb,
-and `default_pass_scheme = BLF-CRYPT`.
-
-```bash
 sudo doveadm reload
-# or
-sudo systemctl reload dovecot
+
+# THIS is the proof command — exits 0 only on success:
+sudo bash deploy/vps/fix-dovecot-auth.sh recaption@zenspanp.com 'THE_REAL_PASSWORD'
 ```
 
-### 2. Resync existing mailboxes into virtual_users
-
-```bash
-cd /path/to/global-orbit-mail
-npx tsx scripts/resync-dovecot-auth.ts
-```
-
-Or from Orbit Super Admin (CSRF session):
-
-`POST /api/admin/mailboxes/resync-auth`
-
-### 3. Prove auth
-
-```bash
-doveadm auth test recaption@zenspanp.com 'THE_REAL_PASSWORD'
-```
-
-Must print:
+Expected final line:
 
 ```
-passdb: user authenticated
+SUCCESS: passdb: user authenticated
 ```
 
-### 4. Roundcube
+Then Roundcube login with the same credentials.
 
-Login at https://webmail.globalorbitmail.cloud with the same mailbox + password.
+## What the fix script does
 
-### 5. New mailboxes
+1. Reads live Dovecot scheme (`doveconf` / `dovecot-sql.conf.ext`)
+2. Hashes with `doveadm pw -s <scheme>`
+3. Creates Maildir under `/var/mail/vhosts`
+4. Upserts `virtual_users`
+5. Runs `doveadm auth test` and exits non-zero if it fails
 
-Create from Orbit → credentials are written to `virtual_users` automatically
-(and Maildir is created by the agent).
+## Env on mail host
+
+```
+MAIL_SQL_DSN=postgresql://user:pass@127.0.0.1:5432/global_orbit_mail
+# or DATABASE_URL=...
+VMAIL_BASE=/var/mail/vhosts
+VMAIL_UID=5000
+VMAIL_GID=5000
+DOVECOT_PASS_SCHEME=SHA512-CRYPT
+```

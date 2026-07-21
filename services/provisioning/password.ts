@@ -1,5 +1,9 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { hashPassword } from "@/lib/auth/session";
+
+const execFileAsync = promisify(execFile);
 
 const LOWER = "abcdefghijkmnopqrstuvwxyz";
 const UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -16,7 +20,6 @@ export function generateSecurePassword(length = 20): string {
   const bytes = randomBytes(size * 2);
   const chars: string[] = [];
 
-  // Guarantee each class
   chars.push(LOWER[bytes[0]! % LOWER.length]!);
   chars.push(UPPER[bytes[1]! % UPPER.length]!);
   chars.push(DIGITS[bytes[2]! % DIGITS.length]!);
@@ -26,7 +29,6 @@ export function generateSecurePassword(length = 20): string {
     chars.push(alphabet[bytes[i]! % alphabet.length]!);
   }
 
-  // Fisher–Yates shuffle
   for (let i = chars.length - 1; i > 0; i--) {
     const j = bytes[i]! % (i + 1);
     const tmp = chars[i]!;
@@ -38,23 +40,65 @@ export function generateSecurePassword(length = 20): string {
 }
 
 /**
- * App-layer bcrypt hash + Dovecot BLF-CRYPT compatible string.
+ * Prefer hashing with live Dovecot (`doveadm pw`) / openssl SHA512-CRYPT.
+ * Most production Dovecot stacks expect SHA512-CRYPT ($6$), NOT bcrypt.
  *
- * Orbit and Dovecot MUST use the same scheme:
- *   - Algorithm: bcrypt (cost 12) via bcryptjs → `$2a$12$…` or `$2b$12$…`
- *   - Dovecot label: `{BLF-CRYPT}` prefix (see deploy/vps/dovecot-sql.conf.ext)
- *   - default_pass_scheme = BLF-CRYPT
+ * App-layer passwordHash remains bcrypt for any Orbit-side checks.
+ * mailPasswordHash is what Dovecot SQL passdb must verify.
  *
- * Never store plaintext. Never use SHA512-CRYPT / ARGON2 unless Dovecot is
- * reconfigured to match — Roundcube → IMAP auth will fail with "passdb: auth failed".
+ * Final authority on the mail VPS: deploy/vps/mail-agent.sh runs
+ * `doveadm pw -s <detected_scheme>` and writes virtual_users.
  */
 export async function hashMailboxPassword(plain: string): Promise<{
   passwordHash: string;
   mailPasswordHash: string;
 }> {
   const passwordHash = await hashPassword(plain);
-  // Strip any accidental scheme prefix before re-applying BLF-CRYPT
-  const raw = passwordHash.replace(/^\{[A-Z0-9-]+\}/i, "");
-  const mailPasswordHash = `{BLF-CRYPT}${raw}`;
-  return { passwordHash: raw, mailPasswordHash };
+  const rawBcrypt = passwordHash.replace(/^\{[A-Z0-9-]+\}/i, "");
+
+  const scheme = (process.env.DOVECOT_PASS_SCHEME ?? "SHA512-CRYPT").trim();
+  let mailPasswordHash: string | null = null;
+
+  try {
+    const { stdout } = await execFileAsync("doveadm", ["pw", "-s", scheme, "-p", plain], {
+      timeout: 15_000,
+    });
+    mailPasswordHash = stdout.trim() || null;
+  } catch {
+    // not on mail host
+  }
+
+  if (!mailPasswordHash) {
+    try {
+      const { stdout } = await execFileAsync("openssl", ["passwd", "-6", plain], {
+        timeout: 15_000,
+      });
+      const hash = stdout.trim();
+      if (hash) {
+        mailPasswordHash = hash.startsWith("{") ? hash : `{SHA512-CRYPT}${hash}`;
+      }
+    } catch {
+      // Windows/dev without openssl -6
+    }
+  }
+
+  // Last resort: bcrypt with BLF-CRYPT label (only if Dovecot is configured for it).
+  // Production agent will overwrite this with doveadm-native hash when password is provisioned.
+  if (!mailPasswordHash) {
+    mailPasswordHash = `{BLF-CRYPT}${rawBcrypt}`;
+  }
+
+  return { passwordHash: rawBcrypt, mailPasswordHash };
+}
+
+/** Deterministic marker so tests can assert scheme without doveadm. */
+export function hashSchemeLabel(mailPasswordHash: string): string {
+  if (mailPasswordHash.includes("SHA512") || mailPasswordHash.startsWith("$6$")) {
+    return "SHA512-CRYPT";
+  }
+  if (mailPasswordHash.includes("BLF-CRYPT") || mailPasswordHash.startsWith("$2")) {
+    return "BLF-CRYPT";
+  }
+  if (mailPasswordHash.includes("ARGON")) return "ARGON2";
+  return createHash("sha1").update(mailPasswordHash).digest("hex").slice(0, 8);
 }

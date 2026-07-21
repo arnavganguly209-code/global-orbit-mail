@@ -117,6 +117,7 @@ export const mailboxRepository = {
         domainId: domain.id,
         email,
         mailPasswordHash,
+        password: input.password,
         quotaBytes: input.quotaMb * 1024 * 1024,
         displayName: input.displayName ?? null,
         audit: { actorId: input.actorId },
@@ -289,6 +290,7 @@ export const mailboxRepository = {
       domainId: existing.domainId,
       email,
       mailPasswordHash,
+      password,
       audit: { actorId },
     });
 

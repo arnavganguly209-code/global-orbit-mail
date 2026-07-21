@@ -26,34 +26,30 @@
 #   mail_gid = vmail
 #   first_valid_uid = 5000
 #
-# Password scheme MUST match Orbit:
-#   Orbit stores: {BLF-CRYPT}$2a$12$...  (bcrypt via bcryptjs)
-#   Dovecot:      default_pass_scheme = BLF-CRYPT
+# Password scheme MUST match live Dovecot.
+# Most production Dovecot stacks use SHA512-CRYPT ($6$...).
+# Orbit's VPS agent generates hashes with `doveadm pw` against this scheme.
 #
 # After install / Orbit mailbox create, verify:
-#   doveadm auth test user@domain.com 'ThePassword'
+#   bash deploy/vps/fix-dovecot-auth.sh user@domain.com 'password'
 # Expected:
-#   passdb: userdb lookup: userdb_fields: ...
-#   passdb: user authenticated
-#
-# Repair existing Orbit mailboxes into virtual_users:
-#   curl -X POST https://YOUR_APP/api/admin/mailboxes/resync-auth  (Super Admin)
+#   SUCCESS: passdb: user authenticated
 
 driver = pgsql
 
-# Replace with production credentials (same DB as Orbit DATABASE_URL)
+# Replace with production credentials (same DB Dovecot passdb uses)
 connect = host=127.0.0.1 dbname=global_orbit_mail user=postgres password=CHANGE_ME
 
-default_pass_scheme = BLF-CRYPT
+default_pass_scheme = SHA512-CRYPT
 
-# passdb — authenticate Roundcube / IMAP / SMTP SASL / POP3
+# passdb — Roundcube / IMAP / SMTP SASL / POP3
 password_query = SELECT email AS user, password, \
   home AS userdb_home, uid AS userdb_uid, gid AS userdb_gid, \
   '*:bytes=' || quota_bytes AS userdb_quota_rule \
   FROM virtual_users \
   WHERE email = '%u' AND active = true
 
-# userdb — locate Maildir + quota
+# userdb — Maildir + quota
 user_query = SELECT home, uid, gid, \
   '*:bytes=' || quota_bytes AS quota_rule \
   FROM virtual_users \

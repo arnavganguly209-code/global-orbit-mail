@@ -186,12 +186,14 @@ export const MailProvisioningService = {
     domainId: string;
     email: string;
     mailPasswordHash: string;
+    /** Plaintext — used by VPS agent with `doveadm pw` so scheme matches live Dovecot */
+    password?: string;
     quotaBytes: number;
     displayName?: string | null;
     audit?: AuditCtx;
   }) {
     try {
-      await runOrThrow({
+      const result = await runOrThrow({
         kind: "MAILBOX_CREATE",
         command: "mailbox.create",
         mailboxId: input.mailboxId,
@@ -200,14 +202,31 @@ export const MailProvisioningService = {
         payload: {
           email: input.email,
           mailPasswordHash: input.mailPasswordHash,
+          password: input.password ?? null,
           quotaBytes: input.quotaBytes,
           displayName: input.displayName ?? null,
         },
       });
-      await prisma.mailbox.update({
-        where: { id: input.mailboxId },
-        data: { status: "ACTIVE", provisionedAt: new Date() },
-      });
+
+      const agentHash =
+        typeof result.data?.mailPasswordHash === "string"
+          ? result.data.mailPasswordHash
+          : null;
+      if (agentHash && agentHash !== input.mailPasswordHash) {
+        await prisma.mailbox.update({
+          where: { id: input.mailboxId },
+          data: {
+            mailPasswordHash: agentHash,
+            status: "ACTIVE",
+            provisionedAt: new Date(),
+          },
+        });
+      } else {
+        await prisma.mailbox.update({
+          where: { id: input.mailboxId },
+          data: { status: "ACTIVE", provisionedAt: new Date() },
+        });
+      }
       await writeAudit({
         actorId: input.audit?.actorId,
         ipAddress: input.audit?.ipAddress,
@@ -322,16 +341,31 @@ export const MailProvisioningService = {
     domainId: string;
     email: string;
     mailPasswordHash: string;
+    password?: string;
     audit?: AuditCtx;
   }) {
-    await runOrThrow({
+    const result = await runOrThrow({
       kind: "MAILBOX_PASSWORD",
       command: "mailbox.password",
       mailboxId: input.mailboxId,
       domainId: input.domainId,
       step: "mailbox.password",
-      payload: { email: input.email, mailPasswordHash: input.mailPasswordHash },
+      payload: {
+        email: input.email,
+        mailPasswordHash: input.mailPasswordHash,
+        password: input.password ?? null,
+      },
     });
+    const agentHash =
+      typeof result.data?.mailPasswordHash === "string"
+        ? result.data.mailPasswordHash
+        : null;
+    if (agentHash) {
+      await prisma.mailbox.update({
+        where: { id: input.mailboxId },
+        data: { mailPasswordHash: agentHash },
+      });
+    }
     await writeAudit({
       actorId: input.audit?.actorId,
       ipAddress: input.audit?.ipAddress,
