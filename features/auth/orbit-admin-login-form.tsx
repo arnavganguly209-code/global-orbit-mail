@@ -46,9 +46,13 @@ export function OrbitAdminLoginForm() {
           remember: values.remember ?? false,
         }),
       });
-      const json = (await res.json()) as { success?: boolean; message?: string };
+      const json = (await res.json()) as { success?: boolean; message?: string; data?: { csrfToken?: string } };
       if (!res.ok || !json.success) {
         throw new Error(json.message ?? "Authentication failed");
+      }
+      if (json.data?.csrfToken) {
+        const { cacheAdminCsrfToken } = await import("@/lib/api/admin-fetch");
+        cacheAdminCsrfToken(json.data.csrfToken);
       }
       toast.success("Welcome to Orbit");
       router.replace(nextPath);

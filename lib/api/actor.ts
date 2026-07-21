@@ -1,5 +1,6 @@
 import { getSessionFromCookies, type SessionPayload } from "@/lib/auth/session";
 import { assertCsrf } from "@/lib/auth/csrf";
+import { isAdminRole, isSuperAdmin } from "@/lib/auth/permissions";
 
 export async function getRequestActor(): Promise<SessionPayload | null> {
   return getSessionFromCookies();
@@ -10,11 +11,7 @@ export async function requireAdminActor(): Promise<SessionPayload> {
   if (!session) {
     throw new Error("Unauthorized");
   }
-  if (
-    session.role !== "SUPER_ADMIN" &&
-    session.role !== "SUPPORT_STAFF" &&
-    session.role !== "RESELLER"
-  ) {
+  if (!isAdminRole(session.role)) {
     throw new Error("Forbidden");
   }
   return session;
@@ -23,7 +20,7 @@ export async function requireAdminActor(): Promise<SessionPayload> {
 /** Provisioning, DNS verify, server settings, security — Super Admin only. */
 export async function requireSuperAdminActor(): Promise<SessionPayload> {
   const session = await requireAdminActor();
-  if (session.role !== "SUPER_ADMIN") {
+  if (!isSuperAdmin(session.role)) {
     throw new Error("Forbidden: Super Admin required");
   }
   return session;

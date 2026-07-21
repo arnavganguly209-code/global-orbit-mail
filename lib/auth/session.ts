@@ -8,6 +8,7 @@ import {
   SESSION_COOKIE,
   SESSION_TTL_HOURS,
 } from "@/lib/auth/constants";
+import { normalizeSystemRole } from "@/lib/auth/permissions";
 
 function secretKey() {
   const secret = process.env.AUTH_SECRET;
@@ -82,11 +83,12 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
   try {
     const { payload } = await jwtVerify(token, secretKey());
     if (!payload.sub || typeof payload.email !== "string") return null;
+    const role = normalizeSystemRole(payload.role) ?? "MAILBOX_USER";
     return {
       sub: payload.sub,
       email: payload.email,
       name: (payload.name as string | null | undefined) ?? null,
-      role: payload.role as SystemRole,
+      role,
       organizationId: (payload.organizationId as string | null | undefined) ?? null,
       twoFactorEnabled: Boolean(payload.twoFactorEnabled),
     };
@@ -118,19 +120,43 @@ export async function destroyDbSession(token: string) {
   await prisma.session.deleteMany({ where: { sessionToken: token } });
 }
 
+/**
+ * Resolve the active session.
+ * JWT proves the cookie; DB user.role is the source of truth for RBAC.
+ */
 export async function getSessionFromCookies(): Promise<SessionPayload | null> {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
   if (!token) return null;
+
   const payload = await verifySessionToken(token);
   if (!payload) return null;
+
   const dbSession = await prisma.session.findUnique({
     where: { sessionToken: token },
   });
   if (!dbSession || dbSession.expires < new Date()) {
     return null;
   }
-  return payload;
+
+  const user = await prisma.user.findFirst({
+    where: { id: payload.sub, deletedAt: null },
+    include: { role: true },
+  });
+  if (!user || user.status !== "ACTIVE") {
+    return null;
+  }
+
+  const role = normalizeSystemRole(user.role?.key) ?? "MAILBOX_USER";
+
+  return {
+    sub: user.id,
+    email: user.email,
+    name: user.name,
+    role,
+    organizationId: user.organizationId,
+    twoFactorEnabled: user.twoFactorEnabled,
+  };
 }
 
 export function sessionCookieOptions(maxAgeSeconds = SESSION_TTL_HOURS * 3600) {

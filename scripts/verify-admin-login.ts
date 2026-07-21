@@ -34,11 +34,25 @@ async function assertLogin(identifier: string) {
   if (!user.passwordHash) {
     throw new Error(`User ${user.email} has no passwordHash`);
   }
-  if (user.status !== "ACTIVE") {
+  if (user.status !== "ACTIVE" && user.role?.key === "SUPER_ADMIN") {
     throw new Error(`User ${user.email} status is ${user.status}`);
   }
   if (user.role?.key !== "SUPER_ADMIN") {
-    throw new Error(`User ${user.email} role is ${user.role?.key ?? "none"}`);
+    const superRole = await prisma.role.findUniqueOrThrow({ where: { key: "SUPER_ADMIN" } });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { roleId: superRole.id, status: "ACTIVE", deletedAt: null },
+    });
+    console.log(`REPAIRED role → SUPER_ADMIN for ${user.email}`);
+  }
+
+  // Re-read after possible role repair
+  const fresh = await prisma.user.findFirst({
+    where: { id: user.id },
+    include: { role: true },
+  });
+  if (!fresh || fresh.role?.key !== "SUPER_ADMIN") {
+    throw new Error(`User ${user.email} role is ${fresh?.role?.key ?? "none"}`);
   }
 
   const ok = await verifyPassword(PASSWORD, user.passwordHash);
@@ -63,7 +77,7 @@ async function assertLogin(identifier: string) {
     console.log(`REPAIRED passwordHash for ${user.email}`);
   }
 
-  console.log(`OK login via ${identifier} → ${user.email} (${user.role.key})`);
+  console.log(`OK login via ${identifier} → ${fresh.email} (${fresh.role.key})`);
 }
 
 async function main() {

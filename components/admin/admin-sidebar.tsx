@@ -17,6 +17,10 @@ export function AdminSidebar() {
       const res = await adminFetch("/api/admin/auth/me");
       const json = await res.json();
       if (!res.ok || !json.success) return null;
+      if (json.data?.csrfToken) {
+        const { cacheAdminCsrfToken } = await import("@/lib/api/admin-fetch");
+        cacheAdminCsrfToken(json.data.csrfToken);
+      }
       return json.data.user as { roleName?: string; role?: string };
     },
   });

@@ -19,6 +19,7 @@ import { createCsrfToken, csrfCookieOptions, CSRF_COOKIE } from "@/lib/auth/csrf
 import { assertLoginAllowed, recordLoginAttempt } from "@/lib/auth/rate-limit";
 import { writeActivity, writeAudit } from "@/lib/audit";
 import type { SystemRole } from "@/types";
+import { isAdminRole, normalizeSystemRole } from "@/lib/auth/permissions";
 
 const loginBodySchema = z.object({
   email: z.string().min(1).max(190),
@@ -78,8 +79,8 @@ export async function adminLogin(request: Request) {
     throw Object.assign(new Error("Invalid email or password"), { status: 401 });
   }
 
-  const role = (user.role?.key ?? "MAILBOX_USER") as SystemRole;
-  if (!["SUPER_ADMIN", "SUPPORT_STAFF", "RESELLER"].includes(role)) {
+  const role = (normalizeSystemRole(user.role?.key) ?? "MAILBOX_USER") as SystemRole;
+  if (!isAdminRole(role)) {
     await recordLoginAttempt({
       email: user.email,
       userId: user.id,
@@ -144,9 +145,10 @@ export async function adminLogin(request: Request) {
   });
 
   const maxAge = sessionTtlSeconds(rememberMe);
+  const csrfToken = createCsrfToken();
   const jar = await cookies();
   jar.set(SESSION_COOKIE, token, sessionCookieOptions(maxAge));
-  jar.set(CSRF_COOKIE, createCsrfToken(), csrfCookieOptions(maxAge));
+  jar.set(CSRF_COOKIE, csrfToken, csrfCookieOptions(maxAge));
 
   return {
     user: {
@@ -158,6 +160,7 @@ export async function adminLogin(request: Request) {
       image: user.image,
       lastLoginAt: new Date().toISOString(),
     },
+    csrfToken,
     expiresInSeconds: maxAge,
   };
 }

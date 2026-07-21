@@ -1,5 +1,5 @@
 /**
- * CSRF double-submit cookie token (Phase 3A).
+ * CSRF double-submit cookie token.
  */
 
 import { randomBytes, timingSafeEqual } from "crypto";
@@ -21,21 +21,34 @@ export function csrfCookieOptions(maxAgeSeconds: number) {
 }
 
 function safeEqual(a: string, b: string) {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
+  const left = Buffer.from(a.trim());
+  const right = Buffer.from(b.trim());
   if (left.length !== right.length) return false;
   return timingSafeEqual(left, right);
 }
 
-/** Enforce double-submit CSRF on mutating admin requests. */
+/** Enforce double-submit CSRF on mutating admin/customer requests. */
 export async function assertCsrf(request: Request) {
-  const header =
-    request.headers.get("x-csrf-token") ?? request.headers.get("x-xsrf-token");
+  const header = (
+    request.headers.get("x-csrf-token") ??
+    request.headers.get("x-xsrf-token") ??
+    ""
+  ).trim();
   const jar = await cookies();
-  const cookie = jar.get(CSRF_COOKIE)?.value;
+  const cookie = (jar.get(CSRF_COOKIE)?.value ?? "").trim();
   if (!header || !cookie || !safeEqual(header, cookie)) {
     throw Object.assign(new Error("Invalid CSRF token"), { status: 403 });
   }
+}
+
+/** Ensure a readable CSRF cookie exists; returns the token value. */
+export async function ensureCsrfCookie(maxAgeSeconds: number): Promise<string> {
+  const jar = await cookies();
+  const existing = jar.get(CSRF_COOKIE)?.value?.trim();
+  if (existing) return existing;
+  const token = createCsrfToken();
+  jar.set(CSRF_COOKIE, token, csrfCookieOptions(maxAgeSeconds));
+  return token;
 }
 
 export { CSRF_COOKIE };

@@ -8,7 +8,7 @@ import { assertApiRateLimit } from "@/lib/api/rate-limit";
  * GET /api/admin/system
  * Live health: Postfix, Dovecot, Rspamd, Redis, Roundcube, Nginx, PHP, DB, CPU/RAM/Disk.
  */
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const actor = await requireAdminActor();
     requirePermission(actor.role, "monitoring:read");

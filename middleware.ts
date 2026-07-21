@@ -1,7 +1,7 @@
 /**
- * GLOBAL ORBIT MAIL — Edge Middleware (Phase 3A)
- * Protects /orbit, /dashboard, and /webmail UI routes. Security headers on matched paths.
- * API auth is enforced in route handlers (JSON 401), not redirects.
+ * GLOBAL ORBIT MAIL — Edge Middleware
+ * Protects /orbit, /dashboard, and /webmail UI routes.
+ * Admin API: requires session cookie (JSON 401). Full RBAC (DB role) is enforced in route handlers.
  */
 
 import { NextResponse } from "next/server";
@@ -13,7 +13,7 @@ import { routes } from "@/config/routes";
 function withSecurity(response: NextResponse, pathname: string) {
   response.headers.set(
     "x-go-surface",
-    pathname.startsWith("/orbit") ? "admin" : "app",
+    pathname.startsWith("/orbit") || pathname.startsWith("/api/admin") ? "admin" : "app",
   );
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     response.headers.set(key, value);
@@ -29,7 +29,11 @@ function isPublicWebmailPath(pathname: string) {
   return pathname === "/webmail/login" || pathname.startsWith("/webmail/login/");
 }
 
-function requiresSession(pathname: string) {
+function isPublicAdminApi(pathname: string) {
+  return pathname === "/api/admin/auth/login";
+}
+
+function requiresUiSession(pathname: string) {
   if (pathname.startsWith("/orbit") && !pathname.startsWith("/api/")) {
     return !isPublicOrbitPath(pathname);
   }
@@ -44,10 +48,22 @@ function requiresSession(pathname: string) {
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const enforce = process.env.ADMIN_AUTH_ENFORCE !== "false";
+  const sessionToken = request.cookies.get(SESSION_COOKIE)?.value;
 
-  if (requiresSession(pathname)) {
-    const enforce = process.env.ADMIN_AUTH_ENFORCE !== "false";
-    if (enforce && !request.cookies.get(SESSION_COOKIE)?.value) {
+  // Admin API (except login): session cookie required. Role/permission checks run in handlers.
+  if (pathname.startsWith("/api/admin") && !isPublicAdminApi(pathname)) {
+    if (enforce && !sessionToken) {
+      return withSecurity(
+        NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 }),
+        pathname,
+      );
+    }
+    return withSecurity(NextResponse.next(), pathname);
+  }
+
+  if (requiresUiSession(pathname)) {
+    if (enforce && !sessionToken) {
       const loginUrl = request.nextUrl.clone();
       if (pathname.startsWith("/orbit")) {
         loginUrl.pathname = routes.orbitLogin;
