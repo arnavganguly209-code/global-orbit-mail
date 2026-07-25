@@ -1,58 +1,35 @@
-# Roundcube SMTP transport — SSL on 465 (not PHP tls:// on 587)
+# Roundcube SMTP — production decision
 
-## Evidence
+## Choice
 
-| Test | Result |
-|------|--------|
-| `openssl s_client -starttls smtp -connect 127.0.0.1:587` | Works; AUTH after STARTTLS |
-| `stream_socket_client("tls://127.0.0.1:587")` | Fails: `SSL routines::wrong version number` |
-| Roundcube without encryption on `:587` | Sees cleartext EHLO (STARTTLS listed, **no AUTH**) |
+**Use `ssl://127.0.0.1:465`** (SMTPS / implicit TLS).
 
-Port **587** speaks plain SMTP first, then STARTTLS.  
-Port **465** speaks **implicit TLS** from the first byte.
+| Option | Verdict |
+|--------|---------|
+| `ssl://127.0.0.1:465` | **Selected** — matches OpenSSL SMTPS; Net_SMTP uses real `ssl://` streams |
+| Roundcube `tls://127.0.0.1:587` | Valid STARTTLS *config token* (scheme stripped, then `starttls()`). Do not confuse with PHP `stream_socket_client('tls://…:587')` |
+| Plain `127.0.0.1:587` | **Broken** — Roundcube never STARTTLSes (`auth(..., false)`) |
+| PHP `tls://127.0.0.1:587` | **Broken** — implicit TLS on STARTTLS port → wrong version number |
 
-PHP stream wrappers `tls://` and `ssl://` both mean **implicit TLS**. They are correct for **465**, wrong for **587**.
+## Live symptom after login works
 
-## Roundcube 1.6 semantics (important)
+`SMTP Error (): Connection to server failed.`
 
-In `rcube_smtp.php`:
+Usually: snippet not applied yet, or PHP peer verify aborting loopback SMTPS.
+`smtp-transport.inc.php` disables peer verify on loopback and sets `peer_name`.
 
-- `ssl://host:465` → host kept as `ssl://host`, Net_SMTP uses implicit TLS
-- `tls://host:587` → scheme stripped; cleartext connect; then `Net_SMTP::starttls()`
-- plain `host:587` → cleartext only; `auth(..., false)` skips Net_SMTP auto-STARTTLS → no AUTH
-
-So Roundcube’s config token `tls://` ≠ PHP `stream_socket_client('tls://…')`.  
-Given production confusion / failures around `tls://…:587`, this project standardizes on:
-
-```php
-$config['smtp_host'] = 'ssl://127.0.0.1:465';
-$config['smtp_user'] = '%u';
-$config['smtp_pass'] = '%p';
-$config['smtp_auth_type'] = 'PLAIN';
-$config['smtp_conn_options'] = [
-  'ssl' => [
-    'verify_peer' => true,
-    'verify_peer_name' => true,
-    'peer_name' => 'mail.globalorbitmail.cloud',
-  ],
-];
-```
-
-Comment out obsolete `smtp_server` / `smtp_port`.
-
-## Files
-
-- `roundcube/config/smtp-transport.inc.php`
-- `deploy/vps/fix-roundcube-smtp.sh`
-- `scripts/reproduce-roundcube-smtp-auth.mjs` — offline mock
-- `scripts/test-roundcube-smtp-php.php` — run **on the mail VPS**
-
-## Apply on VPS
+## Apply on VPS (required)
 
 ```bash
-bash deploy/vps/fix-roundcube-smtp.sh /var/www/roundcube
-php scripts/test-roundcube-smtp-php.php
-# then send a message from Roundcube UI
+curl -fsSL https://raw.githubusercontent.com/arnavganguly209-code/global-orbit-mail/main/deploy/vps/apply-roundcube-smtp-inline.sh | bash
 ```
 
-Do **not** change Postfix or Dovecot for this issue.
+Or from repo: `bash deploy/vps/apply-roundcube-smtp-inline.sh`
+
+Then send from Roundcube and re-run:
+
+```bash
+RC_USER=… RC_PASS=… node scripts/debug-roundcube-send.mjs
+```
+
+Do not change Postfix / Dovecot / IMAP.

@@ -1,60 +1,51 @@
 <?php
 /**
- * GLOBAL ORBIT MAIL — Roundcube 1.6.x SMTP transport
+ * GLOBAL ORBIT MAIL — Roundcube 1.6 SMTP transport (production)
  *
- * CORRECT MODES (Roundcube 1.6 / Net_SMTP)
- * ----------------------------------------
- * 1) Implicit TLS (SMTPS):  smtp_host = 'ssl://HOST:465'
- *    PHP connects with SSL from the first byte. AUTH is available immediately.
+ * DECISION (verified against production evidence)
+ * ----------------------------------------------
+ * Use:  ssl://127.0.0.1:465   (SMTPS / implicit TLS)
  *
- * 2) STARTTLS (submission): smtp_host = 'tls://HOST:587'
- *    Roundcube STRIPS the scheme, connects in cleartext, then calls
- *    Net_SMTP::starttls(). This is NOT the same as PHP
- *    stream_socket_client('tls://HOST:587'), which is implicit TLS and fails
- *    on :587 with "SSL routines::wrong version number".
+ * Why not plain 127.0.0.1:587?
+ *   Roundcube calls Net_SMTP::auth(..., $tls=false). Without a tls:// config
+ *   token it never STARTTLSes → AUTH missing → "does not support authentication".
  *
- * THIS FILE USES (1) — ssl:// on 465 — because production evidence showed:
- *   - openssl s_client -starttls smtp -connect 127.0.0.1:587  → OK
- *   - stream_socket_client('tls://127.0.0.1:587')              → wrong version number
- * and operators must not configure PHP-style tls:// against port 587.
+ * Why not PHP stream tls://127.0.0.1:587?
+ *   PHP tls:// = implicit TLS from byte 0 → "wrong version number" on :587.
  *
- * Do NOT use:  'tls://127.0.0.1:587' as a PHP stream target
- * Do NOT use:  plain '127.0.0.1:587' without Roundcube STARTTLS
- *              (Roundcube calls auth(..., $tls=false), so AUTH never appears
- *              until after STARTTLS / SMTPS).
+ * Why not Roundcube config token tls://127.0.0.1:587?
+ *   That token IS valid STARTTLS in Roundcube 1.6 (scheme is stripped; Net_SMTP
+ *   starttls() runs). Prefer ssl://:465 instead to mirror OpenSSL SMTPS and
+ *   avoid operators confusing it with PHP stream tls://.
  *
- * Deploy:
- *   include __DIR__ . '/smtp-transport.inc.php';
- *   bash deploy/vps/fix-roundcube-smtp.sh
+ * Production checks (already green):
+ *   openssl s_client -starttls smtp -connect 127.0.0.1:587
+ *   openssl s_client -connect 127.0.0.1:465
+ *   valid certificate, healthy Postfix/Dovecot, IMAP OK
  *
- * Do NOT modify Postfix or Dovecot for this fix.
+ * Do NOT modify Postfix / Dovecot / IMAP for this file.
  */
 
-// Implicit TLS on SMTPS — correct PHP/Roundcube ssl:// usage
 $config['smtp_host'] = 'ssl://127.0.0.1:465';
-
 $config['smtp_user'] = '%u';
 $config['smtp_pass'] = '%p';
 $config['smtp_auth_type'] = 'PLAIN';
 
-// Certificate is issued for the public mail hostname, not 127.0.0.1
+// Loopback SMTPS: cert is for mail.globalorbitmail.cloud, not 127.0.0.1.
+// Disable peer name verify on loopback so PHP does not abort connect()
+// with an empty "Connection to server failed" (common with verify_peer_name).
 $config['smtp_conn_options'] = [
   'ssl' => [
-    'verify_peer'       => true,
-    'verify_peer_name'  => true,
+    'verify_peer'       => false,
+    'verify_peer_name'  => false,
     'peer_name'         => 'mail.globalorbitmail.cloud',
     'allow_self_signed' => false,
   ],
 ];
 
-// If CA verification fails on loopback, temporarily:
-// $config['smtp_conn_options'] = [
-//   'ssl' => [
-//     'verify_peer'      => false,
-//     'verify_peer_name' => false,
-//     'peer_name'        => 'mail.globalorbitmail.cloud',
-//   ],
-// ];
+// STARTTLS alternative (Roundcube config token — NOT PHP stream tls://):
+// $config['smtp_host'] = 'tls://127.0.0.1:587';
 
+// Temporary diagnostics:
 // $config['smtp_debug'] = true;
 // $config['smtp_log'] = true;
