@@ -52,7 +52,10 @@ function main() {
 
     assert(mx?.host === "@", "MX host must be @");
     assert(mx?.value === `${mailHost}.`, `MX must point to ${mailHost}., got ${mx?.value}`);
-    assert(spf?.value === `v=spf1 mx a:${mailHost} -all`, `SPF mismatch: ${spf?.value}`);
+    assert(
+      spf?.value === `v=spf1 mx a:${mailHost} ip4:${mailIpv4} -all`,
+      `SPF mismatch: ${spf?.value}`,
+    );
     assert(mailA?.value === mailIpv4, `mail A must be ${mailIpv4}, got ${mailA?.value}`);
     assert(!records.some((r) => r.value.includes("mail.globalorbitmail.com")), ".com mail host leaked");
 

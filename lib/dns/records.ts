@@ -128,7 +128,7 @@ export function buildDnsRecordsForDomain(
       publishType: "TXT",
       name: apex,
       host: "@",
-      value: `v=spf1 mx a:${mailHost} -all`,
+      value: `v=spf1 mx a:${mailHost} ip4:${mailIpv4} -all`,
       priority: null,
       status: "PENDING",
       ttl: 3600,
