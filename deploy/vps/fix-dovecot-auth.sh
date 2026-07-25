@@ -153,9 +153,9 @@ AUTH_RC=$?
 set -e
 echo "$AUTH_OUT"
 
-if echo "$AUTH_OUT" | grep -qi "passdb: user authenticated"; then
+if echo "$AUTH_OUT" | grep -Eqi 'passdb:.*user authenticated|passdb:.*auth succeeded|\bauth succeeded\b|\buser authenticated\b'; then
   echo
-  echo "SUCCESS: passdb: user authenticated"
+  echo "SUCCESS: dovecot auth proved"
   echo "Next: Roundcube login → send → receive"
   exit 0
 fi
