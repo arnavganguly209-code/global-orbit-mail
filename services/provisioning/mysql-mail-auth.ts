@@ -6,6 +6,15 @@ import { normalizeSha512Crypt } from "@/lib/mail/sha512-crypt";
 
 const execFileAsync = promisify(execFile);
 
+/** Dovecot 2.3 variants: "user authenticated" or "auth succeeded". */
+function isDoveadmAuthSuccess(output: string): boolean {
+  return (
+    /passdb:\s*user authenticated/i.test(output) ||
+    /passdb:.*\bauth succeeded\b/i.test(output) ||
+    /\bauth succeeded\b/i.test(output)
+  );
+}
+
 export type MysqlMailAuthResult = {
   ok: boolean;
   email?: string;
@@ -352,12 +361,12 @@ export async function doveadmAuthTest(
       { timeout: 20_000, maxBuffer: 1024 * 1024 },
     );
     const output = `${stdout}\n${stderr}`.trim();
-    const ok = /passdb:\s*user authenticated/i.test(output);
+    const ok = isDoveadmAuthSuccess(output);
     return { ok, output };
   } catch (error) {
     const err = error as { stdout?: string; stderr?: string; message?: string; code?: string };
     const output = `${err.stdout ?? ""}\n${err.stderr ?? err.message ?? ""}`.trim();
-    if (/passdb:\s*user authenticated/i.test(output)) {
+    if (isDoveadmAuthSuccess(output)) {
       return { ok: true, output };
     }
     // Binary missing (dev / PATH) — try absolute path used on Ubuntu mail hosts
@@ -369,11 +378,11 @@ export async function doveadmAuthTest(
           { timeout: 20_000, maxBuffer: 1024 * 1024 },
         );
         const out2 = `${stdout}\n${stderr}`.trim();
-        return { ok: /passdb:\s*user authenticated/i.test(out2), output: out2 };
+        return { ok: isDoveadmAuthSuccess(out2), output: out2 };
       } catch (error2) {
         const err2 = error2 as { stdout?: string; stderr?: string; message?: string; code?: string };
         const out2 = `${err2.stdout ?? ""}\n${err2.stderr ?? err2.message ?? ""}`.trim();
-        if (/passdb:\s*user authenticated/i.test(out2)) return { ok: true, output: out2 };
+        if (isDoveadmAuthSuccess(out2)) return { ok: true, output: out2 };
         if (err2.code === "ENOENT" && process.env.DOVECOT_REQUIRE_AUTH_TEST === "false") {
           return {
             ok: true,

@@ -455,12 +455,19 @@ async function runLocal(request: AgentRequest): Promise<AgentResponse> {
     });
     agentResult = parseAgentOutput(stdout, stderr);
   } catch (error) {
-    const err = error as { stdout?: string; stderr?: string; message?: string };
+    const err = error as { stdout?: string; stderr?: string; message?: string; code?: string };
     if (err.stdout || err.stderr) {
       agentResult = parseAgentOutput(
         err.stdout ?? "",
         err.stderr ?? err.message ?? "agent failed",
       );
+    } else if (err.code === "ENOENT") {
+      // Mailbox auth can still succeed via Node → MariaDB + doveadm when agent is missing.
+      agentResult = {
+        ok: false,
+        stdout: "",
+        stderr: `spawn ${script} ENOENT`,
+      };
     } else {
       agentResult = {
         ok: false,
