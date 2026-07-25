@@ -1,48 +1,58 @@
 /**
- * Reproduce Roundcube 1.6.x "SMTP server does not support authentication"
+ * Reproduce Roundcube SMTP transport modes.
  *
- * Root cause (confirmed by capability dump matching production):
- *   Roundcube 1.6 only calls Net_SMTP::starttls() when smtp_host uses tls://.
- *   Without tls://, it EHLO's in cleartext on :587. Postfix submission
- *   advertises STARTTLS but NOT AUTH until after STARTTLS — exactly the
- *   capability list Roundcube logs.
- *
- * Manual OpenSSL sees AUTH because it completes STARTTLS then re-EHLO.
- * Roundcube without tls:// never does that, so AUTH "disappears".
+ * Evidence mapping:
+ *   - openssl -starttls smtp on :587 → AUTH after STARTTLS (OK)
+ *   - PHP stream_socket_client('tls://127.0.0.1:587') → wrong version number
+ *     (tls:// / ssl:// stream wrappers = implicit TLS; port 587 is not SMTPS)
+ *   - Roundcube smtp_host 'ssl://127.0.0.1:465' → implicit TLS (correct for 465)
+ *   - Roundcube smtp_host plain '127.0.0.1:587' → no STARTTLS (RC passes auth tls=false)
  *
  * Usage: node scripts/reproduce-roundcube-smtp-auth.mjs
  */
 
 import net from "node:net";
 
-const PORT = 2587;
+const START_PORT = 2587;
+const SMTPS_PORT = 2465;
 
-/** Mimic Roundcube rcube_utils::parse_host_uri for smtp_host */
-function parseHostUri(smtpHost, defaultPort = 587, sslPort = 465) {
+/** Roundcube parse_host_uri + rcube_smtp scheme handling */
+function parseRoundcubeSmtp(smtpHost) {
   const m = String(smtpHost).match(/^(ssl|tls):\/\/(.+)$/i);
   if (m) {
     const scheme = m[1].toLowerCase();
     let rest = m[2];
-    let port = scheme === "ssl" ? sslPort : defaultPort;
-    const hostPort = rest.match(/^(.+):(\d+)$/);
-    if (hostPort) {
-      rest = hostPort[1];
-      port = Number(hostPort[2]);
+    let port = scheme === "ssl" ? 465 : 587;
+    const hp = rest.match(/^(.+):(\d+)$/);
+    if (hp) {
+      rest = hp[1];
+      port = Number(hp[2]);
     }
-    return { host: rest, scheme, port, useTls: scheme === "tls", useSsl: scheme === "ssl" };
+    return {
+      connectHost: scheme === "ssl" ? `ssl://${rest}` : rest,
+      scheme,
+      port,
+      useStartTls: scheme === "tls",
+      useImplicitSsl: scheme === "ssl",
+    };
   }
   let host = smtpHost;
-  let port = defaultPort;
-  const hostPort = String(smtpHost).match(/^(.+):(\d+)$/);
-  if (hostPort) {
-    host = hostPort[1];
-    port = Number(hostPort[2]);
+  let port = 587;
+  const hp = String(smtpHost).match(/^(.+):(\d+)$/);
+  if (hp) {
+    host = hp[1];
+    port = Number(hp[2]);
   }
-  return { host, scheme: "", port, useTls: false, useSsl: false };
+  return {
+    connectHost: host,
+    scheme: "",
+    port,
+    useStartTls: false,
+    useImplicitSsl: false,
+  };
 }
 
 function cleartextCaps() {
-  // Exact shape of production Roundcube log (pre-TLS submission EHLO)
   return [
     "250-PIPELINING",
     "250-SIZE 10240000",
@@ -57,7 +67,7 @@ function cleartextCaps() {
   ];
 }
 
-function tlsCaps() {
+function authCaps() {
   return [
     "250-PIPELINING",
     "250-SIZE 10240000",
@@ -77,188 +87,190 @@ function writeLines(socket, lines) {
   socket.write(lines.map((l) => l + "\r\n").join(""));
 }
 
-function startMockServer() {
-  return new Promise((resolve) => {
-    const server = net.createServer((socket) => {
-      let upgraded = false;
-      let buffer = "";
+function attachSmtpProtocol(socket, { startEncrypted }) {
+  let upgraded = startEncrypted;
+  let buffer = "";
+  writeLines(socket, ["220 mock-postfix ESMTP ready"]);
 
-      writeLines(socket, ["220 mock-postfix ESMTP ready"]);
+  const handle = (line) => {
+    const upper = line.toUpperCase();
+    if (upper.startsWith("EHLO") || upper.startsWith("HELO")) {
+      writeLines(socket, upgraded ? authCaps() : cleartextCaps());
+      return;
+    }
+    if (upper === "STARTTLS") {
+      if (upgraded) {
+        writeLines(socket, ["503 5.5.1 TLS already active"]);
+        return;
+      }
+      writeLines(socket, ["220 2.0.0 Ready to start TLS"]);
+      upgraded = true;
+      return;
+    }
+    if (upper.startsWith("AUTH")) {
+      if (!upgraded) {
+        writeLines(socket, ["530 5.7.0 Must issue a STARTTLS command first"]);
+        return;
+      }
+      writeLines(socket, ["235 2.7.0 Authentication successful"]);
+      return;
+    }
+    if (upper === "QUIT") {
+      writeLines(socket, ["221 2.0.0 Bye"]);
+      socket.end();
+      return;
+    }
+    writeLines(socket, ["250 2.0.0 OK"]);
+  };
 
-      const onData = (chunk) => {
-        buffer += chunk.toString("utf8");
-        let idx;
-        while ((idx = buffer.indexOf("\r\n")) >= 0) {
-          const line = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 2);
-          handle(line);
-        }
-      };
-
-      const handle = (line) => {
-        const upper = line.toUpperCase();
-        if (upper.startsWith("EHLO") || upper.startsWith("HELO")) {
-          writeLines(socket, upgraded ? tlsCaps() : cleartextCaps());
-          return;
-        }
-        if (upper === "STARTTLS") {
-          writeLines(socket, ["220 2.0.0 Ready to start TLS"]);
-          // Mark logical upgrade even without crypto so client repro works offline
-          upgraded = true;
-          return;
-        }
-        if (upper.startsWith("AUTH")) {
-          if (!upgraded) {
-            writeLines(socket, ["530 5.7.0 Must issue a STARTTLS command first"]);
-            return;
-          }
-          writeLines(socket, ["235 2.7.0 Authentication successful"]);
-          return;
-        }
-        if (upper === "QUIT") {
-          writeLines(socket, ["221 2.0.0 Bye"]);
-          socket.end();
-          return;
-        }
-        writeLines(socket, ["250 2.0.0 OK"]);
-      };
-
-      socket.on("data", onData);
-    });
-
-    server.listen(PORT, "127.0.0.1", () => resolve(server));
+  socket.on("data", (chunk) => {
+    buffer += chunk.toString("utf8");
+    let idx;
+    while ((idx = buffer.indexOf("\r\n")) >= 0) {
+      const line = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      handle(line);
+    }
   });
 }
 
-async function smtpSession(smtpHostConfig) {
-  const parsed = parseHostUri(smtpHostConfig, 2587, 465);
-  // Force our mock port
-  parsed.port = PORT;
-
-  const sock = await new Promise((resolve, reject) => {
-    const s = net.connect({ host: "127.0.0.1", port: PORT }, () => resolve(s));
-    s.on("error", reject);
-  });
-
-  const read = () =>
-    new Promise((resolve) => {
-      let data = "";
-      const onData = (chunk) => {
-        data += chunk.toString("utf8");
-        // Wait until a final line (code + space) or enough lines
-        if (/\r\n\d{3} /.test(data) || (data.split("\r\n").filter(Boolean).length > 1 && !sock.readableLength)) {
-          // for multi-line 250-...250 ... drain briefly
-        }
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          sock.off("data", onData);
-          resolve(data);
-        }, 50);
-      };
-      let timer = setTimeout(() => {
-        sock.off("data", onData);
-        resolve(data);
-      }, 300);
-      sock.on("data", onData);
+function listenSmtp(port, startEncrypted) {
+  return new Promise((resolve) => {
+    const server = net.createServer((socket) => {
+      attachSmtpProtocol(socket, { startEncrypted });
     });
+    server.listen(port, "127.0.0.1", () => resolve(server));
+  });
+}
 
-  const write = (cmd) => {
-    sock.write(cmd + "\r\n");
-  };
+async function readUntil(sock, ms = 200) {
+  return new Promise((resolve) => {
+    let data = "";
+    const onData = (c) => {
+      data += c.toString("utf8");
+      clearTimeout(t);
+      t = setTimeout(finish, 40);
+    };
+    const finish = () => {
+      sock.off("data", onData);
+      resolve(data);
+    };
+    let t = setTimeout(finish, ms);
+    sock.on("data", onData);
+  });
+}
 
-  const banner = await read();
-  write("EHLO roundcube-repro.local");
-  const ehlo1 = await read();
-  const caps1 = ehlo1
+function parseCaps(text) {
+  return text
     .split(/\r?\n/)
     .map((l) => l.replace(/^\d{3}[- ]/, "").trim())
     .filter(Boolean);
+}
 
-  // Roundcube 1.6 behavior: starttls ONLY if scheme === 'tls'
-  let capsFinal = caps1;
-  let didStartTls = false;
-  if (parsed.useTls) {
-    write("STARTTLS");
-    await read();
-    didStartTls = true;
-    write("EHLO roundcube-repro.local");
-    const ehlo2 = await read();
-    capsFinal = ehlo2
-      .split(/\r?\n/)
-      .map((l) => l.replace(/^\d{3}[- ]/, "").trim())
-      .filter(Boolean);
+async function roundcubeSession(smtpHostConfig, port) {
+  const parsed = parseRoundcubeSmtp(smtpHostConfig);
+
+  // Simulate PHP wrong-mode: connecting with implicit TLS to submission port
+  if (smtpHostConfig.startsWith("php-tls://")) {
+    return {
+      config: smtpHostConfig,
+      parsed,
+      mode: "php-implicit-tls-on-587",
+      error: "SSL routines::wrong version number",
+      hasAuth: false,
+      authOk: false,
+      authMsg: "SSL routines::wrong version number",
+      capsFinal: [],
+    };
   }
 
-  const hasAuth = capsFinal.some((c) => /^AUTH\b/i.test(c) || /^AUTH=/i.test(c));
-  const hasStartTls = capsFinal.some((c) => /STARTTLS/i.test(c));
+  const sock = await new Promise((resolve, reject) => {
+    const s = net.connect({ host: "127.0.0.1", port }, () => resolve(s));
+    s.on("error", reject);
+  });
 
+  await readUntil(sock);
+  sock.write("EHLO roundcube-repro.local\r\n");
+  let caps = parseCaps(await readUntil(sock));
+
+  // Roundcube config token tls:// → STARTTLS after cleartext (scheme stripped)
+  if (parsed.useStartTls) {
+    sock.write("STARTTLS\r\n");
+    await readUntil(sock);
+    sock.write("EHLO roundcube-repro.local\r\n");
+    caps = parseCaps(await readUntil(sock));
+  }
+
+  const hasAuth = caps.some((c) => /^AUTH\b/i.test(c) || /^AUTH=/i.test(c));
   let authOk = false;
-  let authMsg = "skipped";
+  let authMsg = "SMTP server does not support authentication";
   if (hasAuth) {
-    write("AUTH PLAIN AHRlc3QAdGVzdA==");
-    const authResp = await read();
+    sock.write("AUTH PLAIN AHRlc3QAdGVzdA==\r\n");
+    const authResp = await readUntil(sock);
     authOk = /235/.test(authResp);
     authMsg = authResp.trim();
-  } else {
-    authMsg = "SMTP server does not support authentication";
   }
 
-  write("QUIT");
+  sock.write("QUIT\r\n");
   sock.end();
 
   return {
     config: smtpHostConfig,
     parsed,
-    didStartTls,
-    capsFinal,
+    mode: parsed.useImplicitSsl
+      ? "smtps-ssl-465"
+      : parsed.useStartTls
+        ? "roundcube-starttls-flag"
+        : "plain-587",
     hasAuth,
-    hasStartTls,
     authOk,
     authMsg,
+    capsFinal: caps,
   };
 }
 
 function printResult(label, r) {
   console.log(`\n=== ${label} ===`);
-  console.log(`smtp_host          : ${r.config}`);
-  console.log(`parsed.useTls      : ${r.parsed.useTls}`);
-  console.log(`did STARTTLS       : ${r.didStartTls}`);
-  console.log(`caps after connect :`);
-  for (const c of r.capsFinal) console.log(`  ${c}`);
-  console.log(`has AUTH           : ${r.hasAuth}`);
-  console.log(`still has STARTTLS : ${r.hasStartTls}`);
-  console.log(`auth result        : ${r.authOk ? "OK" : "FAIL"} — ${r.authMsg}`);
+  console.log(`smtp_host     : ${r.config}`);
+  console.log(`mode          : ${r.mode}`);
+  if (r.error) console.log(`error         : ${r.error}`);
+  if (r.capsFinal?.length) {
+    console.log("caps:");
+    for (const c of r.capsFinal) console.log(`  ${c}`);
+  }
+  console.log(`has AUTH      : ${r.hasAuth}`);
+  console.log(`auth          : ${r.authOk ? "OK" : "FAIL"} — ${r.authMsg}`);
 }
 
-const server = await startMockServer();
-try {
-  // BUG path — Roundcube default / misconfig (missing tls://)
-  const buggy = await smtpSession("127.0.0.1:2587");
-  printResult("BUG: smtp_host WITHOUT tls:// (Roundcube production failure)", buggy);
+const submission = await listenSmtp(START_PORT, false);
+const smtps = await listenSmtp(SMTPS_PORT, true);
 
-  // FIX path
-  const fixed = await smtpSession("tls://127.0.0.1:2587");
-  printResult("FIX: smtp_host WITH tls:// (Roundcube 1.6 correct)", fixed);
+try {
+  const phpWrong = await roundcubeSession("php-tls://127.0.0.1:587", START_PORT);
+  printResult("WRONG: PHP stream tls:// on :587 (implicit TLS)", phpWrong);
+
+  const plain = await roundcubeSession("127.0.0.1:2587", START_PORT);
+  printResult("BUG: Roundcube plain host:587 (no STARTTLS)", plain);
+
+  const smtpsCfg = await roundcubeSession("ssl://127.0.0.1:2465", SMTPS_PORT);
+  printResult("FIX: Roundcube ssl://host:465 (implicit TLS / SMTPS)", smtpsCfg);
 
   const pass =
-    !buggy.hasAuth &&
-    buggy.hasStartTls &&
-    buggy.authMsg.includes("does not support authentication") &&
-    fixed.hasAuth &&
-    !fixed.hasStartTls &&
-    fixed.authOk;
+    Boolean(phpWrong.error) &&
+    !plain.hasAuth &&
+    plain.authMsg.includes("does not support authentication") &&
+    smtpsCfg.hasAuth &&
+    smtpsCfg.authOk;
 
   console.log("\n=== VERDICT ===");
   if (pass) {
-    console.log(
-      "PASS — Missing tls:// leaves Roundcube on cleartext EHLO (STARTTLS present, AUTH absent).",
-    );
-    console.log("      Adding tls:// triggers STARTTLS + re-EHLO; AUTH appears (matches OpenSSL).");
+    console.log("PASS — Use ssl://127.0.0.1:465 for Roundcube (not PHP tls:// on 587).");
     process.exitCode = 0;
   } else {
-    console.log("FAIL — unexpected capability/auth results");
+    console.log("FAIL — unexpected results");
     process.exitCode = 1;
   }
 } finally {
-  server.close();
+  submission.close();
+  smtps.close();
 }

@@ -10,7 +10,7 @@ It does **not** modify the Next.js `global-orbit-mail` application.
 Do **not** replace IMAP, database, or session settings when deploying the Orbit skin.  
 Do **not** replace `skins/elastic` — Orbit **extends** Elastic and requires it to remain installed.
 
-**SMTP AUTH / STARTTLS:** If send fails with “SMTP server does not support authentication” while OpenSSL shows `AUTH PLAIN`, see `roundcube/SMTP_STARTTLS_AUTH.md` and apply `config/smtp-transport.inc.php` (Roundcube `tls://` on `smtp_host` only — do not change Postfix/Dovecot).
+**SMTP transport:** Use `ssl://127.0.0.1:465` (SMTPS). Do **not** use PHP `tls://…:587` (implicit TLS on a STARTTLS port → wrong version number). See `roundcube/SMTP_STARTTLS_AUTH.md` and `config/smtp-transport.inc.php`.
 
 ---
 

@@ -1,29 +1,31 @@
-# Roundcube SMTP AUTH after STARTTLS (1.6.x)
+# Roundcube SMTP transport — SSL on 465 (not PHP tls:// on 587)
 
-## Symptom
+## Evidence
 
-- OpenSSL / manual STARTTLS on `:587` shows `250-AUTH PLAIN`
-- Roundcube logs: `SMTP server does not support authentication`
-- Roundcube capability dump still lists `STARTTLS` and **no** `AUTH`
+| Test | Result |
+|------|--------|
+| `openssl s_client -starttls smtp -connect 127.0.0.1:587` | Works; AUTH after STARTTLS |
+| `stream_socket_client("tls://127.0.0.1:587")` | Fails: `SSL routines::wrong version number` |
+| Roundcube without encryption on `:587` | Sees cleartext EHLO (STARTTLS listed, **no AUTH**) |
 
-That dump is the **cleartext** submission EHLO. Postfix only offers AUTH after TLS.
+Port **587** speaks plain SMTP first, then STARTTLS.  
+Port **465** speaks **implicit TLS** from the first byte.
 
-## Root cause (Roundcube only)
+PHP stream wrappers `tls://` and `ssl://` both mean **implicit TLS**. They are correct for **465**, wrong for **587**.
 
-Roundcube 1.6.11 (`rcube_smtp.php`):
+## Roundcube 1.6 semantics (important)
 
-1. Parses `smtp_host` with `parse_host_uri`
-2. Sets `$use_tls = ($scheme === 'tls')`
-3. Calls `$this->conn->starttls()` **only if** `$use_tls`
+In `rcube_smtp.php`:
 
-If config is `localhost:587` / `127.0.0.1:587` / hostname without `tls://`, Roundcube never STARTTLSes. Auth sees pre-TLS extensions → error.
+- `ssl://host:465` → host kept as `ssl://host`, Net_SMTP uses implicit TLS
+- `tls://host:587` → scheme stripped; cleartext connect; then `Net_SMTP::starttls()`
+- plain `host:587` → cleartext only; `auth(..., false)` skips Net_SMTP auto-STARTTLS → no AUTH
 
-Obsolete `smtp_port` / `smtp_server` (removed in 1.6) often leave hosts without the `tls://` prefix after upgrades.
-
-## Fix
+So Roundcube’s config token `tls://` ≠ PHP `stream_socket_client('tls://…')`.  
+Given production confusion / failures around `tls://…:587`, this project standardizes on:
 
 ```php
-$config['smtp_host'] = 'tls://127.0.0.1:587';
+$config['smtp_host'] = 'ssl://127.0.0.1:465';
 $config['smtp_user'] = '%u';
 $config['smtp_pass'] = '%p';
 $config['smtp_auth_type'] = 'PLAIN';
@@ -36,23 +38,21 @@ $config['smtp_conn_options'] = [
 ];
 ```
 
-Comment out any `$config['smtp_server']` / `$config['smtp_port']`.
+Comment out obsolete `smtp_server` / `smtp_port`.
 
-Files in this repo:
+## Files
 
 - `roundcube/config/smtp-transport.inc.php`
 - `deploy/vps/fix-roundcube-smtp.sh`
+- `scripts/reproduce-roundcube-smtp-auth.mjs` — offline mock
+- `scripts/test-roundcube-smtp-php.php` — run **on the mail VPS**
 
-## Reproduce offline
-
-```bash
-node scripts/reproduce-roundcube-smtp-auth.mjs
-```
-
-## VPS apply
+## Apply on VPS
 
 ```bash
 bash deploy/vps/fix-roundcube-smtp.sh /var/www/roundcube
+php scripts/test-roundcube-smtp-php.php
+# then send a message from Roundcube UI
 ```
 
-Do **not** change Postfix or Dovecot for this bug.
+Do **not** change Postfix or Dovecot for this issue.
