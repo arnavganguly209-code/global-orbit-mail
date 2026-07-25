@@ -399,6 +399,49 @@ open(path, "w", encoding="utf-8").write(t if t.endswith("\n") else t + "\n")
 }
 
 # One-shot commercial platform limits (idempotent) — no manual harden needed per domain
+
+# Gmail rejects unsigned/unaligned IPv6 with 550 5.7.1 IPv6AuthError when PTR/SPF ip6 missing.
+ensure_postfix_ipv4_only() {
+  local ipv6="${MAIL_SERVER_IPV6:-2a02:4780:63:1d79::1}"
+  local force="${MAIL_FORCE_IPV4:-auto}"
+  local ptr6="" spf_ok=0
+
+  if [[ "$force" == "ipv4" || "$force" == "1" || "$force" == "true" ]]; then
+    postconf -e "inet_protocols = ipv4"
+    echo "[mail-agent] inet_protocols=ipv4 (forced via MAIL_FORCE_IPV4)" >&2
+    return 0
+  fi
+
+  if [[ "$force" == "all" ]]; then
+    postconf -e "inet_protocols = all"
+    echo "[mail-agent] inet_protocols=all (forced)" >&2
+    return 0
+  fi
+
+  # auto: require IPv6 PTR + SPF ip6: before allowing dual-stack outbound
+  ptr6="$(dig -x "$ipv6" +short 2>/dev/null | sed 's/\.$//' | head -n1 || true)"
+  if [[ -z "$ptr6" ]]; then
+    postconf -e "inet_protocols = ipv4"
+    echo "[mail-agent] inet_protocols=ipv4 (no PTR for ${ipv6} — prevents Gmail IPv6AuthError)" >&2
+    return 0
+  fi
+
+  # SPF on primary mail identity must authorize ip6
+  if dig +short TXT theglobalorbit.com 2>/dev/null | tr -d '"' | grep -qi "ip6:${ipv6}"; then
+    spf_ok=1
+  elif dig +short TXT globalorbitmail.cloud 2>/dev/null | tr -d '"' | grep -qi "ip6:"; then
+    spf_ok=1
+  fi
+  if [[ "$spf_ok" -ne 1 ]]; then
+    postconf -e "inet_protocols = ipv4"
+    echo "[mail-agent] inet_protocols=ipv4 (IPv6 PTR=${ptr6} but SPF lacks ip6 — Gmail IPv6AuthError risk)" >&2
+    return 0
+  fi
+
+  postconf -e "inet_protocols = all"
+  echo "[mail-agent] inet_protocols=all (IPv6 PTR+SPF look ready)" >&2
+}
+
 platform_ensure() {
   local MSG_BYTES=26214400
   local PHP_UPLOAD=25M
@@ -444,6 +487,9 @@ EOF
     postconf -e "myhostname = ${PTR_HOSTNAME}"
     postconf -e "smtp_helo_name = ${PTR_HOSTNAME}"
     postconf -e "soft_bounce = no"
+    # Gmail 550 5.7.1 IPv6AuthError: host IPv6 lacks PTR/SPF. Force IPv4 outbound/inbound SMTP.
+    # MX hosts have A-only (no AAAA), so inbound mail stays on IPv4.
+    ensure_postfix_ipv4_only
     systemctl reload postfix 2>/dev/null || true
   fi
 
@@ -597,14 +643,16 @@ CREATE TABLE IF NOT EXISTS virtual_aliases (
     msg_limit="unknown"
     milter="missing"
     opendkim="down"
+    inet_proto="unknown"
     if command -v postconf >/dev/null 2>&1; then
       msg_limit="$(postconf -h message_size_limit 2>/dev/null || echo unknown)"
       milter="$(postconf -h smtpd_milters 2>/dev/null || echo missing)"
+      inet_proto="$(postconf -h inet_protocols 2>/dev/null || echo unknown)"
     fi
     if pgrep -x opendkim >/dev/null 2>&1 || systemctl is-active --quiet opendkim 2>/dev/null; then
       opendkim="up"
     fi
-    json_ok "{\"scheme\":\"$scheme\",\"vmailBase\":\"$VMAIL_BASE\",\"mysqlDatabase\":\"${MAIL_MYSQL_DATABASE:-mailserver}\",\"phpUploadMax\":\"$upload_php\",\"postfixMessageSizeLimit\":\"$msg_limit\",\"opendkim\":\"$opendkim\",\"smtpdMilters\":\"$milter\"}"
+    json_ok "{\"scheme\":\"$scheme\",\"vmailBase\":\"$VMAIL_BASE\",\"mysqlDatabase\":\"${MAIL_MYSQL_DATABASE:-mailserver}\",\"phpUploadMax\":\"$upload_php\",\"postfixMessageSizeLimit\":\"$msg_limit\",\"opendkim\":\"$opendkim\",\"smtpdMilters\":\"$milter\",\"inetProtocols\":\"$inet_proto\"}"
     ;;
   *)
     json_err "Unknown command: $COMMAND"

@@ -31,6 +31,19 @@ if command -v postconf >/dev/null; then
   ptr=$(dig -x "$MAIL_IP" +short | sed 's/\.$//' | head -n1)
   echo "    ptr=$ptr myhostname=$mh smtp_helo_name=$helo"
   if [[ -n "$ptr" && "$mh" == "$ptr" ]]; then ok "HELO/PTR aligned ($mh)"; else bad "HELO/PTR mismatch myhostname=$mh ptr=$ptr"; fi
+  proto=$(postconf -h inet_protocols 2>/dev/null || echo unknown)
+  echo "    inet_protocols=$proto"
+  if [[ "$proto" == "ipv4" ]]; then
+    ok "inet_protocols=ipv4 (Gmail IPv6AuthError mitigation)"
+  else
+    ipv6="${MAIL_SERVER_IPV6:-2a02:4780:63:1d79::1}"
+    ptr6=$(dig -x "$ipv6" +short 2>/dev/null | sed 's/\.$//' | head -n1 || true)
+    if [[ -z "$ptr6" ]]; then
+      bad "inet_protocols=$proto but IPv6 $ipv6 has no PTR — Gmail IPv6AuthError risk"
+    else
+      wrn "inet_protocols=$proto with IPv6 PTR=$ptr6 — confirm SPF ip6: and DKIM"
+    fi
+  fi
 else
   bad "postconf missing"
 fi

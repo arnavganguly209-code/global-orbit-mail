@@ -103,14 +103,16 @@ if command -v postconf >/dev/null 2>&1; then
   # Critical for Gmail/Outlook/Yahoo: EHLO hostname must match reverse DNS
   postconf -e "myhostname = ${PTR_HOSTNAME}"
   postconf -e "smtp_helo_name = ${PTR_HOSTNAME}"
-  # Advertise both names in banners is optional; keep soft_bounce off
+  # Gmail 550 5.7.1 IPv6AuthError when IPv6 lacks PTR/SPF
+  postconf -e "inet_protocols = ipv4"
   postconf -e "soft_bounce = no"
   # Enable DSN bounce to senders
   postconf -e "notify_classes = resource, software, bounce, delay"
   postfix check 2>/dev/null || true
-  systemctl reload postfix || service postfix reload || true
+  systemctl restart postfix || service postfix restart || true
   echo "    myhostname=$(postconf -h myhostname)"
   echo "    message_size_limit=$(postconf -h message_size_limit)"
+  echo "    inet_protocols=$(postconf -h inet_protocols)"
   echo "    PTR expected: ${PTR_HOSTNAME} (verify: dig -x ${MAIL_IP} +short)"
 fi
 
