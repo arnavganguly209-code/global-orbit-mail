@@ -198,18 +198,28 @@ provision_mailbox_auth() {
     AUTH_OUT="$(doveadm auth test "$email" "$plain" 2>&1)"
     AUTH_RC=$?
     set -e
-    if ! echo "$AUTH_OUT" | grep -qi "passdb: user authenticated"; then
+    # Dovecot 2.3 variants: "user authenticated" OR "auth succeeded"
+    if ! echo "$AUTH_OUT" | grep -Eqi 'passdb:.*user authenticated|passdb:.*auth succeeded|\bauth succeeded\b'; then
       json_err "doveadm auth test failed (rc=$AUTH_RC): $AUTH_OUT"
     fi
   else
     AUTH_OUT="hash-only sync (no doveadm auth test)"
   fi
 
+  # Apply quota when Orbit sends quotaBytes (commercial multi-domain)
+  local quota_bytes
+  quota_bytes="$(field quotaBytes)"
+  if [[ -n "$quota_bytes" && "$quota_bytes" =~ ^[0-9]+$ && "$quota_bytes" -gt 0 ]]; then
+    apply_mailbox_quota "$email" "$quota_bytes" || true
+  fi
+
+  ensure_special_folders "$email" || true
+
   hash_json="$(printf '%s' "$hash" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
   auth_json="$(printf '%s' "$AUTH_OUT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
   local auth_flag="false"
   if [[ -n "$plain" ]]; then auth_flag="true"; fi
-  json_ok "{\"email\":\"$email\",\"action\":\"$action\",\"home\":\"$home\",\"scheme\":\"SHA512-CRYPT\",\"mailPasswordHash\":$hash_json,\"mysqlSynced\":true,\"sqlSynced\":true,\"authTest\":$auth_flag,\"authOutput\":$auth_json}"
+  json_ok "{\"email\":\"$email\",\"action\":\"$action\",\"home\":\"$home\",\"scheme\":\"SHA512-CRYPT\",\"mailPasswordHash\":$hash_json,\"mysqlSynced\":true,\"sqlSynced\":true,\"authTest\":$auth_flag,\"authOutput\":$auth_json,\"quotaBytes\":${quota_bytes:-0}}"
 }
 
 hash_password_for_dovecot() {
@@ -271,6 +281,193 @@ ensure_maildir() {
   printf '%s' "$home"
 }
 
+# Create + subscribe IMAP special folders (Roundcube / Workspace-class)
+ensure_special_folders() {
+  local email="$1"
+  local box
+  if ! command -v doveadm >/dev/null 2>&1; then
+    return 0
+  fi
+  for box in Drafts Sent Junk Trash; do
+    doveadm mailbox create -u "$email" "$box" 2>/dev/null || true
+    doveadm mailbox subscribe -u "$email" "$box" 2>/dev/null || true
+  done
+  # subscriptions file fallback for clients that don't use LIST-EXTENDED
+  local home localpart domain sub
+  localpart="${email%@*}"
+  domain="${email#*@}"
+  home="${VMAIL_BASE}/${domain}/${localpart}"
+  sub="${home}/subscriptions"
+  if [[ -d "$home" ]]; then
+    {
+      echo "INBOX"
+      echo "Drafts"
+      echo "Sent"
+      echo "Junk"
+      echo "Trash"
+    } > "$sub"
+    chown "${VMAIL_UID}:${VMAIL_GID}" "$sub" 2>/dev/null || true
+  fi
+}
+
+apply_mailbox_quota() {
+  local email="$1"
+  local bytes="$2"
+  local e kb
+  e="$(sql_escape "$email")"
+  kb=$((bytes / 1024))
+  [[ "$kb" -lt 1 ]] && kb=1
+
+  ensure_mysql_tables
+  mysql_exec "ALTER TABLE virtual_users ADD COLUMN IF NOT EXISTS quota BIGINT NOT NULL DEFAULT 0;" 2>/dev/null \
+    || mysql_exec "ALTER TABLE virtual_users ADD COLUMN quota BIGINT NOT NULL DEFAULT 0;" 2>/dev/null \
+    || true
+  mysql_exec "UPDATE virtual_users SET quota=${bytes} WHERE email='$e';" 2>/dev/null || true
+
+  if command -v doveadm >/dev/null 2>&1; then
+    doveadm quota set -u "$email" STORAGE "$kb" 2>/dev/null \
+      || doveadm quota set -u "$email" -k STORAGE "$kb" 2>/dev/null \
+      || true
+  fi
+}
+
+# Install Orbit-generated DKIM private key into OpenDKIM (no second keygen)
+sync_opendkim() {
+  local domain="$1" selector="$2" pem="$3" public="$4"
+  local OPENDKIM_DIR KEYS_DIR priv kt st td
+  OPENDKIM_DIR="${OPENDKIM_DIR:-/etc/opendkim}"
+  KEYS_DIR="${OPENDKIM_KEYS_DIR:-${OPENDKIM_DIR}/keys}"
+
+  if [[ -z "$domain" || -z "$selector" || -z "$pem" ]]; then
+    json_err "dkim.sync requires domain, selector, privateKeyPem"
+  fi
+
+  if [[ ! -d "$OPENDKIM_DIR" ]] && ! command -v opendkim >/dev/null 2>&1; then
+    json_err "OpenDKIM is not installed on mail host (apt install opendkim opendkim-tools). Required for commercial multi-domain signing."
+  fi
+
+  mkdir -p "${KEYS_DIR}/${domain}" "$OPENDKIM_DIR"
+  priv="${KEYS_DIR}/${domain}/${selector}.private"
+  printf '%s' "$pem" | python3 -c '
+import sys
+t = sys.stdin.read()
+t = t.replace("\\\\n", "\n").replace("\\n", "\n")
+if "BEGIN" not in t:
+  raise SystemExit("invalid private key PEM")
+path = sys.argv[1]
+open(path, "w", encoding="utf-8").write(t if t.endswith("\n") else t + "\n")
+' "$priv"
+  chmod 600 "$priv"
+  chown opendkim:opendkim "$priv" 2>/dev/null || chown root:root "$priv" || true
+
+  if [[ -n "$public" ]]; then
+    printf 'v=DKIM1; k=rsa; p=%s\n' "$public" > "${KEYS_DIR}/${domain}/${selector}.txt"
+  fi
+
+  kt="${OPENDKIM_DIR}/KeyTable"
+  st="${OPENDKIM_DIR}/SigningTable"
+  td="${OPENDKIM_DIR}/TrustedHosts"
+  touch "$kt" "$st" "$td"
+  # Idempotent replace for this selector/domain
+  grep -v "${selector}._domainkey.${domain}" "$kt" > "${kt}.tmp" 2>/dev/null || true
+  mv "${kt}.tmp" "$kt" 2>/dev/null || true
+  echo "${selector}._domainkey.${domain} ${domain}:${selector}:${priv}" >> "$kt"
+
+  grep -v "[[:space:]]${domain}\$" "$st" > "${st}.tmp" 2>/dev/null || true
+  grep -v "@${domain}" "${st}.tmp" > "${st}.tmp2" 2>/dev/null || cp "$st" "${st}.tmp2"
+  mv "${st}.tmp2" "$st" 2>/dev/null || true
+  rm -f "${st}.tmp"
+  echo "*@${domain} ${selector}._domainkey.${domain}" >> "$st"
+
+  grep -qxF "127.0.0.1" "$td" 2>/dev/null || echo "127.0.0.1" >> "$td"
+  grep -qxF "localhost" "$td" 2>/dev/null || echo "localhost" >> "$td"
+  grep -qxF "$domain" "$td" 2>/dev/null || echo "$domain" >> "$td"
+
+  # Ensure Postfix milters point at OpenDKIM when missing
+  if command -v postconf >/dev/null 2>&1; then
+    local milters
+    milters="$(postconf -h smtpd_milters 2>/dev/null || true)"
+    if [[ "$milters" != *8891* && "$milters" != *opendkim* ]]; then
+      postconf -e "smtpd_milters = inet:localhost:8891"
+      postconf -e "non_smtpd_milters = inet:localhost:8891"
+      postconf -e "milter_default_action = accept"
+      systemctl reload postfix 2>/dev/null || true
+    fi
+  fi
+
+  systemctl restart opendkim 2>/dev/null || service opendkim restart 2>/dev/null || true
+}
+
+# One-shot commercial platform limits (idempotent) — no manual harden needed per domain
+platform_ensure() {
+  local MSG_BYTES=26214400
+  local PHP_UPLOAD=25M
+  local PHP_POST=30M
+  local NGINX_BODY=30m
+  local PTR_HOSTNAME RC_ROOT
+
+  PTR_HOSTNAME="${PTR_HOSTNAME:-$(dig -x "${MAIL_SERVER_IPV4:-200.97.170.235}" +short 2>/dev/null | sed 's/\.$//' | head -n1)}"
+  PTR_HOSTNAME="${PTR_HOSTNAME:-mail.theglobalorbit.com}"
+  RC_ROOT="${ORBIT_ROUNDCUBE_ROOT:-/var/www/roundcube}"
+
+  # PHP uploads (fixes Roundcube "exceeds 8.0 MB")
+  if [[ -d /etc/php ]]; then
+    while IFS= read -r ini; do
+      [[ -z "$ini" ]] && continue
+      local conf_dir
+      conf_dir="$(dirname "$ini")/conf.d"
+      mkdir -p "$conf_dir"
+      cat > "${conf_dir}/99-orbit-mail-uploads.ini" <<EOF
+upload_max_filesize = ${PHP_UPLOAD}
+post_max_size = ${PHP_POST}
+max_file_uploads = 50
+memory_limit = 256M
+max_execution_time = 120
+max_input_time = 120
+file_uploads = On
+EOF
+    done < <(find /etc/php -type f -name php.ini 2>/dev/null | head -n 20)
+  fi
+
+  if command -v nginx >/dev/null 2>&1; then
+    mkdir -p /etc/nginx/conf.d
+    cat > /etc/nginx/conf.d/orbit-mail-uploads.conf <<EOF
+client_max_body_size ${NGINX_BODY};
+client_body_timeout 120s;
+EOF
+    nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
+  fi
+
+  if command -v postconf >/dev/null 2>&1; then
+    postconf -e "message_size_limit = ${MSG_BYTES}"
+    postconf -e "mailbox_size_limit = 0"
+    postconf -e "myhostname = ${PTR_HOSTNAME}"
+    postconf -e "smtp_helo_name = ${PTR_HOSTNAME}"
+    postconf -e "soft_bounce = no"
+    systemctl reload postfix 2>/dev/null || true
+  fi
+
+  if [[ -d "$RC_ROOT/config" ]]; then
+    mkdir -p "$RC_ROOT/temp"
+    chown -R www-data:www-data "$RC_ROOT/temp" 2>/dev/null || true
+    chmod 775 "$RC_ROOT/temp" 2>/dev/null || true
+    if [[ ! -f "$RC_ROOT/config/attachments-mime.inc.php" ]]; then
+      cat > "$RC_ROOT/config/attachments-mime.inc.php" <<'PHP'
+<?php
+$config['max_message_size'] = '25M';
+$config['temp_dir'] = 'temp/';
+$config['force_7bit'] = false;
+$config['smtp_helo_host'] = 'mail.globalorbitmail.cloud';
+PHP
+    fi
+    if [[ -f "$RC_ROOT/config/config.inc.php" ]] && ! grep -q "attachments-mime.inc.php" "$RC_ROOT/config/config.inc.php"; then
+      echo "include __DIR__ . '/attachments-mime.inc.php';" >> "$RC_ROOT/config/config.inc.php"
+    fi
+  fi
+
+  systemctl reload php8.3-fpm 2>/dev/null || systemctl reload php8.2-fpm 2>/dev/null || systemctl reload php8.1-fpm 2>/dev/null || true
+}
+
 case "$COMMAND" in
   domain.create)
     domain="$(field domain)"
@@ -278,6 +475,8 @@ case "$COMMAND" in
     if [[ -z "$domain" ]]; then
       json_err "domain.create requires domain"
     fi
+    # Idempotent platform harden (PHP/Nginx/Postfix sizes + HELO) — unlimited domains, no manual VPS
+    platform_ensure || true
     mkdir -p "${VMAIL_BASE}/${domain}"
     ensure_mysql_tables
     d="$(sql_escape "$domain")"
@@ -287,7 +486,7 @@ case "$COMMAND" in
     if id -u "vmail" >/dev/null 2>&1; then
       chown -R "vmail:vmail" "${VMAIL_BASE}/${domain}" 2>/dev/null || true
     fi
-    json_ok "{\"domain\":\"$domain\",\"action\":\"domain.create\",\"mysqlSynced\":true}"
+    json_ok "{\"domain\":\"$domain\",\"action\":\"domain.create\",\"mysqlSynced\":true,\"platformEnsured\":true}"
     ;;
   domain.delete)
     domain="$(field domain)"
@@ -335,7 +534,13 @@ case "$COMMAND" in
     ;;
   mailbox.quota)
     email="$(field email)"
-    json_ok "{\"email\":\"$email\",\"action\":\"mailbox.quota\"}"
+    email="$(printf '%s' "$email" | tr '[:upper:]' '[:lower:]')"
+    quota_bytes="$(field quotaBytes)"
+    if [[ -z "$email" || -z "$quota_bytes" || ! "$quota_bytes" =~ ^[0-9]+$ ]]; then
+      json_err "mailbox.quota requires email and quotaBytes"
+    fi
+    apply_mailbox_quota "$email" "$quota_bytes"
+    json_ok "{\"email\":\"$email\",\"action\":\"mailbox.quota\",\"quotaBytes\":${quota_bytes},\"mysqlSynced\":true}"
     ;;
   alias.sync|forwarder.sync)
     address="$(field address)"
@@ -359,8 +564,23 @@ CREATE TABLE IF NOT EXISTS virtual_aliases (
     fi
     json_ok "{\"action\":\"$COMMAND\",\"address\":\"$address\",\"mysqlSynced\":true}"
     ;;
-  vacation.sync|dkim.sync)
-    json_ok "{\"action\":\"$COMMAND\"}"
+  vacation.sync)
+    json_ok "{\"action\":\"vacation.sync\"}"
+    ;;
+  dkim.sync)
+    domain="$(field domain)"
+    selector="$(field selector)"
+    pem="$(field privateKeyPem)"
+    public="$(field publicKey)"
+    domain="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]')"
+    selector="$(printf '%s' "$selector" | tr '[:upper:]' '[:lower:]')"
+    [[ -z "$selector" ]] && selector="orbit"
+    sync_opendkim "$domain" "$selector" "$pem" "$public"
+    json_ok "{\"action\":\"dkim.sync\",\"domain\":\"$domain\",\"selector\":\"$selector\",\"opendkimSynced\":true}"
+    ;;
+  platform.ensure)
+    platform_ensure
+    json_ok "{\"action\":\"platform.ensure\",\"ok\":true}"
     ;;
   storage.usage)
     email="$(field email)"
@@ -372,7 +592,19 @@ CREATE TABLE IF NOT EXISTS virtual_aliases (
     ;;
   health.check)
     scheme="$(detect_scheme)"
-    json_ok "{\"scheme\":\"$scheme\",\"vmailBase\":\"$VMAIL_BASE\",\"mysqlDatabase\":\"${MAIL_MYSQL_DATABASE:-mailserver}\"}"
+    platform_ensure || true
+    upload_php="$(php -r 'echo ini_get("upload_max_filesize");' 2>/dev/null || echo unknown)"
+    msg_limit="unknown"
+    milter="missing"
+    opendkim="down"
+    if command -v postconf >/dev/null 2>&1; then
+      msg_limit="$(postconf -h message_size_limit 2>/dev/null || echo unknown)"
+      milter="$(postconf -h smtpd_milters 2>/dev/null || echo missing)"
+    fi
+    if pgrep -x opendkim >/dev/null 2>&1 || systemctl is-active --quiet opendkim 2>/dev/null; then
+      opendkim="up"
+    fi
+    json_ok "{\"scheme\":\"$scheme\",\"vmailBase\":\"$VMAIL_BASE\",\"mysqlDatabase\":\"${MAIL_MYSQL_DATABASE:-mailserver}\",\"phpUploadMax\":\"$upload_php\",\"postfixMessageSizeLimit\":\"$msg_limit\",\"opendkim\":\"$opendkim\",\"smtpdMilters\":\"$milter\"}"
     ;;
   *)
     json_err "Unknown command: $COMMAND"

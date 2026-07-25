@@ -32,6 +32,7 @@ export type AgentCommand =
   | "forwarder.sync"
   | "vacation.sync"
   | "dkim.sync"
+  | "platform.ensure"
   | "storage.usage"
   | "health.check";
 
@@ -60,6 +61,9 @@ const AUTH_COMMANDS = new Set<AgentCommand>([
   "alias.sync",
   "forwarder.sync",
 ]);
+
+/** Agent-only commands: failure must surface (no SQL soft-success). */
+const AGENT_CRITICAL = new Set<AgentCommand>(["dkim.sync", "platform.ensure"]);
 
 function getMode(): ProvisionMode {
   const mode = (process.env.MAIL_PROVISION_MODE ?? "local").toLowerCase();
@@ -484,6 +488,11 @@ async function runLocal(request: AgentRequest): Promise<AgentResponse> {
       agentResult.ok ? "post-agent-sync" : "agent-unavailable-or-failed",
     );
     return mergeAuthResults(request, agentResult, sqlResult);
+  }
+
+  // DKIM / platform harden: never soft-succeed via SQL stub
+  if (AGENT_CRITICAL.has(request.command)) {
+    return agentResult;
   }
 
   if (agentResult.ok) return agentResult;

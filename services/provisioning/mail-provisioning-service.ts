@@ -66,6 +66,16 @@ export const MailProvisioningService = {
     audit?: AuditCtx;
   }) {
     try {
+      // Idempotent platform harden (sizes/HELO/Roundcube) before first customer domain
+      await mailEngine
+        .runTracked({
+          kind: "DOMAIN_CREATE",
+          command: "platform.ensure",
+          domainId: input.domainId,
+          payload: {},
+        })
+        .catch(() => undefined);
+
       await runOrThrow({
         kind: "DOMAIN_CREATE",
         command: "domain.create",
@@ -102,7 +112,12 @@ export const MailProvisioningService = {
         resource: "domain",
         resourceId: input.domainId,
         status: "SUCCESS",
-        newValue: { domain: input.domainName, mailStatus: "ACTIVE" },
+        newValue: {
+          domain: input.domainName,
+          mailStatus: "ACTIVE",
+          dkimSelector: input.dkimSelector,
+          opendkimSynced: true,
+        },
       });
     } catch (error) {
       await mailEngine
@@ -224,6 +239,20 @@ export const MailProvisioningService = {
           "mailbox.create",
         );
       }
+
+      // Live Dovecot/MariaDB quota (best-effort after auth is proved)
+      if (input.quotaBytes > 0) {
+        await mailEngine
+          .runTracked({
+            kind: "MAILBOX_QUOTA",
+            command: "mailbox.quota",
+            mailboxId: input.mailboxId,
+            domainId: input.domainId,
+            payload: { email: input.email, quotaBytes: input.quotaBytes },
+          })
+          .catch(() => undefined);
+      }
+
       await prisma.mailbox.update({
         where: { id: input.mailboxId },
         data: {
@@ -248,6 +277,7 @@ export const MailProvisioningService = {
           status: "ACTIVE",
           authTest: result.data?.authTest === true,
           mysqlSynced: true,
+          quotaBytes: input.quotaBytes,
         },
       });
     } catch (error) {
