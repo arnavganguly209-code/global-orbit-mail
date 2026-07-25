@@ -1,7 +1,10 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { prisma } from "@/lib/db";
 import { hashSha512Crypt, isSha512Crypt, normalizeSha512Crypt } from "@/lib/mail/sha512-crypt";
+import { applyPlatformLimitsLocal } from "@/services/provisioning/apply-platform-limits";
 import {
   activateMysqlVirtualUser,
   deactivateMysqlVirtualDomain,
@@ -72,7 +75,127 @@ function getMode(): ProvisionMode {
 }
 
 function agentScriptPath(): string {
-  return process.env.MAIL_AGENT_SCRIPT ?? "/opt/global-orbit/bin/mail-agent.sh";
+  const fromEnv = process.env.MAIL_AGENT_SCRIPT?.trim();
+  if (fromEnv) return fromEnv;
+  const candidates = [
+    "/opt/global-orbit/bin/mail-agent.sh",
+    join(process.cwd(), "deploy", "vps", "mail-agent.sh"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (existsSync(p)) return p;
+    } catch {
+      /* ignore */
+    }
+  }
+  return candidates[0]!;
+}
+
+/** Absolute path to attachment-limits script (repo or installed copy). */
+function attachmentLimitsScriptPath(): string {
+  const fromEnv = process.env.ORBIT_ATTACHMENT_LIMITS_SCRIPT?.trim();
+  if (fromEnv) return fromEnv;
+  const candidates = [
+    "/opt/global-orbit/bin/apply-attachment-limits-inline.sh",
+    join(process.cwd(), "deploy", "vps", "apply-attachment-limits-inline.sh"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (existsSync(p)) return p;
+    } catch {
+      /* ignore */
+    }
+  }
+  return candidates[1]!;
+}
+
+/**
+ * Raise PHP/Nginx/Postfix/Roundcube attachment limits on the local mail host.
+ * Used when mail-agent is outdated or platform.ensure is unavailable.
+ */
+async function runAttachmentLimitsInline(): Promise<AgentResponse> {
+  // Prefer Node-native apply (no dependency on bash script being pre-installed).
+  const native = await applyPlatformLimitsLocal();
+  if (native.ok) {
+    return {
+      ok: true,
+      stdout: native.steps.join("\n"),
+      stderr: "",
+      data: { platformEnsured: true, via: "apply-platform-limits.ts", steps: native.steps },
+    };
+  }
+
+  const script = attachmentLimitsScriptPath();
+  if (!existsSync(script)) {
+    return {
+      ok: false,
+      stdout: native.steps.join("\n"),
+      stderr: native.error || `Missing ${script}`,
+      data: { via: "apply-platform-limits.ts", steps: native.steps },
+    };
+  }
+  try {
+    const { stdout, stderr } = await execFileAsync("bash", [script], {
+      timeout: 120_000,
+      maxBuffer: 2 * 1024 * 1024,
+      env: { ...process.env },
+    });
+    return {
+      ok: true,
+      stdout: `${native.steps.join("\n")}\n${stdout}\n${stderr}`.trim(),
+      stderr: "",
+      data: { platformEnsured: true, via: "apply-attachment-limits-inline.sh" },
+    };
+  } catch (error) {
+    const err = error as { stdout?: string; stderr?: string; message?: string; code?: string };
+    return {
+      ok: false,
+      stdout: err.stdout ?? native.steps.join("\n"),
+      stderr:
+        [native.error, err.stderr ?? err.message ?? `Failed running ${script}`]
+          .filter(Boolean)
+          .join(" | "),
+      data: { via: "apply-attachment-limits-inline.sh", code: err.code },
+    };
+  }
+}
+
+async function runPlatformEnsure(): Promise<AgentResponse> {
+  const mode = getMode();
+
+  if (mode === "disabled") {
+    return { ok: false, stdout: "", stderr: "MAIL_PROVISION_MODE=disabled" };
+  }
+
+  if (mode === "local") {
+    // Always run Node-native limits first so missing mail-agent cannot block attachments.
+    const native = await runAttachmentLimitsInline();
+    const viaAgent = await runLocal({ command: "platform.ensure", payload: {} });
+    if (native.ok || viaAgent.ok) {
+      return {
+        ok: true,
+        stdout: [native.stdout, viaAgent.stdout].filter(Boolean).join("\n"),
+        stderr: "",
+        data: {
+          platformEnsured: true,
+          via: native.ok ? (native.data?.via ?? "native") : "agent",
+          ...(native.data ?? {}),
+          ...(viaAgent.data ?? {}),
+          agentOk: viaAgent.ok,
+        },
+      };
+    }
+    return {
+      ok: false,
+      stdout: [native.stdout, viaAgent.stdout].filter(Boolean).join("\n"),
+      stderr: [native.stderr, viaAgent.stderr].filter(Boolean).join(" | "),
+    };
+  }
+
+  // ssh mode
+  const viaAgent = await runSsh({ command: "platform.ensure", payload: {} });
+  if (viaAgent.ok) return viaAgent;
+  return viaAgent;
 }
 
 function sshConfig() {
@@ -636,8 +759,13 @@ export const mailEngine = {
   ensureVirtualMailTables,
   resyncAllMailboxAuth,
   syncSqlAuth,
+  ensurePlatform: runPlatformEnsure,
 
   async execute(request: AgentRequest): Promise<AgentResponse> {
+    if (request.command === "platform.ensure") {
+      return runPlatformEnsure();
+    }
+
     const mode = getMode();
     const maxAttempts = AUTH_COMMANDS.has(request.command) ? 2 : 1;
     let last: AgentResponse = { ok: false, stdout: "", stderr: "not run" };

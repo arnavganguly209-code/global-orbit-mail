@@ -8,11 +8,15 @@ const execFileAsync = promisify(execFile);
 
 /** Dovecot 2.3 variants: "user authenticated" or "auth succeeded". */
 function isDoveadmAuthSuccess(output: string): boolean {
-  return (
-    /passdb:\s*user authenticated/i.test(output) ||
-    /passdb:.*\bauth succeeded\b/i.test(output) ||
-    /\bauth succeeded\b/i.test(output)
-  );
+  const text = output.replace(/\r/g, "\n");
+  // Fail closed if an explicit failure is the only signal and success never appears.
+  const succeeded =
+    /passdb:\s*user authenticated/i.test(text) ||
+    /passdb:[^\n]*\bauth succeeded\b/i.test(text) ||
+    /\bauth succeeded\b/i.test(text) ||
+    /\buser authenticated\b/i.test(text);
+  if (succeeded) return true;
+  return false;
 }
 
 export type MysqlMailAuthResult = {

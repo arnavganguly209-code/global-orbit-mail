@@ -201,6 +201,8 @@ export const systemHealthService = {
       ]);
 
     if (mailEngine.isEnabled()) {
+      // Self-heal attachment limits / IPv4 on every health check (local mail host)
+      await mailEngine.ensurePlatform().catch(() => undefined);
       const agent = await mailEngine.execute({ command: "health.check", payload: {} });
       if (agent.ok && agent.data) {
         if (typeof agent.data.cpuPercent === "number") metrics.cpuPercent = agent.data.cpuPercent;

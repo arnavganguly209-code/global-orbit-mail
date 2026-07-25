@@ -453,31 +453,44 @@ platform_ensure() {
   PTR_HOSTNAME="${PTR_HOSTNAME:-mail.theglobalorbit.com}"
   RC_ROOT="${ORBIT_ROUNDCUBE_ROOT:-/var/www/roundcube}"
 
-  # PHP uploads (fixes Roundcube "exceeds 8.0 MB")
+  # PHP uploads (fixes Roundcube "exceeds 8.0 MB") — write ALL conf.d (cli+fpm+apache2)
   if [[ -d /etc/php ]]; then
-    while IFS= read -r ini; do
-      [[ -z "$ini" ]] && continue
-      local conf_dir
-      conf_dir="$(dirname "$ini")/conf.d"
-      mkdir -p "$conf_dir"
+    while IFS= read -r conf_dir; do
+      [[ -z "$conf_dir" || ! -d "$conf_dir" ]] && continue
       cat > "${conf_dir}/99-orbit-mail-uploads.ini" <<EOF
 upload_max_filesize = ${PHP_UPLOAD}
 post_max_size = ${PHP_POST}
 max_file_uploads = 50
 memory_limit = 256M
-max_execution_time = 120
-max_input_time = 120
+max_execution_time = 180
+max_input_time = 180
 file_uploads = On
 EOF
-    done < <(find /etc/php -type f -name php.ini 2>/dev/null | head -n 20)
+    done < <(find /etc/php -type d -name conf.d 2>/dev/null)
+    while IFS= read -r ini; do
+      [[ -z "$ini" || ! -f "$ini" ]] && continue
+      sed -i.bak-orbit \
+        -e "s/^[; ]*upload_max_filesize=.*/upload_max_filesize = ${PHP_UPLOAD}/" \
+        -e "s/^[; ]*post_max_size=.*/post_max_size = ${PHP_POST}/" \
+        "$ini" 2>/dev/null || true
+    done < <(find /etc/php -type f -name php.ini 2>/dev/null)
   fi
 
   if command -v nginx >/dev/null 2>&1; then
     mkdir -p /etc/nginx/conf.d
     cat > /etc/nginx/conf.d/orbit-mail-uploads.conf <<EOF
 client_max_body_size ${NGINX_BODY};
-client_body_timeout 120s;
+client_body_buffer_size 1m;
+client_body_timeout 180s;
 EOF
+    find /etc/nginx -type f -name '*.conf' -print0 2>/dev/null \
+      | xargs -0 sed -i.bak-orbit -E "s/client_max_body_size[[:space:]]+[^;]+;/client_max_body_size ${NGINX_BODY};/g" 2>/dev/null || true
+    while IFS= read -r conf; do
+      [[ -z "$conf" || "$conf" == *orbit-mail-uploads.conf ]] && continue
+      if grep -qE 'server\s*\{' "$conf" && ! grep -q 'client_max_body_size' "$conf"; then
+        sed -i.bak-orbit -E "0,/server[[:space:]]*\{/s//server {\n    client_max_body_size ${NGINX_BODY};/" "$conf" 2>/dev/null || true
+      fi
+    done < <(find /etc/nginx -type f -name '*.conf' 2>/dev/null)
     nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
   fi
 
