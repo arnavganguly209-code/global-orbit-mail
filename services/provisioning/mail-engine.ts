@@ -4,9 +4,12 @@ import { prisma } from "@/lib/db";
 import { hashSha512Crypt, isSha512Crypt, normalizeSha512Crypt } from "@/lib/mail/sha512-crypt";
 import {
   activateMysqlVirtualUser,
+  deactivateMysqlVirtualDomain,
   deactivateMysqlVirtualUser,
   isMysqlMailAuthConfigured,
   provisionDovecotAuth,
+  upsertMysqlVirtualAlias,
+  upsertMysqlVirtualDomain,
   upsertMysqlVirtualUser,
 } from "@/services/provisioning/mysql-mail-auth";
 import type { ProvisionJobKind, ProvisionJobStatus } from "@prisma/client";
@@ -20,6 +23,7 @@ export type AgentCommand =
   | "domain.delete"
   | "mailbox.create"
   | "mailbox.delete"
+  | "mailbox.restore"
   | "mailbox.suspend"
   | "mailbox.unsuspend"
   | "mailbox.password"
@@ -48,6 +52,7 @@ const AUTH_COMMANDS = new Set<AgentCommand>([
   "domain.delete",
   "mailbox.create",
   "mailbox.delete",
+  "mailbox.restore",
   "mailbox.suspend",
   "mailbox.unsuspend",
   "mailbox.password",
@@ -121,10 +126,85 @@ export async function ensureVirtualMailTables() {
 async function syncSqlAuth(request: AgentRequest, reason: string): Promise<AgentResponse> {
   try {
     switch (request.command) {
-      case "domain.create":
-      case "domain.delete":
+      case "domain.create": {
+        const domain = String(request.payload.domain ?? "").toLowerCase().trim();
+        if (!domain) throw new Error("domain required");
+        if (!isMysqlMailAuthConfigured()) {
+          return {
+            ok: true,
+            stdout: "mysql:domain.create:deferred-to-agent",
+            stderr: "",
+            data: { sqlSynced: false, mysqlSynced: false, mysqlDeferred: true, reason },
+          };
+        }
+        const domainResult = await upsertMysqlVirtualDomain(domain);
+        if (!domainResult.ok) throw new Error(domainResult.error ?? "virtual_domains upsert failed");
+        return {
+          ok: true,
+          stdout: "mysql:domain.create",
+          stderr: "",
+          data: {
+            sqlSynced: true,
+            mysqlSynced: true,
+            reason,
+            database: domainResult.database ?? "mailserver",
+          },
+        };
+      }
+      case "domain.delete": {
+        const domain = String(request.payload.domain ?? "").toLowerCase().trim();
+        if (!domain) throw new Error("domain required");
+        if (!isMysqlMailAuthConfigured()) {
+          return {
+            ok: true,
+            stdout: "mysql:domain.delete:deferred-to-agent",
+            stderr: "",
+            data: { sqlSynced: false, mysqlSynced: false, mysqlDeferred: true, reason },
+          };
+        }
+        const del = await deactivateMysqlVirtualDomain(domain);
+        if (!del.ok) throw new Error(del.error ?? "virtual_domains delete failed");
+        return {
+          ok: true,
+          stdout: "mysql:domain.delete",
+          stderr: "",
+          data: { sqlSynced: true, mysqlSynced: true, reason, database: del.database },
+        };
+      }
       case "alias.sync":
-      case "forwarder.sync":
+      case "forwarder.sync": {
+        const address = String(request.payload.address ?? "").toLowerCase().trim();
+        const goto = String(request.payload.goto ?? "").toLowerCase().trim();
+        if (!address || !goto) {
+          return {
+            ok: true,
+            stdout: `mysql:${request.command}:noop`,
+            stderr: "",
+            data: { sqlSynced: true, mysqlSynced: true, reason },
+          };
+        }
+        if (!isMysqlMailAuthConfigured()) {
+          return {
+            ok: true,
+            stdout: `mysql:${request.command}:deferred-to-agent`,
+            stderr: "",
+            data: { sqlSynced: false, mysqlSynced: false, mysqlDeferred: true, reason },
+          };
+        }
+        const aliasResult = await upsertMysqlVirtualAlias({ address, goto });
+        if (!aliasResult.ok) throw new Error(aliasResult.error ?? "virtual_aliases upsert failed");
+        return {
+          ok: true,
+          stdout: `mysql:${request.command}`,
+          stderr: "",
+          data: {
+            sqlSynced: true,
+            mysqlSynced: true,
+            reason,
+            database: aliasResult.database,
+          },
+        };
+      }
       case "mailbox.quota":
         return {
           ok: true,
@@ -134,6 +214,7 @@ async function syncSqlAuth(request: AgentRequest, reason: string): Promise<Agent
         };
 
       case "mailbox.create":
+      case "mailbox.restore":
       case "mailbox.password": {
         const email = String(request.payload.email ?? "").toLowerCase().trim();
         const plain = String(request.payload.password ?? "");
@@ -152,13 +233,27 @@ async function syncSqlAuth(request: AgentRequest, reason: string): Promise<Agent
           );
         }
 
-        // With plaintext: write MySQL then prove with doveadm auth test (fail closed).
+        // Agent may already have written MariaDB; Node sync is best-effort when configured.
+        if (!isMysqlMailAuthConfigured()) {
+          return {
+            ok: true,
+            stdout: `mysql:${request.command}:deferred-to-agent`,
+            stderr: "",
+            data: {
+              sqlSynced: false,
+              mysqlSynced: false,
+              mysqlDeferred: true,
+              authTest: false,
+              reason,
+              email,
+              home,
+              mailPasswordHash: password,
+              scheme: "SHA512-CRYPT",
+            },
+          };
+        }
+
         if (plain) {
-          if (!isMysqlMailAuthConfigured()) {
-            throw new Error(
-              "MySQL mailserver not configured — set MAIL_MYSQL_* or install /etc/dovecot/dovecot-sql.conf.ext",
-            );
-          }
           const proved = await provisionDovecotAuth({
             email,
             password: plain,
@@ -187,7 +282,6 @@ async function syncSqlAuth(request: AgentRequest, reason: string): Promise<Agent
           };
         }
 
-        // Resync path (hash only): write MySQL, cannot run doveadm without plaintext.
         const mysqlResult = await upsertMysqlVirtualUser({
           email,
           passwordHash: password,
@@ -217,26 +311,56 @@ async function syncSqlAuth(request: AgentRequest, reason: string): Promise<Agent
       case "mailbox.delete":
       case "mailbox.suspend": {
         const email = String(request.payload.email ?? "").toLowerCase();
+        if (!isMysqlMailAuthConfigured()) {
+          return {
+            ok: true,
+            stdout: `mysql:${request.command}:deferred-to-agent`,
+            stderr: "",
+            data: { sqlSynced: false, mysqlSynced: false, mysqlDeferred: true },
+          };
+        }
         const mysqlResult = await deactivateMysqlVirtualUser(email);
-        if (!mysqlResult.ok && isMysqlMailAuthConfigured()) {
+        if (!mysqlResult.ok) {
           throw new Error(mysqlResult.error ?? "MySQL deactivate failed");
         }
         return {
           ok: true,
           stdout: `mysql:${request.command}`,
           stderr: "",
-          data: { sqlSynced: true, mysqlSynced: mysqlResult.ok },
+          data: { sqlSynced: true, mysqlSynced: true },
         };
       }
       case "mailbox.unsuspend": {
         const email = String(request.payload.email ?? "").toLowerCase();
-        const mysqlResult = await activateMysqlVirtualUser(email);
-        if (!mysqlResult.ok && isMysqlMailAuthConfigured()) {
-          throw new Error(mysqlResult.error ?? "MySQL activate failed");
+        const plain = String(request.payload.password ?? "");
+        const hash =
+          normalizeSha512Crypt(String(request.payload.mailPasswordHash ?? "")) ?? "";
+        // Prefer full re-provision when password is available (row may have been deleted).
+        if (plain || hash) {
+          return syncSqlAuth(
+            {
+              command: "mailbox.password",
+              payload: {
+                email,
+                password: plain || undefined,
+                mailPasswordHash: hash || undefined,
+              },
+            },
+            reason,
+          );
         }
+        if (!isMysqlMailAuthConfigured()) {
+          return {
+            ok: true,
+            stdout: "mysql:mailbox.unsuspend:deferred-to-agent",
+            stderr: "",
+            data: { sqlSynced: false, mysqlSynced: false, mysqlDeferred: true },
+          };
+        }
+        const mysqlResult = await activateMysqlVirtualUser(email);
         return {
           ok: true,
-          stdout: `mysql:${request.command}`,
+          stdout: "mysql:mailbox.unsuspend",
           stderr: "",
           data: { sqlSynced: true, mysqlSynced: mysqlResult.ok },
         };
@@ -256,6 +380,56 @@ async function syncSqlAuth(request: AgentRequest, reason: string): Promise<Agent
       stderr: error instanceof Error ? error.message : "MySQL auth sync failed",
     };
   }
+}
+
+function mergeAuthResults(
+  request: AgentRequest,
+  agentResult: AgentResponse,
+  sqlResult: AgentResponse,
+): AgentResponse {
+  const needsAuthProof =
+    request.command === "mailbox.create" ||
+    request.command === "mailbox.restore" ||
+    request.command === "mailbox.password";
+
+  const authOk =
+    Boolean(sqlResult.data?.authTest) || Boolean(agentResult.data?.authTest);
+  const mysqlOk =
+    Boolean(sqlResult.data?.mysqlSynced) || Boolean(agentResult.data?.mysqlSynced);
+
+  // Prefer agent success when Node cannot reach MariaDB (agent runs on VPS).
+  const ok = needsAuthProof
+    ? Boolean(authOk && mysqlOk)
+    : Boolean(mysqlOk || agentResult.ok || sqlResult.ok);
+
+  console.info("[mail-auth:merge]", {
+    command: request.command,
+    email: request.payload.email ?? null,
+    agentOk: agentResult.ok,
+    sqlOk: sqlResult.ok,
+    mysqlOk,
+    authOk,
+    ok,
+    agentErr: agentResult.ok ? null : agentResult.stderr?.slice(0, 200),
+    sqlErr: sqlResult.ok ? null : sqlResult.stderr?.slice(0, 200),
+  });
+
+  return {
+    ok,
+    stdout: [agentResult.stdout, sqlResult.stdout].filter(Boolean).join("\n"),
+    stderr: ok
+      ? ""
+      : [sqlResult.stderr, agentResult.stderr].filter(Boolean).join(" | ") ||
+        "Dovecot MariaDB auth provision failed",
+    data: {
+      ...(agentResult.data ?? {}),
+      ...(sqlResult.data ?? {}),
+      agentOk: agentResult.ok,
+      sqlSynced: mysqlOk,
+      mysqlSynced: mysqlOk,
+      authTest: authOk,
+    },
+  };
 }
 
 async function runLocal(request: AgentRequest): Promise<AgentResponse> {
@@ -296,34 +470,13 @@ async function runLocal(request: AgentRequest): Promise<AgentResponse> {
     }
   }
 
-  // Auth-critical: MySQL virtual_users + doveadm auth test must succeed.
+  // Auth-critical: MariaDB virtual_users (+ doveadm). Agent success counts.
   if (AUTH_COMMANDS.has(request.command)) {
     const sqlResult = await syncSqlAuth(
       request,
       agentResult.ok ? "post-agent-sync" : "agent-unavailable-or-failed",
     );
-    const needsAuthProof =
-      request.command === "mailbox.create" || request.command === "mailbox.password";
-    const authOk = Boolean(sqlResult.data?.authTest) || Boolean(agentResult.data?.authTest);
-    const mysqlOk =
-      Boolean(sqlResult.data?.mysqlSynced) || Boolean(agentResult.data?.mysqlSynced);
-    const ok = needsAuthProof ? Boolean(sqlResult.ok && authOk) : mysqlOk || agentResult.ok;
-    return {
-      ok,
-      stdout: [agentResult.stdout, sqlResult.stdout].filter(Boolean).join("\n"),
-      stderr: ok
-        ? ""
-        : [sqlResult.stderr, agentResult.stderr].filter(Boolean).join(" | ") ||
-          "Dovecot MySQL auth provision failed (doveadm auth test required)",
-      data: {
-        ...(agentResult.data ?? {}),
-        ...(sqlResult.data ?? {}),
-        agentOk: agentResult.ok,
-        sqlSynced: mysqlOk,
-        mysqlSynced: mysqlOk,
-        authTest: authOk,
-      },
-    };
+    return mergeAuthResults(request, agentResult, sqlResult);
   }
 
   if (agentResult.ok) return agentResult;
@@ -383,28 +536,7 @@ async function runSsh(request: AgentRequest): Promise<AgentResponse> {
       request,
       agentResult.ok ? "post-ssh-sync" : "ssh-failed-mysql-sync",
     );
-    const needsAuthProof =
-      request.command === "mailbox.create" || request.command === "mailbox.password";
-    const authOk = Boolean(sqlResult.data?.authTest) || Boolean(agentResult.data?.authTest);
-    const mysqlOk =
-      Boolean(sqlResult.data?.mysqlSynced) || Boolean(agentResult.data?.mysqlSynced);
-    const ok = needsAuthProof ? Boolean(sqlResult.ok && authOk) : mysqlOk || agentResult.ok;
-    return {
-      ok,
-      stdout: [agentResult.stdout, sqlResult.stdout].filter(Boolean).join("\n"),
-      stderr: ok
-        ? ""
-        : [sqlResult.stderr, agentResult.stderr].filter(Boolean).join(" | ") ||
-          "Dovecot MySQL auth provision failed (doveadm auth test required)",
-      data: {
-        ...(agentResult.data ?? {}),
-        ...(sqlResult.data ?? {}),
-        agentOk: agentResult.ok,
-        sqlSynced: mysqlOk,
-        mysqlSynced: mysqlOk,
-        authTest: authOk,
-      },
-    };
+    return mergeAuthResults(request, agentResult, sqlResult);
   }
 
   return agentResult;
@@ -491,19 +623,49 @@ export const mailEngine = {
 
   async execute(request: AgentRequest): Promise<AgentResponse> {
     const mode = getMode();
-    if (mode === "disabled") {
-      // Still sync MySQL auth so Roundcube can work when agent is off
-      if (AUTH_COMMANDS.has(request.command)) {
-        return syncSqlAuth(request, "provision-mode-disabled-mysql-only");
+    const maxAttempts = AUTH_COMMANDS.has(request.command) ? 2 : 1;
+    let last: AgentResponse = { ok: false, stdout: "", stderr: "not run" };
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (mode === "disabled") {
+        if (AUTH_COMMANDS.has(request.command)) {
+          last = await syncSqlAuth(request, "provision-mode-disabled-mysql-only");
+        } else {
+          last = {
+            ok: false,
+            stdout: "",
+            stderr: "MAIL_PROVISION_MODE=disabled — enable local or ssh for production",
+          };
+        }
+      } else if (mode === "ssh") {
+        last = await runSsh(request);
+      } else {
+        last = await runLocal(request);
       }
-      return {
+
+      if (last.ok) {
+        if (attempt > 1) {
+          console.info("[mail-auth:retry]", {
+            command: request.command,
+            attempt,
+            ok: true,
+          });
+        }
+        return { ...last, data: { ...(last.data ?? {}), attempts: attempt } };
+      }
+
+      console.warn("[mail-auth:retry]", {
+        command: request.command,
+        attempt,
         ok: false,
-        stdout: "",
-        stderr: "MAIL_PROVISION_MODE=disabled — enable local or ssh for production",
-      };
+        stderr: last.stderr?.slice(0, 200),
+      });
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 400 * attempt));
+      }
     }
-    if (mode === "ssh") return runSsh(request);
-    return runLocal(request);
+
+    return { ...last, data: { ...(last.data ?? {}), attempts: maxAttempts } };
   },
 
   async runTracked(input: {

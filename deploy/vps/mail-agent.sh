@@ -2,13 +2,13 @@
 # GLOBAL ORBIT MAIL — VPS mail agent (production)
 # Install: /opt/global-orbit/bin/mail-agent.sh && chmod 755
 #
-# Dovecot authenticates against MySQL:
+# Dovecot authenticates against MariaDB/MySQL:
 #   Database: mailserver
 #   Table:    virtual_users
 #   Query:    SELECT email,password FROM virtual_users WHERE email='%u'
 #   Scheme:   SHA512-CRYPT ($6$…)
 #
-# Orbit (PostgreSQL/Prisma) is the control plane. This agent keeps MySQL + Maildir in sync.
+# Orbit (PostgreSQL/Prisma) is the control plane. This agent keeps MariaDB + Maildir in sync.
 set -euo pipefail
 
 COMMAND="${1:-}"
@@ -113,10 +113,15 @@ mysql_exec() {
   if [[ -z "${MAIL_MYSQL_USER:-}" ]]; then
     return 1
   fi
-  if ! command -v mysql >/dev/null 2>&1; then
+  local client=""
+  if command -v mysql >/dev/null 2>&1; then
+    client="mysql"
+  elif command -v mariadb >/dev/null 2>&1; then
+    client="mariadb"
+  else
     return 1
   fi
-  MYSQL_PWD="${MAIL_MYSQL_PASSWORD:-}" mysql \
+  MYSQL_PWD="${MAIL_MYSQL_PASSWORD:-}" "$client" \
     -h "${MAIL_MYSQL_HOST:-127.0.0.1}" \
     -P "${MAIL_MYSQL_PORT:-3306}" \
     -u "${MAIL_MYSQL_USER}" \
@@ -168,6 +173,43 @@ INSERT INTO virtual_users (email, password, domain_id)
 SELECT '$e', '$h', id FROM virtual_domains WHERE name='$d' LIMIT 1
 ON DUPLICATE KEY UPDATE password=VALUES(password), domain_id=VALUES(domain_id);
 "
+  # Prove the row exists
+  local found
+  found="$(mysql_exec "SELECT email FROM virtual_users WHERE email='$e' LIMIT 1;" || true)"
+  [[ -n "$found" ]]
+}
+
+provision_mailbox_auth() {
+  local email="$1" plain="$2" provided_hash="$3" action="$4"
+  local hash home AUTH_OUT AUTH_RC hash_json auth_json
+
+  hash="$(hash_password_for_dovecot "$plain" "$provided_hash" || true)"
+  if [[ -z "$hash" || "$hash" != \$6\$* ]]; then
+    json_err "Unable to produce SHA512-CRYPT hash (need doveadm/openssl or \$6\$ mailPasswordHash)"
+  fi
+
+  home="$(ensure_maildir "$email")"
+  if ! upsert_virtual_user "$email" "$hash"; then
+    json_err "Failed writing MariaDB mailserver.virtual_users (set MAIL_MYSQL_* or dovecot-sql.conf.ext)"
+  fi
+
+  if [[ -n "$plain" ]]; then
+    set +e
+    AUTH_OUT="$(doveadm auth test "$email" "$plain" 2>&1)"
+    AUTH_RC=$?
+    set -e
+    if ! echo "$AUTH_OUT" | grep -qi "passdb: user authenticated"; then
+      json_err "doveadm auth test failed (rc=$AUTH_RC): $AUTH_OUT"
+    fi
+  else
+    AUTH_OUT="hash-only sync (no doveadm auth test)"
+  fi
+
+  hash_json="$(printf '%s' "$hash" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+  auth_json="$(printf '%s' "$AUTH_OUT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+  local auth_flag="false"
+  if [[ -n "$plain" ]]; then auth_flag="true"; fi
+  json_ok "{\"email\":\"$email\",\"action\":\"$action\",\"home\":\"$home\",\"scheme\":\"SHA512-CRYPT\",\"mailPasswordHash\":$hash_json,\"mysqlSynced\":true,\"sqlSynced\":true,\"authTest\":$auth_flag,\"authOutput\":$auth_json}"
 }
 
 hash_password_for_dovecot() {
@@ -233,58 +275,43 @@ case "$COMMAND" in
   domain.create)
     domain="$(field domain)"
     domain="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]')"
-    if [[ -n "$domain" ]]; then
-      mkdir -p "${VMAIL_BASE}/${domain}"
-      ensure_mysql_tables
-      d="$(sql_escape "$domain")"
-      mysql_exec "INSERT INTO virtual_domains (name) VALUES ('$d') ON DUPLICATE KEY UPDATE name=VALUES(name);" || true
-      if id -u "vmail" >/dev/null 2>&1; then
-        chown -R "vmail:vmail" "${VMAIL_BASE}/${domain}" 2>/dev/null || true
-      fi
+    if [[ -z "$domain" ]]; then
+      json_err "domain.create requires domain"
     fi
-    json_ok "{\"domain\":\"$domain\",\"action\":\"domain.create\"}"
+    mkdir -p "${VMAIL_BASE}/${domain}"
+    ensure_mysql_tables
+    d="$(sql_escape "$domain")"
+    if ! mysql_exec "INSERT INTO virtual_domains (name) VALUES ('$d') ON DUPLICATE KEY UPDATE name=VALUES(name);"; then
+      json_err "Failed writing MariaDB virtual_domains"
+    fi
+    if id -u "vmail" >/dev/null 2>&1; then
+      chown -R "vmail:vmail" "${VMAIL_BASE}/${domain}" 2>/dev/null || true
+    fi
+    json_ok "{\"domain\":\"$domain\",\"action\":\"domain.create\",\"mysqlSynced\":true}"
     ;;
   domain.delete)
     domain="$(field domain)"
-    json_ok "{\"domain\":\"$domain\",\"action\":\"domain.delete\"}"
+    domain="$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]')"
+    if [[ -n "$domain" ]]; then
+      ensure_mysql_tables
+      d="$(sql_escape "$domain")"
+      # Best-effort: remove users for domain then domain row
+      mysql_exec "DELETE vu FROM virtual_users vu INNER JOIN virtual_domains vd ON vu.domain_id=vd.id WHERE vd.name='$d';" || true
+      mysql_exec "DELETE FROM virtual_domains WHERE name='$d';" || true
+    fi
+    json_ok "{\"domain\":\"$domain\",\"action\":\"domain.delete\",\"mysqlSynced\":true}"
     ;;
-  mailbox.create|mailbox.password)
+  mailbox.create|mailbox.password|mailbox.restore)
     email="$(field email)"
     email="$(printf '%s' "$email" | tr '[:upper:]' '[:lower:]')"
     plain="$(field password)"
     provided_hash="$(field mailPasswordHash)"
-    quota_bytes="$(field quotaBytes)"
-    quota_bytes="${quota_bytes:-0}"
 
     if [[ -z "$email" || "$email" != *"@"* ]]; then
       json_err "mailbox.create requires email"
     fi
 
-    hash="$(hash_password_for_dovecot "$plain" "$provided_hash" || true)"
-    if [[ -z "$hash" || "$hash" != \$6\$* ]]; then
-      json_err "Unable to produce SHA512-CRYPT hash (need doveadm/openssl or \$6\$ mailPasswordHash)"
-    fi
-
-    home="$(ensure_maildir "$email")"
-    if ! upsert_virtual_user "$email" "$hash"; then
-      json_err "Failed writing MySQL mailserver.virtual_users (set MAIL_MYSQL_* or dovecot-sql.conf.ext)"
-    fi
-
-    if [[ -z "$plain" ]]; then
-      json_err "plaintext password required to prove doveadm auth test"
-    fi
-
-    set +e
-    AUTH_OUT="$(doveadm auth test "$email" "$plain" 2>&1)"
-    AUTH_RC=$?
-    set -e
-    if ! echo "$AUTH_OUT" | grep -qi "passdb: user authenticated"; then
-      json_err "doveadm auth test failed (rc=$AUTH_RC): $AUTH_OUT"
-    fi
-
-    hash_json="$(printf '%s' "$hash" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
-    auth_json="$(printf '%s' "$AUTH_OUT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
-    json_ok "{\"email\":\"$email\",\"action\":\"$COMMAND\",\"home\":\"$home\",\"scheme\":\"SHA512-CRYPT\",\"mailPasswordHash\":$hash_json,\"mysqlSynced\":true,\"sqlSynced\":true,\"authTest\":true,\"authOutput\":$auth_json}"
+    provision_mailbox_auth "$email" "$plain" "$provided_hash" "$COMMAND"
     ;;
   mailbox.delete|mailbox.suspend)
     email="$(field email)"
@@ -293,17 +320,46 @@ case "$COMMAND" in
     ensure_mysql_tables
     # Prefer delete so SELECT email,password finds nothing
     mysql_exec "DELETE FROM virtual_users WHERE email='$e';" || true
-    json_ok "{\"email\":\"$email\",\"action\":\"$COMMAND\"}"
+    json_ok "{\"email\":\"$email\",\"action\":\"$COMMAND\",\"mysqlSynced\":true}"
     ;;
   mailbox.unsuspend)
     email="$(field email)"
-    json_ok "{\"email\":\"$email\",\"action\":\"mailbox.unsuspend\",\"note\":\"re-run mailbox.password to restore MySQL row\"}"
+    email="$(printf '%s' "$email" | tr '[:upper:]' '[:lower:]')"
+    plain="$(field password)"
+    provided_hash="$(field mailPasswordHash)"
+    if [[ -n "$plain" || "$provided_hash" == \$6\$* || "$provided_hash" == \{SHA512-CRYPT\}* ]]; then
+      provision_mailbox_auth "$email" "$plain" "$provided_hash" "mailbox.unsuspend"
+    else
+      json_ok "{\"email\":\"$email\",\"action\":\"mailbox.unsuspend\",\"mysqlSynced\":false,\"note\":\"reset password to restore MariaDB row\"}"
+    fi
     ;;
   mailbox.quota)
     email="$(field email)"
     json_ok "{\"email\":\"$email\",\"action\":\"mailbox.quota\"}"
     ;;
-  alias.sync|forwarder.sync|vacation.sync|dkim.sync)
+  alias.sync|forwarder.sync)
+    address="$(field address)"
+    goto="$(field goto)"
+    address="$(printf '%s' "$address" | tr '[:upper:]' '[:lower:]')"
+    goto="$(printf '%s' "$goto" | tr '[:upper:]' '[:lower:]')"
+    if [[ -n "$address" && -n "$goto" ]]; then
+      a="$(sql_escape "$address")"
+      g="$(sql_escape "$goto")"
+      ensure_mysql_tables
+      mysql_exec "
+CREATE TABLE IF NOT EXISTS virtual_aliases (
+  id INT NOT NULL AUTO_INCREMENT,
+  source VARCHAR(255) NOT NULL,
+  destination TEXT NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY source (source)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;" || true
+      mysql_exec "INSERT INTO virtual_aliases (source, destination) VALUES ('$a','$g') ON DUPLICATE KEY UPDATE destination=VALUES(destination);" || \
+      mysql_exec "INSERT INTO virtual_aliases (address, goto) VALUES ('$a','$g') ON DUPLICATE KEY UPDATE goto=VALUES(goto);" || true
+    fi
+    json_ok "{\"action\":\"$COMMAND\",\"address\":\"$address\",\"mysqlSynced\":true}"
+    ;;
+  vacation.sync|dkim.sync)
     json_ok "{\"action\":\"$COMMAND\"}"
     ;;
   storage.usage)

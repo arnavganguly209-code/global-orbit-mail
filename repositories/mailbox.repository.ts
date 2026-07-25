@@ -80,52 +80,99 @@ export const mailboxRepository = {
     });
     if (!domain) return null;
 
-    const existing = await prisma.mailbox.findFirst({
-      where: {
-        domainId: input.domainId,
-        localPart: input.localPart.toLowerCase(),
-        deletedAt: null,
-      },
-    });
-    if (existing) throw new Error("Mailbox already exists");
-
+    const localPart = input.localPart.toLowerCase();
+    const email = `${localPart}@${domain.name}`;
     const { passwordHash, mailPasswordHash } = await hashMailboxPassword(input.password);
-    const email = `${input.localPart.toLowerCase()}@${domain.name}`;
 
-    const mailbox = await prisma.mailbox.create({
-      data: {
-        localPart: input.localPart.toLowerCase(),
-        domainId: domain.id,
-        organizationId: domain.organizationId,
-        displayName: input.displayName ?? null,
-        status: "ACTIVE",
-        passwordHash,
-        mailPasswordHash,
-        quota: {
-          create: {
-            quotaMb: input.quotaMb,
-            usedMb: 0,
+    const activeExisting = await prisma.mailbox.findFirst({
+      where: { domainId: input.domainId, localPart, deletedAt: null },
+    });
+    if (activeExisting) throw new Error("Mailbox already exists");
+
+    // Soft-deleted row blocks @@unique([localPart, domainId]) — restore instead of insert.
+    const deletedExisting = await prisma.mailbox.findFirst({
+      where: { domainId: input.domainId, localPart, deletedAt: { not: null } },
+      include: { quota: true },
+    });
+
+    let mailboxId: string;
+    let restored = false;
+
+    if (deletedExisting) {
+      restored = true;
+      await prisma.$transaction(async (tx) => {
+        await tx.mailbox.update({
+          where: { id: deletedExisting.id },
+          data: {
+            deletedAt: null,
+            status: "PENDING",
+            displayName: input.displayName ?? deletedExisting.displayName,
+            passwordHash,
+            mailPasswordHash,
+            provisionedAt: null,
+          },
+        });
+        await tx.mailboxQuota.upsert({
+          where: { mailboxId: deletedExisting.id },
+          create: { mailboxId: deletedExisting.id, quotaMb: input.quotaMb, usedMb: 0 },
+          update: { quotaMb: input.quotaMb, usedMb: 0 },
+        });
+        await tx.alias.updateMany({
+          where: { mailboxId: deletedExisting.id, deletedAt: { not: null } },
+          data: { deletedAt: null },
+        });
+      });
+      mailboxId = deletedExisting.id;
+    } else {
+      const mailbox = await prisma.mailbox.create({
+        data: {
+          localPart,
+          domainId: domain.id,
+          organizationId: domain.organizationId,
+          displayName: input.displayName ?? null,
+          status: "PENDING",
+          passwordHash,
+          mailPasswordHash,
+          quota: {
+            create: {
+              quotaMb: input.quotaMb,
+              usedMb: 0,
+            },
           },
         },
-      },
-      include: mailboxInclude,
-    });
+      });
+      mailboxId = mailbox.id;
+    }
 
     try {
-      await MailProvisioningService.provisionMailbox({
-        mailboxId: mailbox.id,
-        domainId: domain.id,
-        email,
-        mailPasswordHash,
-        password: input.password,
-        quotaBytes: input.quotaMb * 1024 * 1024,
-        displayName: input.displayName ?? null,
-        audit: { actorId: input.actorId },
-      });
+      if (restored) {
+        await MailProvisioningService.restoreMailbox({
+          mailboxId,
+          domainId: domain.id,
+          email,
+          mailPasswordHash,
+          password: input.password,
+          quotaBytes: input.quotaMb * 1024 * 1024,
+          displayName: input.displayName ?? null,
+          audit: { actorId: input.actorId },
+        });
+      } else {
+        await MailProvisioningService.provisionMailbox({
+          mailboxId,
+          domainId: domain.id,
+          email,
+          mailPasswordHash,
+          password: input.password,
+          quotaBytes: input.quotaMb * 1024 * 1024,
+          displayName: input.displayName ?? null,
+          audit: { actorId: input.actorId },
+        });
+      }
     } catch (error) {
+      // Never leave a half-created active mailbox
       await prisma.mailbox.update({
-        where: { id: mailbox.id },
-        data: { status: "DISABLED" },
+        where: { id: mailboxId },
+        data: { deletedAt: new Date(), status: "DISABLED", provisionedAt: null },
       });
       throw error instanceof Error
         ? error
@@ -134,14 +181,19 @@ export const mailboxRepository = {
 
     await writeAudit({
       actorId: input.actorId,
-      action: "mailbox.create",
+      action: restored ? "mailbox.restore" : "mailbox.create",
       resource: "mailbox",
-      resourceId: mailbox.id,
+      resourceId: mailboxId,
       status: "SUCCESS",
-      newValue: { email, quotaMb: input.quotaMb, displayName: input.displayName ?? null },
+      newValue: {
+        email,
+        quotaMb: input.quotaMb,
+        displayName: input.displayName ?? null,
+        restored,
+      },
     });
 
-    return this.getById(mailbox.id);
+    return this.getById(mailboxId);
   },
 
   async update(
@@ -254,6 +306,7 @@ export const mailboxRepository = {
       domainId: existing.domainId,
       email,
       active,
+      mailPasswordHash: existing.mailPasswordHash,
       audit: { actorId },
     });
 
@@ -279,20 +332,32 @@ export const mailboxRepository = {
 
     const { passwordHash, mailPasswordHash } = await hashMailboxPassword(password);
     const email = `${existing.localPart}@${existing.domain.name}`;
+    const previous = {
+      passwordHash: existing.passwordHash,
+      mailPasswordHash: existing.mailPasswordHash,
+    };
 
     await prisma.mailbox.update({
       where: { id },
       data: { passwordHash, mailPasswordHash },
     });
 
-    await MailProvisioningService.updatePassword({
-      mailboxId: id,
-      domainId: existing.domainId,
-      email,
-      mailPasswordHash,
-      password,
-      audit: { actorId },
-    });
+    try {
+      await MailProvisioningService.updatePassword({
+        mailboxId: id,
+        domainId: existing.domainId,
+        email,
+        mailPasswordHash,
+        password,
+        audit: { actorId },
+      });
+    } catch (error) {
+      await prisma.mailbox.update({
+        where: { id },
+        data: previous,
+      });
+      throw error;
+    }
 
     await writeAudit({
       actorId,

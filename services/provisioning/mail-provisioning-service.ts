@@ -218,21 +218,23 @@ export const MailProvisioningService = {
           "mailbox.create",
         );
       }
-      if (agentHash && agentHash !== input.mailPasswordHash) {
-        await prisma.mailbox.update({
-          where: { id: input.mailboxId },
-          data: {
-            mailPasswordHash: agentHash,
-            status: "ACTIVE",
-            provisionedAt: new Date(),
-          },
-        });
-      } else {
-        await prisma.mailbox.update({
-          where: { id: input.mailboxId },
-          data: { status: "ACTIVE", provisionedAt: new Date() },
-        });
+      if (!result.data?.mysqlSynced) {
+        throw new ProvisioningError(
+          "MariaDB virtual_users was not updated",
+          "mailbox.create",
+        );
       }
+      await prisma.mailbox.update({
+        where: { id: input.mailboxId },
+        data: {
+          ...(agentHash && agentHash !== input.mailPasswordHash
+            ? { mailPasswordHash: agentHash }
+            : {}),
+          status: "ACTIVE",
+          provisionedAt: new Date(),
+          deletedAt: null,
+        },
+      });
       await writeAudit({
         actorId: input.audit?.actorId,
         ipAddress: input.audit?.ipAddress,
@@ -245,6 +247,7 @@ export const MailProvisioningService = {
           email: input.email,
           status: "ACTIVE",
           authTest: result.data?.authTest === true,
+          mysqlSynced: true,
         },
       });
     } catch (error) {
@@ -260,7 +263,7 @@ export const MailProvisioningService = {
 
       await prisma.mailbox.update({
         where: { id: input.mailboxId },
-        data: { deletedAt: new Date(), status: "DISABLED" },
+        data: { deletedAt: new Date(), status: "DISABLED", provisionedAt: null },
       });
 
       await writeAudit({
@@ -281,6 +284,99 @@ export const MailProvisioningService = {
         : new ProvisioningError(
             error instanceof Error ? error.message : "Mailbox provision failed",
             "mailbox.create",
+            error,
+          );
+    }
+  },
+
+  /** Re-activate a soft-deleted mailbox in Postgres + MariaDB + Maildir. */
+  async restoreMailbox(input: {
+    mailboxId: string;
+    domainId: string;
+    email: string;
+    mailPasswordHash: string;
+    password?: string;
+    quotaBytes: number;
+    displayName?: string | null;
+    audit?: AuditCtx;
+  }) {
+    try {
+      const result = await runOrThrow({
+        kind: "MAILBOX_CREATE",
+        command: "mailbox.restore",
+        mailboxId: input.mailboxId,
+        domainId: input.domainId,
+        step: "mailbox.restore",
+        payload: {
+          email: input.email,
+          mailPasswordHash: input.mailPasswordHash,
+          password: input.password ?? null,
+          quotaBytes: input.quotaBytes,
+          displayName: input.displayName ?? null,
+        },
+      });
+
+      if (input.password && result.data?.authTest !== true) {
+        throw new ProvisioningError(
+          `Dovecot auth not proved after restore. ${result.stderr || result.stdout || ""}`.trim(),
+          "mailbox.restore",
+        );
+      }
+      if (!result.data?.mysqlSynced) {
+        throw new ProvisioningError(
+          "MariaDB virtual_users was not updated on restore",
+          "mailbox.restore",
+        );
+      }
+
+      const agentHash =
+        typeof result.data?.mailPasswordHash === "string"
+          ? result.data.mailPasswordHash
+          : null;
+
+      await prisma.mailbox.update({
+        where: { id: input.mailboxId },
+        data: {
+          deletedAt: null,
+          status: "ACTIVE",
+          provisionedAt: new Date(),
+          ...(agentHash ? { mailPasswordHash: agentHash } : {}),
+        },
+      });
+
+      await writeAudit({
+        actorId: input.audit?.actorId,
+        ipAddress: input.audit?.ipAddress,
+        userAgent: input.audit?.userAgent,
+        action: "provision.mailbox.restore",
+        resource: "mailbox",
+        resourceId: input.mailboxId,
+        status: "SUCCESS",
+        newValue: { email: input.email, status: "ACTIVE", authTest: true },
+      });
+    } catch (error) {
+      await prisma.mailbox.update({
+        where: { id: input.mailboxId },
+        data: { deletedAt: new Date(), status: "DISABLED", provisionedAt: null },
+      });
+      await writeAudit({
+        actorId: input.audit?.actorId,
+        ipAddress: input.audit?.ipAddress,
+        userAgent: input.audit?.userAgent,
+        action: "provision.mailbox.restore_failed",
+        resource: "mailbox",
+        resourceId: input.mailboxId,
+        status: "FAILED",
+        metadata: {
+          email: input.email,
+          error: error instanceof Error ? error.message : "unknown",
+        },
+      });
+      throw error instanceof ProvisioningError
+        ? error
+        : new ProvisioningError(
+            error instanceof Error ? error.message : "Mailbox restore failed",
+            "mailbox.restore",
             error,
           );
     }
@@ -322,6 +418,7 @@ export const MailProvisioningService = {
     domainId: string;
     email: string;
     active: boolean;
+    mailPasswordHash?: string | null;
     audit?: AuditCtx;
   }) {
     const command = input.active ? "mailbox.unsuspend" : "mailbox.suspend";
@@ -332,7 +429,10 @@ export const MailProvisioningService = {
       mailboxId: input.mailboxId,
       domainId: input.domainId,
       step: command,
-      payload: { email: input.email },
+      payload: {
+        email: input.email,
+        mailPasswordHash: input.mailPasswordHash ?? null,
+      },
     });
     await writeAudit({
       actorId: input.audit?.actorId,
@@ -376,6 +476,12 @@ export const MailProvisioningService = {
         "mailbox.password",
       );
     }
+    if (!result.data?.mysqlSynced) {
+      throw new ProvisioningError(
+        "MariaDB virtual_users was not updated on password reset",
+        "mailbox.password",
+      );
+    }
     if (agentHash) {
       await prisma.mailbox.update({
         where: { id: input.mailboxId },
@@ -394,6 +500,7 @@ export const MailProvisioningService = {
         email: input.email,
         passwordChanged: true,
         authTest: result.data?.authTest === true,
+        mysqlSynced: true,
       },
     });
   },

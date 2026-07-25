@@ -28,13 +28,14 @@ let cachedConfig: MysqlConfig | null = null;
 
 function parseConnectLine(connect: string): Partial<MysqlConfig> {
   const out: Partial<MysqlConfig> = {};
-  const host = connect.match(/(?:^|\s)host=([^\s]+)/)?.[1];
-  const port = connect.match(/(?:^|\s)port=([^\s]+)/)?.[1];
-  const user = connect.match(/(?:^|\s)user=([^\s]+)/)?.[1];
-  const password = connect.match(/(?:^|\s)password=([^\s]+)/)?.[1];
+  const cleaned = connect.replace(/['"]/g, " ");
+  const host = cleaned.match(/(?:^|\s)host=([^\s]+)/)?.[1];
+  const port = cleaned.match(/(?:^|\s)port=([^\s]+)/)?.[1];
+  const user = cleaned.match(/(?:^|\s)user=([^\s]+)/)?.[1];
+  const password = cleaned.match(/(?:^|\s)password=([^\s]+)/)?.[1];
   const dbname =
-    connect.match(/(?:^|\s)dbname=([^\s]+)/)?.[1] ??
-    connect.match(/(?:^|\s)database=([^\s]+)/)?.[1];
+    cleaned.match(/(?:^|\s)dbname=([^\s]+)/)?.[1] ??
+    cleaned.match(/(?:^|\s)database=([^\s]+)/)?.[1];
   if (host) out.host = host;
   if (port) out.port = Number(port);
   if (user) out.user = user;
@@ -89,9 +90,11 @@ function resolveMysqlConfig(): MysqlConfig | null {
   }
 
   const fromFile = loadFromDovecotSqlConf();
-  const host = process.env.MAIL_MYSQL_HOST?.trim() || fromFile.host;
+  const host =
+    process.env.MAIL_MYSQL_HOST?.trim() || fromFile.host || "127.0.0.1";
   const user = process.env.MAIL_MYSQL_USER?.trim() || fromFile.user;
-  if (!host || !user) return null;
+  // Local mail VPS: default host is always reachable; require a user from env or dovecot conf.
+  if (!user) return null;
 
   cachedConfig = {
     host,
@@ -154,7 +157,51 @@ async function ensureDomainId(conn: PoolConnection, domain: string): Promise<num
 }
 
 /**
- * Upsert Dovecot auth into MySQL mailserver.virtual_users (SHA512-CRYPT only).
+ * Ensure MariaDB/MySQL virtual_domains row exists for Postfix/Dovecot maps.
+ */
+export async function upsertMysqlVirtualDomain(domain: string): Promise<MysqlMailAuthResult> {
+  const cfg = resolveMysqlConfig();
+  if (!cfg) {
+    return {
+      ok: false,
+      error:
+        "MySQL mail auth not configured (MAIL_MYSQL_* or /etc/dovecot/dovecot-sql.conf.ext)",
+    };
+  }
+  const name = domain.toLowerCase().trim();
+  if (!name) return { ok: false, error: "domain required" };
+
+  let conn: PoolConnection | null = null;
+  try {
+    conn = await getPool().getConnection();
+    if (!(await tableExists(conn, "virtual_domains"))) {
+      await conn.query(`
+        CREATE TABLE IF NOT EXISTS virtual_domains (
+          id INT NOT NULL AUTO_INCREMENT,
+          name VARCHAR(255) NOT NULL,
+          PRIMARY KEY (id),
+          UNIQUE KEY name (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    }
+    const id = await ensureDomainId(conn, name);
+    if (id == null) {
+      return { ok: false, error: "failed to upsert virtual_domains", database: cfg.database };
+    }
+    return { ok: true, database: cfg.database };
+  } catch (error) {
+    return {
+      ok: false,
+      database: cfg.database,
+      error: error instanceof Error ? error.message : "virtual_domains upsert failed",
+    };
+  } finally {
+    conn?.release();
+  }
+}
+
+/**
+ * Upsert Dovecot auth into MySQL/MariaDB mailserver.virtual_users (SHA512-CRYPT only).
  */
 export async function upsertMysqlVirtualUser(input: {
   email: string;
@@ -276,6 +323,11 @@ export async function upsertMysqlVirtualUser(input: {
 
     return { ok: true, email, database: cfg.database };
   } catch (error) {
+    console.error("[mail-auth:upsert]", {
+      email,
+      database: cfg.database,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return {
       ok: false,
       email,
@@ -291,10 +343,11 @@ export async function upsertMysqlVirtualUser(input: {
 export async function doveadmAuthTest(
   email: string,
   password: string,
-): Promise<{ ok: boolean; output: string }> {
+): Promise<{ ok: boolean; output: string; skipped?: boolean }> {
+  const bin = process.env.DOVEADM_PATH?.trim() || "doveadm";
   try {
     const { stdout, stderr } = await execFileAsync(
-      "doveadm",
+      bin,
       ["auth", "test", email.toLowerCase().trim(), password],
       { timeout: 20_000, maxBuffer: 1024 * 1024 },
     );
@@ -302,10 +355,34 @@ export async function doveadmAuthTest(
     const ok = /passdb:\s*user authenticated/i.test(output);
     return { ok, output };
   } catch (error) {
-    const err = error as { stdout?: string; stderr?: string; message?: string };
+    const err = error as { stdout?: string; stderr?: string; message?: string; code?: string };
     const output = `${err.stdout ?? ""}\n${err.stderr ?? err.message ?? ""}`.trim();
     if (/passdb:\s*user authenticated/i.test(output)) {
       return { ok: true, output };
+    }
+    // Binary missing (dev / PATH) — try absolute path used on Ubuntu mail hosts
+    if (err.code === "ENOENT" && bin === "doveadm") {
+      try {
+        const { stdout, stderr } = await execFileAsync(
+          "/usr/bin/doveadm",
+          ["auth", "test", email.toLowerCase().trim(), password],
+          { timeout: 20_000, maxBuffer: 1024 * 1024 },
+        );
+        const out2 = `${stdout}\n${stderr}`.trim();
+        return { ok: /passdb:\s*user authenticated/i.test(out2), output: out2 };
+      } catch (error2) {
+        const err2 = error2 as { stdout?: string; stderr?: string; message?: string; code?: string };
+        const out2 = `${err2.stdout ?? ""}\n${err2.stderr ?? err2.message ?? ""}`.trim();
+        if (/passdb:\s*user authenticated/i.test(out2)) return { ok: true, output: out2 };
+        if (err2.code === "ENOENT" && process.env.DOVECOT_REQUIRE_AUTH_TEST === "false") {
+          return {
+            ok: true,
+            skipped: true,
+            output: "doveadm not installed; MySQL row verified only",
+          };
+        }
+        return { ok: false, output: out2 || "doveadm auth test failed" };
+      }
     }
     return { ok: false, output: output || "doveadm auth test failed" };
   }
@@ -390,6 +467,109 @@ export async function activateMysqlVirtualUser(email: string): Promise<MysqlMail
       ok: false,
       email: normalized,
       error: error instanceof Error ? error.message : "MySQL activate failed",
+    };
+  } finally {
+    conn?.release();
+  }
+}
+
+/** Remove or deactivate a domain in MariaDB virtual_domains (+ cascade users when FK exists). */
+export async function deactivateMysqlVirtualDomain(domain: string): Promise<MysqlMailAuthResult> {
+  const cfg = resolveMysqlConfig();
+  if (!cfg) {
+    return { ok: false, error: "MySQL mail auth not configured" };
+  }
+  const name = domain.toLowerCase().trim();
+  if (!name) return { ok: false, error: "domain required" };
+  let conn: PoolConnection | null = null;
+  try {
+    conn = await getPool().getConnection();
+    if (!(await tableExists(conn, "virtual_domains"))) {
+      return { ok: true, database: cfg.database };
+    }
+    const cols = await columnNames(conn, "virtual_domains");
+    if (cols.has("active")) {
+      await conn.query(`UPDATE virtual_domains SET active = 0 WHERE name = ?`, [name]);
+    } else {
+      // Prefer deleting users first when no FK cascade
+      if (await tableExists(conn, "virtual_users")) {
+        const userCols = await columnNames(conn, "virtual_users");
+        if (userCols.has("domain")) {
+          await conn.query(`DELETE FROM virtual_users WHERE domain = ?`, [name]);
+        } else if (userCols.has("domain_id")) {
+          await conn.query(
+            `DELETE FROM virtual_users WHERE domain_id IN (SELECT id FROM virtual_domains WHERE name = ?)`,
+            [name],
+          );
+        }
+      }
+      await conn.query(`DELETE FROM virtual_domains WHERE name = ?`, [name]);
+    }
+    return { ok: true, database: cfg.database };
+  } catch (error) {
+    return {
+      ok: false,
+      database: cfg.database,
+      error: error instanceof Error ? error.message : "virtual_domains deactivate failed",
+    };
+  } finally {
+    conn?.release();
+  }
+}
+
+/** Upsert Postfix-style virtual_aliases (address → goto). */
+export async function upsertMysqlVirtualAlias(input: {
+  address: string;
+  goto: string;
+}): Promise<MysqlMailAuthResult> {
+  const cfg = resolveMysqlConfig();
+  if (!cfg) {
+    return { ok: false, error: "MySQL mail auth not configured" };
+  }
+  const address = input.address.toLowerCase().trim();
+  const goto = input.goto.toLowerCase().trim();
+  if (!address || !goto) return { ok: false, error: "address and goto required" };
+
+  let conn: PoolConnection | null = null;
+  try {
+    conn = await getPool().getConnection();
+    if (!(await tableExists(conn, "virtual_aliases"))) {
+      await conn.query(`
+        CREATE TABLE IF NOT EXISTS virtual_aliases (
+          id INT NOT NULL AUTO_INCREMENT,
+          source VARCHAR(255) NOT NULL,
+          destination TEXT NOT NULL,
+          PRIMARY KEY (id),
+          UNIQUE KEY source (source)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    }
+    const cols = await columnNames(conn, "virtual_aliases");
+    if (cols.has("address") && cols.has("goto")) {
+      await conn.query(
+        `INSERT INTO virtual_aliases (address, goto) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE goto = VALUES(goto)`,
+        [address, goto],
+      );
+    } else if (cols.has("source") && cols.has("destination")) {
+      await conn.query(
+        `INSERT INTO virtual_aliases (source, destination) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE destination = VALUES(destination)`,
+        [address, goto],
+      );
+    } else {
+      return {
+        ok: false,
+        database: cfg.database,
+        error: "virtual_aliases schema unsupported (need address/goto or source/destination)",
+      };
+    }
+    return { ok: true, database: cfg.database };
+  } catch (error) {
+    return {
+      ok: false,
+      database: cfg.database,
+      error: error instanceof Error ? error.message : "virtual_aliases upsert failed",
     };
   } finally {
     conn?.release();
