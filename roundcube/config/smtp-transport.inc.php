@@ -29,9 +29,11 @@
 $config['smtp_host'] = 'ssl://127.0.0.1:465';
 $config['smtp_user'] = '%u';
 $config['smtp_pass'] = '%p';
-// null = try server-advertised mechanisms (LOGIN/PLAIN)
-$config['smtp_auth_type'] = null;
-$config['smtp_timeout'] = 30;
+// LIVE EVIDENCE: Postfix advertises AUTH PLAIN only.
+// AUTH LOGIN → 535 5.7.8 Invalid authentication mechanism.
+// Do NOT use null/LOGIN — Net_SMTP may pick LOGIN and fail.
+$config['smtp_auth_type'] = 'PLAIN';
+$config['smtp_timeout'] = 60;
 
 // Loopback SMTPS: cert is for mail.globalorbitmail.cloud, not 127.0.0.1.
 // Disable peer name verify on loopback so PHP does not abort connect()

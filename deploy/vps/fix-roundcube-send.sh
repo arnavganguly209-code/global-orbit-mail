@@ -162,7 +162,7 @@ else
 $config['smtp_host'] = 'ssl://127.0.0.1:465';
 $config['smtp_user'] = '%u';
 $config['smtp_pass'] = '%p';
-$config['smtp_auth_type'] = 'LOGIN';
+$config['smtp_auth_type'] = 'PLAIN';
 $config['smtp_conn_options'] = [
   'ssl' => [
     'verify_peer' => false,
@@ -171,35 +171,35 @@ $config['smtp_conn_options'] = [
     'allow_self_signed' => true,
   ],
 ];
-$config['smtp_timeout'] = 30;
+$config['smtp_timeout'] = 60;
 $config['smtp_log'] = true;
 $config['smtp_debug'] = true;
 PHP
 fi
 
-# Ensure timeouts + auth types that work with Dovecot/Postfix
+# Force PLAIN — production Postfix advertises PLAIN only (LOGIN → 535)
 python3 - <<'PY' "$SMTP_INC"
 from pathlib import Path
-import sys
+import re, sys
 p = Path(sys.argv[1])
 text = p.read_text(encoding="utf-8", errors="replace")
 if "smtp_timeout" not in text:
-    text = text.rstrip() + "\n$config['smtp_timeout'] = 30;\n"
+    text = text.rstrip() + "\n$config['smtp_timeout'] = 60;\n"
 if "allow_self_signed" not in text:
     text = text.replace(
         "'peer_name'         => 'mail.globalorbitmail.cloud',",
         "'peer_name'         => 'mail.globalorbitmail.cloud',\n    'allow_self_signed' => true,",
     )
-# Prefer LOGIN then PLAIN (Dovecot SASL often prefers LOGIN on smtps)
-if "smtp_auth_type" in text:
-    import re
+if re.search(r"\$config\['smtp_auth_type'\]", text):
     text = re.sub(
-        r"\$config\['smtp_auth_type'\]\s*=\s*'[^']*';",
-        "$config['smtp_auth_type'] = null;",
+        r"\$config\['smtp_auth_type'\]\s*=\s*[^;]+;",
+        "$config['smtp_auth_type'] = 'PLAIN';",
         text,
     )
+else:
+    text = text.rstrip() + "\n$config['smtp_auth_type'] = 'PLAIN';\n"
 p.write_text(text, encoding="utf-8")
-print("smtp-transport hardened:", p)
+print("smtp-transport forced AUTH PLAIN:", p)
 PY
 
 python3 - <<'PY' "$CFG"
@@ -299,9 +299,8 @@ function expect($fp, $code) {
 function cmd($fp, $c, $code) { fwrite($fp, $c."\r\n"); expect($fp, $code); }
 expect($fp, 220);
 cmd($fp, "EHLO orbit-auth-test.local", 250);
-cmd($fp, "AUTH LOGIN", 334);
-cmd($fp, base64_encode($user), 334);
-cmd($fp, base64_encode($pass), 235);
+$plain = base64_encode("\0{$user}\0{$pass}");
+cmd($fp, "AUTH PLAIN {$plain}", 235);
 cmd($fp, "MAIL FROM:<{$user}>", 250);
 cmd($fp, "RCPT TO:<{$to}>", 250);
 cmd($fp, "DATA", 354);

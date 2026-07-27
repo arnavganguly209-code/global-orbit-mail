@@ -31,8 +31,8 @@ cat > "$DST" <<'PHP'
 $config['smtp_host'] = 'ssl://127.0.0.1:465';
 $config['smtp_user'] = '%u';
 $config['smtp_pass'] = '%p';
-$config['smtp_auth_type'] = null;
-$config['smtp_timeout'] = 30;
+$config['smtp_auth_type'] = 'PLAIN';
+$config['smtp_timeout'] = 60;
 $config['smtp_conn_options'] = [
   'ssl' => [
     'verify_peer' => false,
