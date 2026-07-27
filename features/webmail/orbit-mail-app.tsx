@@ -21,7 +21,6 @@ import {
   Paperclip,
   PenSquare,
   Pencil,
-  Printer,
   Reply,
   ReplyAll,
   Search,
@@ -33,7 +32,6 @@ import {
   Trash2,
   Users,
   X,
-  FileText,
   FolderPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -51,6 +49,7 @@ import {
   type Me,
   type MessageDetail,
   type MessageItem,
+  type ThreadItem,
 } from "@/features/webmail/lib/api";
 
 type Pane = "folders" | "list" | "reader";
@@ -98,6 +97,7 @@ export function OrbitMailApp({
     null | { mode: "create" } | { mode: "rename"; path: string; name: string }
   >(null);
   const [folderNameInput, setFolderNameInput] = React.useState("");
+  const [viewMode, setViewMode] = React.useState<"messages" | "threads">("messages");
   const [folderBusy, setFolderBusy] = React.useState(false);
   const notifRef = React.useRef<HTMLDivElement>(null);
 
@@ -160,13 +160,35 @@ export function OrbitMailApp({
   });
 
   const messagesQuery = useQuery({
-    queryKey: ["webmail", "messages", folder, searchQ, page],
+    queryKey: ["webmail", "messages", folder, searchQ, page, viewMode],
     queryFn: async () => {
       if (searchQ.trim()) {
         const data = await webmailApi<{ messages: MessageItem[] }>(
           `/api/webmail/search?folder=${encodeURIComponent(folder)}&q=${encodeURIComponent(searchQ)}`,
         );
         return { messages: data.messages, total: data.messages.length, page: 1, pageSize: data.messages.length };
+      }
+      if (viewMode === "threads") {
+        const data = await webmailApi<{ threads: ThreadItem[]; total: number; page: number; pageSize: number }>(
+          `/api/webmail/messages/threads?folder=${encodeURIComponent(folder)}&page=${page}&pageSize=${PAGE_SIZE}`,
+        );
+        return {
+          messages: data.threads.map((t) => ({
+            uid: t.latestUid,
+            subject: t.subject,
+            from: t.participants[0] || "",
+            fromEmail: t.participants[0] || "",
+            date: t.lastDate,
+            preview: t.preview,
+            unseen: t.unseenCount > 0,
+            flagged: t.flagged,
+            hasAttachment: false,
+            threadId: t.threadId,
+          })),
+          total: data.total,
+          page: data.page,
+          pageSize: data.pageSize,
+        };
       }
       return webmailApi<{ messages: MessageItem[]; total: number; page: number; pageSize: number }>(
         `/api/webmail/messages?folder=${encodeURIComponent(folder)}&page=${page}&pageSize=${PAGE_SIZE}`,
@@ -196,6 +218,16 @@ export function OrbitMailApp({
     placeholderData: keepPreviousData,
   });
 
+  const threadQuery = useQuery({
+    queryKey: ["webmail", "thread", folder, selectedUid],
+    queryFn: () =>
+      webmailApi<{ threadId: string; messages: MessageDetail[] }>(
+        `/api/webmail/messages/${selectedUid}/thread?folder=${encodeURIComponent(folder)}`,
+      ),
+    staleTime: 60_000,
+    enabled: selectedUid != null && viewMode === "threads",
+  });
+
   if (!layout) {
     return <div className="h-dvh bg-[#050508]" aria-hidden />;
   }
@@ -208,6 +240,12 @@ export function OrbitMailApp({
   const me = meQuery.data ?? null;
   const displayName = me?.branding?.displayName || me?.name || "";
   const detail = selectedUid != null ? (detailQuery.data ?? null) : null;
+  const threadMessages =
+    viewMode === "threads" && threadQuery.data?.messages && threadQuery.data.messages.length > 1
+      ? threadQuery.data.messages
+      : detail
+        ? [detail]
+        : [];
   const inboxUnseen = folders.find((f) => f.path.toUpperCase() === "INBOX")?.unseen ?? 0;
   const folderLabel =
     folderIconLabel(folders.find((f) => f.path === folder) || { path: folder, name: folder, unseen: 0, messages: 0 }) ||
@@ -750,13 +788,45 @@ export function OrbitMailApp({
             {folder.toUpperCase() === "INBOX" ? inboxUnseen || total : total}
           </span>
         </h2>
-        <button
-          type="button"
-          onClick={() => void messagesQuery.refetch()}
-          className="rounded-lg px-2 py-1 text-sm text-zinc-400 hover:bg-white/5"
-        >
-          ↻
-        </button>
+        <div className="flex items-center gap-1">
+          {!searchQ.trim() ? (
+            <div className="mr-1 flex rounded-lg border border-white/10 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode("messages");
+                  setPage(1);
+                }}
+                className={cn(
+                  "rounded-md px-2 py-1",
+                  viewMode === "messages" ? "bg-[#d4af37]/20 text-[#f0d78c]" : "text-zinc-400",
+                )}
+              >
+                Messages
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode("threads");
+                  setPage(1);
+                }}
+                className={cn(
+                  "rounded-md px-2 py-1",
+                  viewMode === "threads" ? "bg-[#d4af37]/20 text-[#f0d78c]" : "text-zinc-400",
+                )}
+              >
+                Threads
+              </button>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void messagesQuery.refetch()}
+            className="rounded-lg px-2 py-1 text-sm text-zinc-400 hover:bg-white/5"
+          >
+            ↻
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 border-b border-white/8 px-3 py-2">
@@ -1042,95 +1112,80 @@ export function OrbitMailApp({
               <h1 className="text-lg font-bold leading-snug sm:text-xl">{detail.subject || "(no subject)"}</h1>
               <span className="shrink-0 rounded-full bg-[#d4af37]/20 px-2 py-0.5 text-xs font-semibold text-[#f0d78c]">
                 {folderLabel}
+                {threadMessages.length > 1 ? ` · ${threadMessages.length} messages` : ""}
               </span>
-            </div>
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#d4af37]/50 to-[#1e5fa1]/50 text-sm font-bold">
-                  {initials(detail.from)}
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate font-semibold">
-                    {detail.from}{" "}
-                    <span className="font-normal text-zinc-500">&lt;{detail.fromEmail}&gt;</span>
-                  </p>
-                  <p className="text-xs text-zinc-500">
-                    to {detail.to || "me"}
-                    {detail.cc ? ` · cc ${detail.cc}` : ""}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 text-zinc-400">
-                <span className="mr-1 text-xs">{formatWhen(detail.date)}</span>
-                <button type="button" onClick={() => startReply("reply")} className="rounded-lg p-1.5 hover:bg-white/5" title="Reply">
-                  <Reply className="size-4" />
-                </button>
-                <button type="button" onClick={() => startReply("replyAll")} className="rounded-lg p-1.5 hover:bg-white/5" title="Reply all">
-                  <ReplyAll className="size-4" />
-                </button>
-                <button type="button" onClick={() => startReply("forward")} className="rounded-lg p-1.5 hover:bg-white/5" title="Forward">
-                  <Forward className="size-4" />
-                </button>
-                {layout !== "mobile" ? (
-                  <button type="button" onClick={() => window.print()} className="rounded-lg p-1.5 hover:bg-white/5" title="Print">
-                    <Printer className="size-4" />
-                  </button>
-                ) : null}
-              </div>
             </div>
           </div>
 
           <div className="orbit-scroll flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6">
-            {detail.html ? (
-              <div
-                className="orbit-mail-body prose prose-invert max-w-none text-[0.95rem] leading-relaxed prose-a:text-[#f0d78c]"
-                dangerouslySetInnerHTML={{ __html: detail.html }}
-              />
-            ) : (
-              <pre className="whitespace-pre-wrap font-sans text-[0.95rem] leading-relaxed text-zinc-200">
-                {detail.text}
-              </pre>
-            )}
-
-            {detail.attachments.length > 0 ? (
-              <div className="mt-8">
-                <p className="mb-3 text-sm font-semibold">{detail.attachments.length} Attachments</p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {detail.attachments.map((a) => {
-                    const href = `/api/webmail/messages/${detail.uid}/attachments/${a.part}?folder=${encodeURIComponent(folder)}`;
-                    const isImage = /^image\//i.test(a.contentType) || /\.(png|jpe?g|gif|webp|bmp)$/i.test(a.filename);
-                    const isPdf = /pdf/i.test(a.contentType) || /\.pdf$/i.test(a.filename);
-                    return (
-                      <div
-                        key={a.part}
-                        className={cn(
-                          "flex items-center gap-3 rounded-xl border px-3 py-3 text-sm",
-                          light ? "border-slate-200 bg-slate-50" : "border-white/10 bg-[#14141e]",
-                        )}
-                      >
-                        <FileText className="size-5 shrink-0 text-[#d4af37]" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{a.filename}</span>
-                          <span className="text-xs text-zinc-500">{Math.round(a.size / 1024)} KB</span>
-                        </span>
-                        {isImage || isPdf ? (
-                          <button
-                            type="button"
-                            className="shrink-0 text-xs font-medium text-[#d4af37] hover:underline"
-                            onClick={() => setPreview({ url: href, kind: isPdf ? "pdf" : "image" })}
-                          >
-                            Preview
-                          </button>
-                        ) : null}
-                        <a href={href} download={a.filename} className="shrink-0 text-xs font-medium text-zinc-400 hover:text-white">
-                          Download
-                        </a>
-                      </div>
-                    );
-                  })}
+            {threadMessages.map((msg, idx) => (
+              <article
+                key={`${msg.uid}-${idx}`}
+                className={cn(
+                  "mb-6 rounded-xl border p-4",
+                  light ? "border-slate-200 bg-slate-50" : "border-white/10 bg-white/[0.02]",
+                  msg.uid === selectedUid && "ring-1 ring-[#d4af37]/40",
+                )}
+              >
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#d4af37]/50 to-[#1e5fa1]/50 text-xs font-bold">
+                      {initials(msg.from)}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-sm">
+                        {msg.from}{" "}
+                        <span className="font-normal text-zinc-500">&lt;{msg.fromEmail}&gt;</span>
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        to {msg.to || "me"}
+                        {msg.cc ? ` · cc ${msg.cc}` : ""} · {formatWhen(msg.date)}
+                      </p>
+                    </div>
+                  </div>
+                  {msg.uid === selectedUid ? (
+                    <div className="flex items-center gap-1 text-zinc-400">
+                      <button type="button" onClick={() => startReply("reply")} className="rounded-lg p-1.5 hover:bg-white/5" title="Reply">
+                        <Reply className="size-4" />
+                      </button>
+                      <button type="button" onClick={() => startReply("replyAll")} className="rounded-lg p-1.5 hover:bg-white/5" title="Reply all">
+                        <ReplyAll className="size-4" />
+                      </button>
+                      <button type="button" onClick={() => startReply("forward")} className="rounded-lg p-1.5 hover:bg-white/5" title="Forward">
+                        <Forward className="size-4" />
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            ) : null}
+                {msg.html ? (
+                  <div
+                    className="orbit-mail-body prose prose-invert max-w-none text-[0.95rem] leading-relaxed prose-a:text-[#f0d78c]"
+                    dangerouslySetInnerHTML={{ __html: msg.html }}
+                  />
+                ) : (
+                  <pre className="whitespace-pre-wrap font-sans text-[0.95rem] leading-relaxed text-zinc-200">
+                    {msg.text}
+                  </pre>
+                )}
+                {msg.attachments.length > 0 ? (
+                  <div className="mt-4">
+                    <p className="mb-2 text-xs font-semibold">{msg.attachments.length} Attachments</p>
+                    <div className="flex flex-wrap gap-2">
+                      {msg.attachments.map((a) => (
+                        <a
+                          key={a.part}
+                          href={`/api/webmail/messages/${msg.uid}/attachments/${a.part}?folder=${encodeURIComponent(folder)}`}
+                          className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs hover:bg-white/5"
+                        >
+                          <Paperclip className="size-3" />
+                          {a.filename}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </article>
+            ))}
           </div>
 
           <div className="border-t border-white/8 p-3 sm:p-4">

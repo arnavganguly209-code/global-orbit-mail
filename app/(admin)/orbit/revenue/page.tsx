@@ -1,5 +1,5 @@
-﻿import { ModulePlaceholder } from "@/features/admin/module-pages";
+﻿import { RevenueAdminPage } from "@/features/admin/revenue-page";
 
 export default function Page() {
-  return <ModulePlaceholder title="Revenue" />;
+  return <RevenueAdminPage />;
 }

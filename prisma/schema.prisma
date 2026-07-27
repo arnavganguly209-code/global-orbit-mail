@@ -687,5 +687,121 @@ model Coupon {
   maxRedemptions Int?
   createdAt     DateTime  @default(now())
 
+  redemptions CouponRedemption[]
+
   @@map("coupons")
+}
+
+model CouponRedemption {
+  id             String   @id @default(uuid())
+  couponId       String
+  organizationId String
+  orderId        String?
+  createdAt      DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  @@index([couponId])
+  @@index([organizationId])
+  @@map("coupon_redemptions")
+}
+
+enum EmailTemplateCategory {
+  SYSTEM
+  BILLING
+  WELCOME
+  SECURITY
+  QUOTA
+  CUSTOM
+}
+
+model EmailTemplate {
+  id        String                @id @default(uuid())
+  key       String                @unique
+  name      String
+  category  EmailTemplateCategory @default(CUSTOM)
+  subject   String
+  htmlBody  String                @db.Text
+  textBody  String?               @db.Text
+  variables Json?
+  active    Boolean               @default(true)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  @@map("email_templates")
+}
+
+enum BackupJobKind {
+  ORGANIZATION
+  DOMAIN
+  MAILBOX
+  PLATFORM
+}
+
+enum MigrationJobKind {
+  IMAP_IMPORT
+  DOMAIN_CUTOVER
+  MAILBOX_MOVE
+}
+
+enum JobRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+model BackupJob {
+  id             String        @id @default(uuid())
+  kind           BackupJobKind
+  status         JobRunStatus  @default(QUEUED)
+  organizationId String?
+  domainId       String?
+  mailboxId      String?
+  label          String
+  artifact       Json?
+  sizeBytes      Int?
+  error          String?       @db.Text
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([status, createdAt])
+  @@map("backup_jobs")
+}
+
+model MigrationJob {
+  id             String           @id @default(uuid())
+  kind           MigrationJobKind @default(IMAP_IMPORT)
+  status         JobRunStatus     @default(QUEUED)
+  organizationId String?
+  sourceHost     String
+  sourcePort     Int              @default(993)
+  sourceEmail    String?
+  targetEmail    String
+  progress       Int              @default(0)
+  metadata       Json?
+  error          String?          @db.Text
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdById    String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([status, createdAt])
+  @@map("migration_jobs")
+}
+
+model MailDailyStat {
+  id              String   @id @default(uuid())
+  statDate        DateTime @db.Date
+  sentCount       Int      @default(0)
+  spamActionCount Int      @default(0)
+  loginCount      Int      @default(0)
+
+  @@unique([statDate])
+  @@map("mail_daily_stats")
 }

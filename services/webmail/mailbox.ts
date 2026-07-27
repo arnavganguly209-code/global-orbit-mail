@@ -30,6 +30,10 @@ export type MessageListItem = {
   flagged: boolean;
   answered: boolean;
   hasAttachment: boolean;
+  messageId?: string;
+  inReplyTo?: string;
+  references?: string;
+  threadId?: string;
 };
 
 export type AttachmentMeta = {
@@ -214,6 +218,7 @@ export async function listMessages(
         envelope: true,
         bodyStructure: true,
         source: { start: 0, maxLength: 800 },
+        headers: ["message-id", "in-reply-to", "references"],
       })) {
         const from = addressText(msg.envelope?.from);
         const subject = msg.envelope?.subject || "(no subject)";
@@ -227,6 +232,10 @@ export async function listMessages(
           preview = "";
         }
         const flags = msg.flags || new Set<string>();
+        const headers = msg.headers as Map<string, string[]> | undefined;
+        const messageId = headerValue(headers, "message-id");
+        const inReplyTo = headerValue(headers, "in-reply-to");
+        const references = headerValue(headers, "references");
         messages.push({
           uid: msg.uid,
           seq: msg.seq,
@@ -239,6 +248,10 @@ export async function listMessages(
           flagged: flags.has("\\Flagged"),
           answered: flags.has("\\Answered"),
           hasAttachment: hasAttachmentStructure(msg.bodyStructure),
+          messageId,
+          inReplyTo,
+          references,
+          threadId: resolveThreadId(messageId, inReplyTo, references),
         });
       }
 
@@ -248,6 +261,25 @@ export async function listMessages(
       lock.release();
     }
   });
+}
+
+function headerValue(headers: Map<string, string[]> | undefined, key: string) {
+  if (!headers) return undefined;
+  const vals = headers.get(key);
+  return vals?.[0]?.trim() || undefined;
+}
+
+function normalizeMsgId(id?: string) {
+  if (!id) return undefined;
+  return id.replace(/^<|>$/g, "").trim().toLowerCase();
+}
+
+export function resolveThreadId(messageId?: string, inReplyTo?: string, references?: string) {
+  const refs = references?.split(/\s+/).filter(Boolean) ?? [];
+  const firstRef = refs[0] ? normalizeMsgId(refs[0]) : undefined;
+  const reply = normalizeMsgId(inReplyTo);
+  const self = normalizeMsgId(messageId);
+  return firstRef || reply || self || undefined;
 }
 
 function hasAttachmentStructure(node: unknown): boolean {
@@ -262,6 +294,96 @@ function hasAttachmentStructure(node: unknown): boolean {
     return n.childNodes.some((c) => hasAttachmentStructure(c));
   }
   return false;
+}
+
+export type ThreadListItem = {
+  threadId: string;
+  subject: string;
+  participants: string[];
+  lastDate: string | null;
+  messageCount: number;
+  unseenCount: number;
+  latestUid: number;
+  preview: string;
+  flagged: boolean;
+};
+
+export async function listThreads(
+  creds: WebmailCredentials,
+  folder: string,
+  page = 1,
+  pageSize = 50,
+) {
+  const fetchSize = 500;
+  const { messages, total: mailboxTotal } = await listMessages(creds, folder, 1, fetchSize);
+  const threadMap = new Map<string, ThreadListItem & { uids: number[] }>();
+
+  for (const m of messages) {
+    const tid = m.threadId || `uid-${m.uid}`;
+    const existing = threadMap.get(tid);
+    if (!existing) {
+      threadMap.set(tid, {
+        threadId: tid,
+        subject: m.subject,
+        participants: [m.fromEmail || m.from].filter(Boolean),
+        lastDate: m.date,
+        messageCount: 1,
+        unseenCount: m.unseen ? 1 : 0,
+        latestUid: m.uid,
+        preview: m.preview,
+        flagged: m.flagged,
+        uids: [m.uid],
+      });
+      continue;
+    }
+    existing.messageCount++;
+    if (m.unseen) existing.unseenCount++;
+    if (m.flagged) existing.flagged = true;
+    existing.uids.push(m.uid);
+    const email = m.fromEmail || m.from;
+    if (email && !existing.participants.includes(email)) existing.participants.push(email);
+    if (m.date && (!existing.lastDate || m.date > existing.lastDate)) {
+      existing.lastDate = m.date;
+      existing.latestUid = m.uid;
+      existing.preview = m.preview || existing.preview;
+      if (m.subject && m.subject !== "(no subject)") existing.subject = m.subject;
+    }
+  }
+
+  const threads = [...threadMap.values()]
+    .map(({ uids, ...rest }) => rest)
+    .sort((a, b) => {
+      const da = a.lastDate ? Date.parse(a.lastDate) : 0;
+      const db = b.lastDate ? Date.parse(b.lastDate) : 0;
+      return db - da;
+    });
+
+  const start = (page - 1) * pageSize;
+  return {
+    threads: threads.slice(start, start + pageSize),
+    total: threads.length,
+    page,
+    pageSize,
+    mailboxTotal,
+  };
+}
+
+export async function getThreadMessages(
+  creds: WebmailCredentials,
+  folder: string,
+  threadId: string,
+  anchorUid?: number,
+) {
+  const { messages } = await listMessages(creds, folder, 1, 500);
+  let anchor = messages.find((m) => m.uid === anchorUid);
+  if (!anchor && anchorUid) {
+    anchor = messages.find((m) => m.threadId === threadId || String(m.uid) === threadId);
+  }
+  const tid = anchor?.threadId || threadId;
+  const inThread = messages.filter((m) => m.threadId === tid || normalizeMsgId(m.messageId) === tid);
+  const sorted = inThread.sort((a, b) => (a.date && b.date ? Date.parse(a.date) - Date.parse(b.date) : a.uid - b.uid));
+  const details = await Promise.all(sorted.map((m) => getMessage(creds, folder, m.uid)));
+  return { threadId: tid, messages: details };
 }
 
 export async function getMessage(
@@ -452,6 +574,10 @@ export async function sendAndStore(
       sentError = error instanceof Error ? error.message : "Failed to append to Sent";
     }
   }
+
+  const { bumpMailDailyStat } = await import("@/lib/mail/daily-stats");
+  void bumpMailDailyStat("sentCount").catch(() => undefined);
+
   return {
     messageId: result.messageId,
     accepted: result.accepted,
@@ -640,7 +766,7 @@ export async function spamOrArchive(
   uids: number[],
   kind: "Junk" | "Archive",
 ) {
-  return withImap(creds, async (client) => {
+  const result = await withImap(creds, async (client) => {
     const target = (await findSpecialFolder(client, kind)) || kind;
     const lock = await client.getMailboxLock(normalizeFolderPath(folder));
     try {
@@ -650,4 +776,11 @@ export async function spamOrArchive(
       lock.release();
     }
   });
+
+  if (kind === "Junk") {
+    const { bumpMailDailyStat } = await import("@/lib/mail/daily-stats");
+    void bumpMailDailyStat("spamActionCount", uids.length).catch(() => undefined);
+  }
+
+  return result;
 }

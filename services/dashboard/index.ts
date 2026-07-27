@@ -3,6 +3,7 @@ import { mailboxRepository } from "@/repositories/mailbox.repository";
 import { userRepository } from "@/repositories";
 import { prisma } from "@/lib/db";
 import { systemHealthService } from "@/services/system/health";
+import { getMailTrafficSeries } from "@/lib/mail/daily-stats";
 import type {
   AuditLogEntry,
   DashboardMetrics,
@@ -51,6 +52,7 @@ export const dashboardService = {
       auditLogs,
       notifications,
       unreadNotifications,
+      mailTraffic,
     ] = await Promise.all([
       domainRepository.count(),
       domainRepository.countActive(),
@@ -62,7 +64,10 @@ export const dashboardService = {
       prisma.auditLog.count(),
       prisma.notification.count(),
       prisma.notification.count({ where: { read: false } }),
+      getMailTrafficSeries(1),
     ]);
+
+    const spamToday = mailTraffic[0]?.spam ?? 0;
 
     return {
       domains,
@@ -76,7 +81,7 @@ export const dashboardService = {
       unreadNotifications,
       storageUsedGb: Number((storage.usedMb / 1024).toFixed(2)),
       storageQuotaGb: Number((storage.quotaMb / 1024).toFixed(2)),
-      spamBlocked24h: 0,
+      spamBlocked24h: spamToday,
       mailQueueDepth: 0,
     };
   },

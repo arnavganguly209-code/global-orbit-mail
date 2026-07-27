@@ -1,4 +1,5 @@
-import { BillingAdminPage } from "@/features/admin/module-pages";
+import { BillingHubPage } from "@/features/admin/billing-hub-page";
+
 export default function Page() {
-  return <BillingAdminPage />;
+  return <BillingHubPage />;
 }

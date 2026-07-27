@@ -1,5 +1,5 @@
-﻿import { ModulePlaceholder } from "@/features/admin/module-pages";
+﻿import { CouponsAdminPage } from "@/features/admin/coupons-page";
 
 export default function Page() {
-  return <ModulePlaceholder title="Coupons" />;
+  return <CouponsAdminPage />;
 }

@@ -46,6 +46,19 @@ export type MessageItem = {
   unseen: boolean;
   flagged: boolean;
   hasAttachment: boolean;
+  threadId?: string;
+};
+
+export type ThreadItem = {
+  threadId: string;
+  subject: string;
+  participants: string[];
+  lastDate: string | null;
+  messageCount: number;
+  unseenCount: number;
+  latestUid: number;
+  preview: string;
+  flagged: boolean;
 };
 
 export type MessageDetail = {

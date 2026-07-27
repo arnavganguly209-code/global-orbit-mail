@@ -1,5 +1,5 @@
-﻿import { ModulePlaceholder } from "@/features/admin/module-pages";
+﻿import { OrdersAdminPage } from "@/features/admin/orders-page";
 
 export default function Page() {
-  return <ModulePlaceholder title="Orders" />;
+  return <OrdersAdminPage />;
 }

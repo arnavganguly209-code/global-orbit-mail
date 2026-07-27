@@ -1,5 +1,5 @@
-﻿import { ModulePlaceholder } from "@/features/admin/module-pages";
+﻿import { PlansAdminPage } from "@/features/admin/plans-page";
 
 export default function Page() {
-  return <ModulePlaceholder title="Plans" />;
+  return <PlansAdminPage />;
 }

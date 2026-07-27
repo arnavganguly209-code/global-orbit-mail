@@ -1,5 +1,5 @@
-﻿import { ModulePlaceholder } from "@/features/admin/module-pages";
+﻿import { SubscriptionsAdminPage } from "@/features/admin/subscriptions-page";
 
 export default function Page() {
-  return <ModulePlaceholder title="Subscriptions" />;
+  return <SubscriptionsAdminPage />;
 }

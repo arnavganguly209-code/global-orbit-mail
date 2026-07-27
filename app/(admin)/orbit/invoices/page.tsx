@@ -1,5 +1,5 @@
-﻿import { ModulePlaceholder } from "@/features/admin/module-pages";
+﻿import { InvoicesAdminPage } from "@/features/admin/invoices-page";
 
 export default function Page() {
-  return <ModulePlaceholder title="Invoices" />;
+  return <InvoicesAdminPage />;
 }

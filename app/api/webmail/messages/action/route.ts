@@ -19,7 +19,8 @@ export async function POST(request: Request) {
     const creds = await requireWebmailCredentials();
     const body = schema.parse(await parseJson(request));
     if (body.action === "spam") {
-      return ok(await spamOrArchive(creds, body.folder, body.uids, "Junk"), undefined, "Moved to Spam");
+      const result = await spamOrArchive(creds, body.folder, body.uids, "Junk");
+      return ok(result, undefined, "Moved to Spam");
     }
     if (body.action === "archive") {
       return ok(await spamOrArchive(creds, body.folder, body.uids, "Archive"), undefined, "Archived");

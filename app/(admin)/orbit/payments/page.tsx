@@ -1,5 +1,5 @@
-﻿import { ModulePlaceholder } from "@/features/admin/module-pages";
+﻿import { PaymentsAdminPage } from "@/features/admin/payments-page";
 
 export default function Page() {
-  return <ModulePlaceholder title="Payments" />;
+  return <PaymentsAdminPage />;
 }

@@ -32,6 +32,9 @@ export async function webmailMailboxLogin(request: Request) {
 
   void touchMailboxLastLogin(email).catch(() => undefined);
 
+  const { bumpMailDailyStat } = await import("@/lib/mail/daily-stats");
+  void bumpMailDailyStat("loginCount").catch(() => undefined);
+
   return {
     email,
     remember: Boolean(body.remember),
