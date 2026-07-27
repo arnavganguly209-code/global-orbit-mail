@@ -41,6 +41,21 @@ export function middleware(request: NextRequest) {
   const sessionToken = request.cookies.get(SESSION_COOKIE)?.value;
   const webmailToken = request.cookies.get(WEBMAIL_SESSION_COOKIE)?.value;
 
+  // Legacy Roundcube deep-links that somehow reach Next → Orbit login
+  const isRoundcubeLegacy =
+    pathname === "/index.php" ||
+    pathname.startsWith("/skins/") ||
+    pathname.startsWith("/plugins/") ||
+    pathname.startsWith("/program/") ||
+    pathname.endsWith(".php") ||
+    request.nextUrl.searchParams.has("_task");
+  if (isRoundcubeLegacy) {
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/webmail/login";
+    loginUrl.search = "";
+    return withSecurity(NextResponse.redirect(loginUrl), pathname);
+  }
+
   if (pathname.startsWith("/api/admin") && !isPublicAdminApi(pathname)) {
     if (enforce && !sessionToken) {
       return withSecurity(
@@ -86,6 +101,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/",
     "/orbit",
     "/orbit/:path*",
     "/dashboard",
@@ -94,5 +110,9 @@ export const config = {
     "/webmail/:path*",
     "/portal/:path*",
     "/api/admin/:path*",
+    "/index.php",
+    "/skins/:path*",
+    "/plugins/:path*",
+    "/program/:path*",
   ],
 };
