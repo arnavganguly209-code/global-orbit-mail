@@ -218,7 +218,6 @@ export async function listMessages(
         envelope: true,
         bodyStructure: true,
         source: { start: 0, maxLength: 800 },
-        headers: ["message-id", "in-reply-to", "references"],
       })) {
         const from = addressText(msg.envelope?.from);
         const subject = msg.envelope?.subject || "(no subject)";
@@ -232,10 +231,14 @@ export async function listMessages(
           preview = "";
         }
         const flags = msg.flags || new Set<string>();
-        const headers = msg.headers as Map<string, string[]> | undefined;
-        const messageId = headerValue(headers, "message-id");
-        const inReplyTo = headerValue(headers, "in-reply-to");
-        const references = headerValue(headers, "references");
+        const messageId = msg.envelope?.messageId || undefined;
+        const inReplyToRaw = msg.envelope?.inReplyTo;
+        const inReplyTo = Array.isArray(inReplyToRaw)
+          ? inReplyToRaw[0]
+          : typeof inReplyToRaw === "string"
+            ? inReplyToRaw
+            : undefined;
+        const references = undefined;
         messages.push({
           uid: msg.uid,
           seq: msg.seq,
@@ -251,7 +254,7 @@ export async function listMessages(
           messageId,
           inReplyTo,
           references,
-          threadId: resolveThreadId(messageId, inReplyTo, references),
+          threadId: resolveThreadId(messageId, inReplyTo, references, subject),
         });
       }
 
@@ -263,10 +266,27 @@ export async function listMessages(
   });
 }
 
-function headerValue(headers: Map<string, string[]> | undefined, key: string) {
+function headerValue(headers: unknown, key: string): string | undefined {
   if (!headers) return undefined;
-  const vals = headers.get(key);
-  return vals?.[0]?.trim() || undefined;
+  const lower = key.toLowerCase();
+  if (headers instanceof Map) {
+    const vals = headers.get(key) ?? headers.get(lower);
+    const first = Array.isArray(vals) ? vals[0] : vals;
+    return typeof first === "string" ? first.trim() || undefined : undefined;
+  }
+  if (Buffer.isBuffer(headers)) {
+    const text = headers.toString("utf8");
+    const re = new RegExp(`^${key}\\s*:\\s*(.+)$`, "im");
+    const m = text.match(re);
+    return m?.[1]?.trim() || undefined;
+  }
+  if (typeof headers === "object") {
+    const obj = headers as Record<string, unknown>;
+    const raw = obj[key] ?? obj[lower] ?? obj[key.replace(/-/g, "")];
+    if (Array.isArray(raw)) return String(raw[0] ?? "").trim() || undefined;
+    if (typeof raw === "string") return raw.trim() || undefined;
+  }
+  return undefined;
 }
 
 function normalizeMsgId(id?: string) {
@@ -274,12 +294,17 @@ function normalizeMsgId(id?: string) {
   return id.replace(/^<|>$/g, "").trim().toLowerCase();
 }
 
-export function resolveThreadId(messageId?: string, inReplyTo?: string, references?: string) {
+export function resolveThreadId(messageId?: string, inReplyTo?: string, references?: string, subject?: string) {
   const refs = references?.split(/\s+/).filter(Boolean) ?? [];
   const firstRef = refs[0] ? normalizeMsgId(refs[0]) : undefined;
   const reply = normalizeMsgId(inReplyTo);
   const self = normalizeMsgId(messageId);
-  return firstRef || reply || self || undefined;
+  if (firstRef || reply || self) return firstRef || reply || self;
+  if (subject) {
+    const normalized = subject.replace(/^(re|fw|fwd)\s*:\s*/gi, "").trim().toLowerCase();
+    if (normalized) return `subj:${normalized}`;
+  }
+  return undefined;
 }
 
 function hasAttachmentStructure(node: unknown): boolean {
