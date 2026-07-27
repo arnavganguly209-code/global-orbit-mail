@@ -383,15 +383,21 @@ open(path, "w", encoding="utf-8").write(t if t.endswith("\n") else t + "\n")
   grep -qxF "localhost" "$td" 2>/dev/null || echo "localhost" >> "$td"
   grep -qxF "$domain" "$td" 2>/dev/null || echo "$domain" >> "$td"
 
-  # Ensure Postfix milters point at OpenDKIM when missing
+  # Ensure Postfix milters point at OpenDKIM only when :8891 is live
+  # (hung milter → Roundcube "Failed to reach the server!")
   if command -v postconf >/dev/null 2>&1; then
-    local milters
-    milters="$(postconf -h smtpd_milters 2>/dev/null || true)"
-    if [[ "$milters" != *8891* && "$milters" != *opendkim* ]]; then
-      postconf -e "smtpd_milters = inet:localhost:8891"
-      postconf -e "non_smtpd_milters = inet:localhost:8891"
-      postconf -e "milter_default_action = accept"
-      systemctl reload postfix 2>/dev/null || true
+    if ss -tlnp 2>/dev/null | grep -q ':8891 ' || netstat -tlnp 2>/dev/null | grep -q ':8891 '; then
+      local milters
+      milters="$(postconf -h smtpd_milters 2>/dev/null || true)"
+      if [[ "$milters" != *8891* && "$milters" != *opendkim* ]]; then
+        postconf -e "smtpd_milters = inet:127.0.0.1:8891"
+        postconf -e "non_smtpd_milters = inet:127.0.0.1:8891"
+        postconf -e "milter_default_action = accept"
+        postconf -e "milter_connect_timeout = 5s"
+        systemctl reload postfix 2>/dev/null || true
+      fi
+    else
+      echo "[mail-agent] OpenDKIM :8891 not listening — not enabling milters" >&2
     fi
   fi
 
