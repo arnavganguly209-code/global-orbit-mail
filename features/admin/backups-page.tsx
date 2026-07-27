@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Eye, Play } from "lucide-react";
+import { Download, Eye, Play, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { StatusPill, statusToneFromValue } from "@/components/admin/status-pill";
@@ -131,6 +131,27 @@ export function BackupsAdminPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const restoreMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const res = await adminFetch(`/api/admin/backups/${jobId}/restore`, { method: "POST" });
+      const json = (await res.json()) as ApiResponse<Record<string, unknown>>;
+      if (!res.ok || !json.success) throw new Error(json.message ?? "Restore failed");
+      return json.data;
+    },
+    onSuccess: (data) => {
+      toast.success("Backup restored", {
+        description: Object.entries(data)
+          .filter(([k]) => k !== "jobId" && k !== "kind")
+          .map(([k, v]) => `${k}: ${String(v)}`)
+          .join(" · ") || undefined,
+      });
+      qc.invalidateQueries({ queryKey: ["admin-backups"] });
+      qc.invalidateQueries({ queryKey: ["admin-mailboxes"] });
+      qc.invalidateQueries({ queryKey: ["admin-domains"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   function downloadArtifact(job: BackupDetail) {
     const blob = new Blob([JSON.stringify(job.artifact, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -184,15 +205,36 @@ export function BackupsAdminPage() {
                     <TableCell>{formatDateTime(job.finishedAt)}</TableCell>
                     <TableCell className="text-right">
                       {job.status === "SUCCEEDED" ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={viewMutation.isPending}
-                          onClick={() => viewMutation.mutate(job.id)}
-                        >
-                          <Eye className="size-3.5" />
-                          View
-                        </Button>
+                        <div className="inline-flex gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={viewMutation.isPending}
+                            onClick={() => viewMutation.mutate(job.id)}
+                          >
+                            <Eye className="size-3.5" />
+                            View
+                          </Button>
+                          {job.kind !== "PLATFORM" ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={restoreMutation.isPending}
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    `Restore configuration from "${job.label}"? Existing passwords are not changed; missing aliases/forwarders/DNS records may be re-added.`,
+                                  )
+                                ) {
+                                  restoreMutation.mutate(job.id);
+                                }
+                              }}
+                            >
+                              <RotateCcw className="size-3.5" />
+                              Restore
+                            </Button>
+                          ) : null}
+                        </div>
                       ) : job.error ? (
                         <span className="text-xs text-destructive">{job.error}</span>
                       ) : null}
@@ -267,10 +309,31 @@ export function BackupsAdminPage() {
           </DialogHeader>
           {viewJob ? (
             <div className="space-y-4">
-              <Button variant="outline" size="sm" onClick={() => downloadArtifact(viewJob)}>
-                <Download className="size-4" />
-                Download JSON
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => downloadArtifact(viewJob)}>
+                  <Download className="size-4" />
+                  Download JSON
+                </Button>
+                {viewJob.kind !== "PLATFORM" && viewJob.status === "SUCCEEDED" ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={restoreMutation.isPending}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Restore configuration from this backup? Passwords are not changed.`,
+                        )
+                      ) {
+                        restoreMutation.mutate(viewJob.id);
+                      }
+                    }}
+                  >
+                    <RotateCcw className="size-4" />
+                    Restore
+                  </Button>
+                ) : null}
+              </div>
               <pre className="max-h-[50vh] overflow-auto rounded-xl bg-background/50 p-4 text-xs">
                 {JSON.stringify(viewJob.artifact, null, 2)}
               </pre>

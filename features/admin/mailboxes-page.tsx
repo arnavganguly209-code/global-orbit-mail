@@ -73,6 +73,11 @@ type EditFormState = {
   signatureHtml: string;
   signatureText: string;
   quotaMb: string;
+  avatarUrl: string | null;
+  vacationEnabled: boolean;
+  vacationSubject: string;
+  vacationBody: string;
+  vacationExpiresAt: string;
 };
 
 type SigBuilderState = {
@@ -156,7 +161,27 @@ function emptyEditForm(): EditFormState {
     signatureHtml: "",
     signatureText: "",
     quotaMb: "2048",
+    avatarUrl: null,
+    vacationEnabled: false,
+    vacationSubject: "",
+    vacationBody: "",
+    vacationExpiresAt: "",
   };
+}
+
+function toDatetimeLocal(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fromDatetimeLocal(value: string): string | null {
+  if (!value.trim()) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
 }
 
 function editFormFromMailbox(mailbox: AdminMailbox): EditFormState {
@@ -173,6 +198,11 @@ function editFormFromMailbox(mailbox: AdminMailbox): EditFormState {
     signatureHtml: mailbox.signatureHtml ?? "",
     signatureText: mailbox.signatureText ?? "",
     quotaMb: String(mailbox.quotaMb),
+    avatarUrl: mailbox.avatarUrl,
+    vacationEnabled: mailbox.vacationEnabled,
+    vacationSubject: mailbox.vacationSubject ?? "",
+    vacationBody: mailbox.vacationBody ?? "",
+    vacationExpiresAt: toDatetimeLocal(mailbox.vacationExpiresAt),
   };
 }
 
@@ -331,6 +361,11 @@ export function MailboxesAdminPage() {
           language: editForm.language.trim() || null,
           signatureHtml: editForm.signatureHtml.trim() || null,
           signatureText: editForm.signatureText.trim() || null,
+          avatarUrl: editForm.avatarUrl,
+          vacationEnabled: editForm.vacationEnabled,
+          vacationSubject: editForm.vacationSubject.trim() || null,
+          vacationBody: editForm.vacationBody.trim() || null,
+          vacationExpiresAt: fromDatetimeLocal(editForm.vacationExpiresAt),
           quotaMb: Number(editForm.quotaMb),
         }),
       });
@@ -558,6 +593,25 @@ export function MailboxesAdminPage() {
       signatureText: text,
     }));
     toast.message("Signature applied to form — click Save to persist");
+  }
+
+  function onAvatarSelected(file: File | null) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Avatar must be an image file");
+      return;
+    }
+    if (file.size > 512_000) {
+      toast.error("Avatar must be under 512KB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : null;
+      setEditForm((f) => ({ ...f, avatarUrl: result }));
+      toast.message("Avatar loaded — click Save to persist");
+    };
+    reader.readAsDataURL(file);
   }
 
   async function copyRevealedPassword() {
@@ -952,6 +1006,46 @@ export function MailboxesAdminPage() {
                 </div>
               )}
 
+              <section className="space-y-3 rounded-xl border border-border/60 p-4">
+                <div>
+                  <h3 className="text-sm font-medium">Avatar</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Profile photo shown in mailbox lists and webmail.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  {editForm.avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={editForm.avatarUrl}
+                      alt=""
+                      className="size-16 rounded-full object-cover ring-1 ring-border"
+                    />
+                  ) : (
+                    <span className="flex size-16 items-center justify-center rounded-full bg-primary/15 text-xl font-semibold text-primary">
+                      {avatarInitial(editMailbox)}
+                    </span>
+                  )}
+                  <div className="space-y-2">
+                    <Input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={(e) => onAvatarSelected(e.target.files?.[0] ?? null)}
+                    />
+                    {editForm.avatarUrl ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setEditForm((f) => ({ ...f, avatarUrl: null }))}
+                      >
+                        Remove avatar
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </section>
+
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Display name</Label>
@@ -1053,6 +1147,63 @@ export function MailboxesAdminPage() {
                   />
                 </div>
               </div>
+
+              <section className="space-y-3 rounded-xl border border-border/60 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-medium">Out of office</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Auto-reply when this mailbox receives mail. Syncs to the mail server on save.
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={editForm.vacationEnabled}
+                      onCheckedChange={(v) =>
+                        setEditForm((f) => ({ ...f, vacationEnabled: v === true }))
+                      }
+                    />
+                    Enabled
+                  </label>
+                </div>
+                <div className="space-y-2">
+                  <Label>Subject</Label>
+                  <Input
+                    value={editForm.vacationSubject}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, vacationSubject: e.target.value }))
+                    }
+                    placeholder="Out of office"
+                    disabled={!editForm.vacationEnabled}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Message</Label>
+                  <Textarea
+                    value={editForm.vacationBody}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, vacationBody: e.target.value }))
+                    }
+                    rows={4}
+                    placeholder="I am away and will respond when I return."
+                    disabled={!editForm.vacationEnabled}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Expires (optional)</Label>
+                  <Input
+                    type="datetime-local"
+                    value={editForm.vacationExpiresAt}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, vacationExpiresAt: e.target.value }))
+                    }
+                    disabled={!editForm.vacationEnabled}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Leave blank to keep the auto-reply active until disabled manually.
+                  </p>
+                </div>
+              </section>
 
               <section className="space-y-3 rounded-xl border border-border/60 p-4">
                 <div>

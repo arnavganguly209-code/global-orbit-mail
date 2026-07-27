@@ -116,6 +116,10 @@ export interface AdminMailbox {
   signatureHtml: string | null;
   signatureText: string | null;
   avatarUrl: string | null;
+  vacationEnabled: boolean;
+  vacationSubject: string | null;
+  vacationBody: string | null;
+  vacationExpiresAt: string | null;
   domainLogoDataUrl: string | null;
   domainCompanyName: string | null;
   quotaMb: number;

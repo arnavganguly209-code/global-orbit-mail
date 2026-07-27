@@ -115,7 +115,35 @@ function cleanHtml(html: string) {
 
 export async function listFolders(creds: WebmailCredentials): Promise<FolderDto[]> {
   return withImap(creds, async (client) => {
-    const boxes = await client.list();
+    // Ensure enterprise special folders exist (Sent/Drafts/Junk/Trash/Archive/Snoozed)
+    const required = [
+      { name: "Sent", specialUse: "\\Sent" },
+      { name: "Drafts", specialUse: "\\Drafts" },
+      { name: "Junk", specialUse: "\\Junk" },
+      { name: "Trash", specialUse: "\\Trash" },
+      { name: "Archive", specialUse: "\\Archive" },
+      { name: "Snoozed", specialUse: null },
+      { name: "Important", specialUse: null },
+    ] as const;
+
+    let boxes = await client.list();
+    for (const req of required) {
+      const exists = boxes.some((b) => {
+        if (req.specialUse && b.specialUse === req.specialUse) return true;
+        const p = b.path.toUpperCase();
+        const n = b.name.toUpperCase();
+        return p === req.name.toUpperCase() || n === req.name.toUpperCase();
+      });
+      if (!exists) {
+        try {
+          await client.mailboxCreate(req.name);
+        } catch {
+          /* may already exist or ACL deny */
+        }
+      }
+    }
+    boxes = await client.list();
+
     const out: FolderDto[] = [];
     for (const box of boxes) {
       if (box.flags?.has("\\Noselect")) continue;
@@ -138,17 +166,19 @@ export async function listFolders(creds: WebmailCredentials): Promise<FolderDto[
       });
     }
     return out.sort((a, b) => {
-      const rank = (p: string) => {
-        const u = p.toUpperCase();
-        if (u === "INBOX") return 0;
+      const rank = (p: string, special?: string | null) => {
+        const u = (special || p).toUpperCase();
+        if (p.toUpperCase() === "INBOX" || u.includes("INBOX")) return 0;
         if (u.includes("SENT")) return 1;
         if (u.includes("DRAFT")) return 2;
         if (u.includes("JUNK") || u.includes("SPAM")) return 3;
         if (u.includes("TRASH") || u.includes("DELETED")) return 4;
         if (u.includes("ARCHIVE")) return 5;
+        if (u.includes("SNOOZED")) return 6;
+        if (u.includes("IMPORTANT")) return 7;
         return 10;
       };
-      return rank(a.path) - rank(b.path) || a.name.localeCompare(b.name);
+      return rank(a.path, a.specialUse) - rank(b.path, b.specialUse) || a.name.localeCompare(b.name);
     });
   });
 }
@@ -637,10 +667,19 @@ export async function searchMessages(
   creds: WebmailCredentials,
   folder: string,
   query: string,
-  opts?: { from?: string; to?: string; since?: string; hasAttachment?: boolean },
+  opts?: {
+    from?: string;
+    to?: string;
+    since?: string;
+    before?: string;
+    subject?: string;
+    hasAttachment?: boolean;
+    flagged?: boolean;
+    unseen?: boolean;
+    seen?: boolean;
+  },
 ): Promise<MessageListItem[]> {
   const path = normalizeFolderPath(folder);
-  // Support operators in q: from:x to:y since:YYYY-MM-DD has:attachment
   let q = query.trim();
   const parsed = { ...opts };
   const fromMatch = q.match(/\bfrom:(\S+)/i);
@@ -653,14 +692,36 @@ export async function searchMessages(
     parsed.to = parsed.to || toMatch[1];
     q = q.replace(toMatch[0], "").trim();
   }
+  const subjectMatch = q.match(/\bsubject:("([^"]+)"|(\S+))/i);
+  if (subjectMatch) {
+    parsed.subject = parsed.subject || subjectMatch[2] || subjectMatch[3];
+    q = q.replace(subjectMatch[0], "").trim();
+  }
   const sinceMatch = q.match(/\bsince:(\S+)/i);
   if (sinceMatch) {
     parsed.since = parsed.since || sinceMatch[1];
     q = q.replace(sinceMatch[0], "").trim();
   }
+  const beforeMatch = q.match(/\bbefore:(\S+)/i);
+  if (beforeMatch) {
+    parsed.before = parsed.before || beforeMatch[1];
+    q = q.replace(beforeMatch[0], "").trim();
+  }
   if (/\bhas:attachment\b/i.test(q)) {
     parsed.hasAttachment = true;
     q = q.replace(/\bhas:attachment\b/i, "").trim();
+  }
+  if (/\bis:starred\b|\bis:flagged\b/i.test(q)) {
+    parsed.flagged = true;
+    q = q.replace(/\bis:starred\b|\bis:flagged\b/gi, "").trim();
+  }
+  if (/\bis:unread\b/i.test(q)) {
+    parsed.unseen = true;
+    q = q.replace(/\bis:unread\b/gi, "").trim();
+  }
+  if (/\bis:read\b/i.test(q)) {
+    parsed.seen = true;
+    q = q.replace(/\bis:read\b/gi, "").trim();
   }
 
   return withImap(creds, async (client) => {
@@ -669,14 +730,21 @@ export async function searchMessages(
       const criteria: Record<string, unknown> = {};
       if (parsed.from) criteria.from = parsed.from;
       if (parsed.to) criteria.to = parsed.to;
+      if (parsed.subject) criteria.subject = parsed.subject;
       if (parsed.since) {
         const d = new Date(parsed.since);
         if (!Number.isNaN(d.getTime())) criteria.since = d;
       }
+      if (parsed.before) {
+        const d = new Date(parsed.before);
+        if (!Number.isNaN(d.getTime())) criteria.before = d;
+      }
+      if (parsed.flagged) criteria.flagged = true;
+      if (parsed.unseen) criteria.unseen = true;
+      if (parsed.seen) criteria.seen = true;
 
       let uids: number[] = [];
       if (q) {
-        // Run separate searches and union — more reliable than nested OR across servers
         const parts = await Promise.all([
           client.search({ ...criteria, subject: q }, { uid: true }),
           client.search({ ...criteria, body: q }, { uid: true }),
@@ -704,7 +772,7 @@ export async function searchMessages(
       }
 
       if (uids.length === 0) return [];
-      const slice = uids.slice(-100);
+      const slice = uids.slice(-150);
       const messages: MessageListItem[] = [];
       for await (const msg of client.fetch(
         slice,
@@ -714,21 +782,14 @@ export async function searchMessages(
         const env = msg.envelope;
         const from = addressText(env?.from);
         const flags = msg.flags || new Set<string>();
-        const hasAttachment = (() => {
-          const walk = (node: unknown): boolean => {
-            if (!node || typeof node !== "object") return false;
-            const n = node as { disposition?: string; childNodes?: unknown[] };
-            if (String(n.disposition || "").toLowerCase() === "attachment") return true;
-            if (Array.isArray(n.childNodes)) return n.childNodes.some(walk);
-            return false;
-          };
-          return walk(msg.bodyStructure);
-        })();
+        const hasAttachment = hasAttachmentStructure(msg.bodyStructure);
         if (parsed.hasAttachment && !hasAttachment) continue;
+        const subject = env?.subject || "(no subject)";
+        const messageId = env?.messageId || undefined;
         messages.push({
           uid: msg.uid,
           seq: msg.seq,
-          subject: env?.subject || "(no subject)",
+          subject,
           from: from.name,
           fromEmail: from.email,
           date: env?.date ? new Date(env.date).toISOString() : null,
@@ -737,9 +798,33 @@ export async function searchMessages(
           flagged: flags.has("\\Flagged"),
           answered: flags.has("\\Answered"),
           hasAttachment,
+          messageId,
+          threadId: resolveThreadId(messageId, undefined, undefined, subject),
         });
       }
       return messages.reverse();
+    } finally {
+      lock.release();
+    }
+  });
+}
+
+export async function getRawMessage(
+  creds: WebmailCredentials,
+  folder: string,
+  uid: number,
+): Promise<{ raw: Buffer; subject: string }> {
+  const path = normalizeFolderPath(folder);
+  return withImap(creds, async (client) => {
+    const lock = await client.getMailboxLock(path);
+    try {
+      const raw = await client.fetchOne(String(uid), { source: true, envelope: true, uid: true }, { uid: true });
+      const msg = raw && typeof raw === "object" ? raw : null;
+      if (!msg || !("source" in msg) || !msg.source) {
+        throw Object.assign(new Error("Message not found"), { status: 404 });
+      }
+      const buf = Buffer.isBuffer(msg.source) ? msg.source : Buffer.from(msg.source as Uint8Array);
+      return { raw: buf, subject: msg.envelope?.subject || `message-${uid}` };
     } finally {
       lock.release();
     }

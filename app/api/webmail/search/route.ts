@@ -14,11 +14,21 @@ export async function GET(request: Request) {
     const to = searchParams.get("to") || undefined;
     const since = searchParams.get("since") || undefined;
     const hasAttachment = searchParams.get("hasAttachment") === "1";
+    const flagged = searchParams.get("flagged") === "1";
+    const unseen = searchParams.get("unseen") === "1";
+    const seen = searchParams.get("seen") === "1";
+    const subject = searchParams.get("subject") || undefined;
+    const before = searchParams.get("before") || undefined;
     const messages = await searchMessages(creds, folder, q, {
       from,
       to,
       since,
+      before,
+      subject,
       hasAttachment: hasAttachment || undefined,
+      flagged: flagged || undefined,
+      unseen: unseen || undefined,
+      seen: seen || undefined,
     });
     return ok({ messages, q, folder });
   } catch (error) {

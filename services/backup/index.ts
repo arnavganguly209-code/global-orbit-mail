@@ -4,7 +4,8 @@
 
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
-import type { BackupJobKind, JobRunStatus } from "@prisma/client";
+import { mailboxRepository } from "@/repositories/mailbox.repository";
+import type { BackupJobKind, DnsRecordType, JobRunStatus } from "@prisma/client";
 
 async function buildPlatformSnapshot() {
   const [orgs, domains, mailboxes, plans, templates] = await Promise.all([
@@ -191,4 +192,223 @@ export const backupService = {
       throw error;
     }
   },
+
+  async restore(jobId: string, actorId: string) {
+    const job = await prisma.backupJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new Error("Backup job not found");
+    if (job.status !== "SUCCEEDED" || !job.artifact) {
+      throw new Error("Only succeeded backups with artifacts can be restored");
+    }
+
+    let summary: Record<string, unknown>;
+    if (job.kind === "MAILBOX") {
+      if (!job.mailboxId) throw new Error("Backup is missing mailboxId");
+      summary = await restoreMailboxArtifact(job.artifact, job.mailboxId, actorId);
+    } else if (job.kind === "DOMAIN") {
+      if (!job.domainId) throw new Error("Backup is missing domainId");
+      summary = await restoreDomainArtifact(job.artifact, job.domainId, actorId);
+    } else if (job.kind === "ORGANIZATION") {
+      if (!job.organizationId) throw new Error("Backup is missing organizationId");
+      summary = await restoreOrganizationArtifact(job.artifact, job.organizationId, actorId);
+    } else {
+      throw new Error(
+        "Platform-wide restore is not supported — restore organization, domain, or mailbox backups instead",
+      );
+    }
+
+    await writeAudit({
+      actorId,
+      action: "backup.restore",
+      resource: "backup_job",
+      resourceId: job.id,
+      metadata: { kind: job.kind, ...summary },
+    });
+
+    return { jobId: job.id, kind: job.kind, ...summary };
+  },
 };
+
+type MailboxSnapshot = {
+  id?: string;
+  displayName?: string | null;
+  jobTitle?: string | null;
+  department?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  company?: string | null;
+  replyTo?: string | null;
+  timezone?: string | null;
+  language?: string | null;
+  signatureHtml?: string | null;
+  signatureText?: string | null;
+  avatarUrl?: string | null;
+  vacationEnabled?: boolean;
+  vacationSubject?: string | null;
+  vacationBody?: string | null;
+  vacationExpiresAt?: string | Date | null;
+  quota?: { quotaMb?: number } | null;
+  aliases?: Array<{ address: string }>;
+  forwarders?: Array<{ destination: string; keepCopy?: boolean }>;
+};
+
+type DomainSnapshot = {
+  id?: string;
+  companyName?: string | null;
+  brandColor?: string | null;
+  dnsRecords?: Array<{
+    type: DnsRecordType;
+    name: string;
+    value: string;
+    priority?: number | null;
+    ttl?: number;
+    deletedAt?: string | Date | null;
+  }>;
+};
+
+async function restoreMailboxArtifact(artifact: unknown, mailboxId: string, actorId: string) {
+  const snap = (artifact as { mailbox?: MailboxSnapshot }).mailbox;
+  if (!snap?.id || snap.id !== mailboxId) {
+    throw new Error("Backup artifact does not match this mailbox");
+  }
+
+  await mailboxRepository.update(
+    mailboxId,
+    {
+      displayName: snap.displayName ?? null,
+      jobTitle: snap.jobTitle ?? null,
+      department: snap.department ?? null,
+      phone: snap.phone ?? null,
+      website: snap.website ?? null,
+      company: snap.company ?? null,
+      replyTo: snap.replyTo ?? null,
+      timezone: snap.timezone ?? null,
+      language: snap.language ?? null,
+      signatureHtml: snap.signatureHtml ?? null,
+      signatureText: snap.signatureText ?? null,
+      avatarUrl: snap.avatarUrl ?? null,
+      vacationEnabled: Boolean(snap.vacationEnabled),
+      vacationSubject: snap.vacationSubject ?? null,
+      vacationBody: snap.vacationBody ?? null,
+      vacationExpiresAt:
+        snap.vacationExpiresAt == null
+          ? null
+          : new Date(snap.vacationExpiresAt),
+      quotaMb: snap.quota?.quotaMb,
+    },
+    actorId,
+  );
+
+  const existingAliases = await mailboxRepository.listAliases(mailboxId);
+  const aliasSet = new Set(existingAliases.map((a) => a.address.toLowerCase()));
+  let aliasesAdded = 0;
+  for (const alias of snap.aliases ?? []) {
+    const address = alias.address?.trim();
+    if (!address || aliasSet.has(address.toLowerCase())) continue;
+    try {
+      await mailboxRepository.addAlias(mailboxId, address, actorId);
+      aliasSet.add(address.toLowerCase());
+      aliasesAdded += 1;
+    } catch {
+      // skip invalid or duplicate aliases
+    }
+  }
+
+  const existingForwarders = await mailboxRepository.listForwarders(mailboxId);
+  const forwarderSet = new Set(existingForwarders.map((f) => f.destination.toLowerCase()));
+  let forwardersAdded = 0;
+  for (const forwarder of snap.forwarders ?? []) {
+    const destination = forwarder.destination?.trim();
+    if (!destination || forwarderSet.has(destination.toLowerCase())) continue;
+    try {
+      await mailboxRepository.addForwarder(
+        mailboxId,
+        destination,
+        forwarder.keepCopy ?? true,
+        actorId,
+      );
+      forwarderSet.add(destination.toLowerCase());
+      forwardersAdded += 1;
+    } catch {
+      // skip invalid or duplicate forwarders
+    }
+  }
+
+  return { mailboxId, aliasesAdded, forwardersAdded };
+}
+
+async function restoreDomainArtifact(artifact: unknown, domainId: string, actorId: string) {
+  const snap = (artifact as { domain?: DomainSnapshot }).domain;
+  if (!snap?.id || snap.id !== domainId) {
+    throw new Error("Backup artifact does not match this domain");
+  }
+
+  await prisma.domain.update({
+    where: { id: domainId },
+    data: {
+      companyName: snap.companyName ?? undefined,
+      brandColor: snap.brandColor ?? undefined,
+    },
+  });
+
+  let dnsRecordsAdded = 0;
+  for (const record of snap.dnsRecords ?? []) {
+    if (record.deletedAt) continue;
+    const exists = await prisma.dnsRecord.findFirst({
+      where: {
+        domainId,
+        type: record.type,
+        name: record.name,
+        value: record.value,
+        deletedAt: null,
+      },
+    });
+    if (exists) continue;
+    await prisma.dnsRecord.create({
+      data: {
+        domainId,
+        type: record.type,
+        name: record.name,
+        value: record.value,
+        priority: record.priority ?? undefined,
+        ttl: record.ttl ?? 3600,
+      },
+    });
+    dnsRecordsAdded += 1;
+  }
+
+  await writeAudit({
+    actorId,
+    action: "domain.restore_from_backup",
+    resource: "domain",
+    resourceId: domainId,
+    metadata: { dnsRecordsAdded },
+  });
+
+  return { domainId, dnsRecordsAdded };
+}
+
+async function restoreOrganizationArtifact(
+  artifact: unknown,
+  organizationId: string,
+  actorId: string,
+) {
+  const root = artifact as {
+    org?: { id?: string; name?: string; status?: string };
+  };
+  const org = root.org;
+  if (!org?.id || org.id !== organizationId) {
+    throw new Error("Backup artifact does not match this organization");
+  }
+
+  await prisma.organization.update({
+    where: { id: organizationId },
+    data: {
+      ...(org.name ? { name: org.name } : {}),
+      ...(org.status
+        ? { status: org.status as "ACTIVE" | "TRIAL" | "SUSPENDED" | "ARCHIVED" }
+        : {}),
+    },
+  });
+
+  return { organizationId, fieldsUpdated: ["name", "status"].filter((f) => org[f as keyof typeof org]) };
+}
