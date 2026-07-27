@@ -29,7 +29,9 @@
 $config['smtp_host'] = 'ssl://127.0.0.1:465';
 $config['smtp_user'] = '%u';
 $config['smtp_pass'] = '%p';
-$config['smtp_auth_type'] = 'PLAIN';
+// null = try server-advertised mechanisms (LOGIN/PLAIN)
+$config['smtp_auth_type'] = null;
+$config['smtp_timeout'] = 30;
 
 // Loopback SMTPS: cert is for mail.globalorbitmail.cloud, not 127.0.0.1.
 // Disable peer name verify on loopback so PHP does not abort connect()
@@ -39,7 +41,7 @@ $config['smtp_conn_options'] = [
     'verify_peer'       => false,
     'verify_peer_name'  => false,
     'peer_name'         => 'mail.globalorbitmail.cloud',
-    'allow_self_signed' => false,
+    'allow_self_signed' => true,
   ],
 ];
 

@@ -78,36 +78,39 @@ postconf -e "append_dot_mydomain = no"
 postconf -e "biff = no"
 
 # Open relay lock (authenticated + mynetworks only)
+# Do NOT append reject_unknown_* after permit — and never set empty smtpd_sender_login_maps.
+# Do NOT enable milters unless OpenDKIM is actually listening (hung milter = Roundcube AJAX timeout).
 postconf -e "smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, defer_unauth_destination"
-postconf -e "smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination, reject_invalid_hostname, reject_non_fqdn_sender, reject_non_fqdn_recipient, reject_unknown_sender_domain, reject_unknown_recipient_domain"
-postconf -e "smtpd_sender_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_non_fqdn_sender, reject_unknown_sender_domain"
+postconf -e "smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination"
+postconf -e "smtpd_sender_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_non_fqdn_sender"
 postconf -e "smtpd_helo_required = yes"
 postconf -e "mynetworks = 127.0.0.0/8 [::1]/128"
-
-# Prefer Return-Path = envelope sender from auth user (SASL)
-postconf -e "smtpd_sender_login_maps = static:"
-# Leave sender_login_maps empty/static if not using reject_sender_login_mismatch yet
+postconf -X smtpd_sender_login_maps 2>/dev/null || true
 
 echo "    myhostname=$(postconf -h myhostname)"
 echo "    smtp_helo_name=$(postconf -h smtp_helo_name)"
 echo "    smtp_tls_security_level=$(postconf -h smtp_tls_security_level)"
 echo "    smtpd_relay_restrictions=$(postconf -h smtpd_relay_restrictions)"
 
-# --- 2) OpenDKIM milter ---
+# --- 2) OpenDKIM milter wiring (only if :8891 is live) ---
 echo "==> [2/10] OpenDKIM milter wiring"
-if command -v opendkim >/dev/null 2>&1 || [[ -d /etc/opendkim ]]; then
-  milters="$(postconf -h smtpd_milters 2>/dev/null || true)"
-  if [[ "$milters" != *8891* && "$milters" != *opendkim* ]]; then
-    postconf -e "smtpd_milters = inet:localhost:8891"
-    postconf -e "non_smtpd_milters = inet:localhost:8891"
-    postconf -e "milter_default_action = accept"
-    postconf -e "milter_protocol = 6"
-  fi
-  systemctl enable opendkim 2>/dev/null || true
-  systemctl restart opendkim 2>/dev/null || service opendkim restart 2>/dev/null || true
+MILTER_OK=0
+if ss -tlnp 2>/dev/null | grep -q ':8891 '; then MILTER_OK=1; fi
+if [[ "$MILTER_OK" -eq 1 ]] && { command -v opendkim >/dev/null 2>&1 || systemctl is-active --quiet opendkim 2>/dev/null; }; then
+  postconf -e "smtpd_milters = inet:127.0.0.1:8891"
+  postconf -e "non_smtpd_milters = inet:127.0.0.1:8891"
+  postconf -e "milter_default_action = accept"
+  postconf -e "milter_protocol = 6"
+  postconf -e "milter_connect_timeout = 5s"
+  postconf -e "milter_command_timeout = 10s"
   echo "    milters=$(postconf -h smtpd_milters)"
 else
-  echo "    WARN: OpenDKIM not installed — apt-get install -y opendkim opendkim-tools"
+  postconf -e "smtpd_milters ="
+  postconf -e "non_smtpd_milters ="
+  echo "    WARN: OpenDKIM not listening — milters cleared (prevents Roundcube send hang)"
+  if ! command -v opendkim >/dev/null 2>&1; then
+    echo "    Install later: apt-get install -y opendkim opendkim-tools"
+  fi
 fi
 
 # --- 3) Roundcube deliverability include ---
