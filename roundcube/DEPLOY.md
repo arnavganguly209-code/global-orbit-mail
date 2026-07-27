@@ -17,6 +17,14 @@ Replaces login + chrome UI to match the attached premium references.
 
 ## Deploy on VPS (required for live)
 
+One-shot apply (no git clone required on the VPS):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arnavganguly209-code/global-orbit-mail/main/deploy/vps/apply-orbit-skin-inline.sh | bash
+```
+
+Or from a local checkout:
+
 ```bash
 cd /path/to/global-orbit-mail
 git pull origin main

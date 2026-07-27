@@ -85,12 +85,35 @@ PY
   php -l "$CFG" || true
 fi
 
-# Clear Roundcube caches
-rm -rf "${RC_ROOT}/temp/cache" "${RC_ROOT}/temp/cache_"* 2>/dev/null || true
+# Belt-and-suspenders: strip any leftover SSO markup from deployed login template
+LOGIN_TPL="${DST}/templates/login.html"
+if [[ -f "$LOGIN_TPL" ]]; then
+  python3 - <<'PY' "$LOGIN_TPL"
+import re, sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8", errors="replace").read()
+# Remove SSO blocks / "or" dividers if an older template somehow remains
+text2 = re.sub(r'(?is)<[^>]*class=["\'][^"\']*orbit-sso[^"\']*["\'][^>]*>.*?</[^>]+>', '', text)
+text2 = re.sub(r'(?is)<[^>]*class=["\'][^"\']*orbit-or[^"\']*["\'][^>]*>.*?</[^>]+>', '', text2)
+text2 = re.sub(r'(?is)Sign in with SSO\s*\(Coming Soon\)', '', text2)
+if text2 != text:
+    open(path, "w", encoding="utf-8").write(text2)
+    print("stripped SSO remnants from", path)
+else:
+    print("login template clean (no SSO)")
+PY
+fi
+
+# Clear Roundcube caches + opcode if present
+rm -rf "${RC_ROOT}/temp/cache" "${RC_ROOT}/temp/cache_"* "${RC_ROOT}/temp/templates"* 2>/dev/null || true
+find "${RC_ROOT}/temp" -type f -name '*.php' -delete 2>/dev/null || true
 systemctl reload php8.3-fpm 2>/dev/null || systemctl reload php8.2-fpm 2>/dev/null || systemctl reload php8.1-fpm 2>/dev/null || true
 systemctl reload nginx 2>/dev/null || true
 
+# Cache-bust static assets via nginx (optional mtime touch)
+find "$DST" -type f \( -name '*.css' -o -name '*.js' -o -name '*.png' \) -exec touch {} \;
+
 echo
 echo "DONE. Open https://webmail.globalorbitmail.cloud/ (hard refresh Ctrl+Shift+R)"
-echo "Login page should show split Earth hero + glass card + official logo (transparent)."
+echo "Expect: large transparent logo, lower tagline, NO SSO button, gold mail chrome."
 echo "IMAP/SMTP untouched."
