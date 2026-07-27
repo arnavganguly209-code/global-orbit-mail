@@ -1,15 +1,667 @@
-/* GLOBAL ORBIT MAIL — embed/editor chrome */
-@import url("../../elastic/styles/embed.css");
+/* GLOBAL ORBIT MAIL — Orbit skin (extends Elastic)
+ * Premium UI matching official login + dashboard references.
+ * Does NOT alter IMAP/SMTP/auth PHP logic.
+ */
+
+@import url("../../elastic/styles/styles.min.css");
 
 :root {
-  --orbit-accent: #3b82f6;
+  --orbit-font: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --orbit-gold: #d4af37;
+  --orbit-gold-bright: #f0d78c;
+  --orbit-gold-deep: #b8860b;
+  --orbit-gold-grad: linear-gradient(135deg, #f5e6a8 0%, #d4af37 45%, #a67c00 100%);
+  --orbit-blue: #3b82f6;
+  --orbit-blue-soft: rgba(59, 130, 246, 0.35);
+
+  /* Dark luxury (primary — matches attached dashboard) */
+  --orbit-bg-0: #07070b;
+  --orbit-bg-1: #0c0c12;
+  --orbit-bg-app: #0a0a10;
+  --orbit-sidebar: #101018;
+  --orbit-toolbar: #12121a;
+  --orbit-panel: #14141e;
+  --orbit-panel-solid: #16161f;
+  --orbit-glass: rgba(16, 16, 24, 0.72);
+  --orbit-glass-border: rgba(212, 175, 55, 0.28);
+  --orbit-border: rgba(148, 163, 184, 0.16);
+  --orbit-text: #f3f4f6;
+  --orbit-muted: #9ca3af;
+  --orbit-hover: rgba(212, 175, 55, 0.1);
+  --orbit-selected: rgba(212, 175, 55, 0.16);
+  --orbit-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --orbit-input-bg: rgba(8, 8, 14, 0.85);
+  --orbit-accent: var(--orbit-gold);
+  --orbit-radius: 18px;
+  --orbit-radius-sm: 12px;
 }
 
-body {
-  background: #0a0f1a;
-  color: #e8eef9;
+/* Light mode (professional white) */
+html.light-mode,
+html:not(.dark-mode):not(.dark) body:not(.dark-mode) {
+  /* Elastic toggles dark via class; keep dark as brand default on login */
 }
 
-a {
-  color: #60a5fa;
+html.light-mode,
+body.light-mode {
+  --orbit-bg-0: #f4f5f8;
+  --orbit-bg-1: #ffffff;
+  --orbit-bg-app: #eef0f5;
+  --orbit-sidebar: #ffffff;
+  --orbit-toolbar: #ffffff;
+  --orbit-panel: #ffffff;
+  --orbit-panel-solid: #ffffff;
+  --orbit-glass: rgba(255, 255, 255, 0.86);
+  --orbit-glass-border: rgba(212, 175, 55, 0.35);
+  --orbit-border: rgba(15, 23, 42, 0.1);
+  --orbit-text: #0f172a;
+  --orbit-muted: #64748b;
+  --orbit-hover: rgba(212, 175, 55, 0.12);
+  --orbit-selected: rgba(212, 175, 55, 0.18);
+  --orbit-shadow: 0 16px 40px rgba(15, 23, 42, 0.1);
+  --orbit-input-bg: #ffffff;
+}
+
+html, body {
+  font-family: var(--orbit-font) !important;
+  background: var(--orbit-bg-app) !important;
+  color: var(--orbit-text) !important;
+}
+
+/* Hide Roundcube product branding strings where possible */
+#login-footer .product-info,
+.footer .product-name,
+a[href*="roundcube.net"] {
+  display: none !important;
+}
+
+/* ================================================================== */
+/* LOGIN — split luxury layout (reference: login-design.png)           */
+/* ================================================================== */
+
+body.task-login,
+body.task-login #layout {
+  background: #050508 !important;
+  min-height: 100vh;
+}
+
+body.task-login #layout > .header,
+body.task-login .menu.toolbar,
+body.task-login #layout-menu {
+  display: none !important;
+}
+
+.orbit-login-root {
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+  max-width: none !important;
+  background: transparent !important;
+}
+
+.orbit-split {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.orbit-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 2.25rem 2.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.orbit-hero-media {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  transform: scale(1.02);
+  animation: orbit-kenburns 28s ease-in-out infinite alternate;
+}
+
+.orbit-hero-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(5, 5, 8, 0.35) 0%, rgba(5, 5, 8, 0.55) 55%, rgba(5, 5, 8, 0.82) 100%),
+    linear-gradient(180deg, rgba(5, 5, 8, 0.25) 0%, rgba(5, 5, 8, 0.55) 100%);
+}
+
+.orbit-stars {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+@keyframes orbit-kenburns {
+  from { transform: scale(1.02) translate3d(0, 0, 0); }
+  to { transform: scale(1.08) translate3d(-1.5%, -1%, 0); }
+}
+
+.orbit-hero-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  height: 100%;
+}
+
+.orbit-logo-mark {
+  display: block;
+  width: min(420px, 72vw);
+  height: auto;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 0 0.75rem;
+  /* Never put a colored box behind the logo */
+  mix-blend-mode: normal;
+}
+
+.orbit-hero-tagline {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(0.95rem, 1.4vw, 1.15rem);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.orbit-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.orbit-feature {
+  color: #e5e7eb;
+}
+
+.orbit-feature-icon {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  color: var(--orbit-gold);
+  margin-bottom: 0.55rem;
+}
+
+.orbit-feature-icon svg { width: 100%; height: 100%; }
+
+.orbit-feature h3 {
+  margin: 0 0 0.35rem;
+  color: var(--orbit-gold-bright);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.orbit-feature p {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: rgba(229, 231, 235, 0.82);
+}
+
+.orbit-bottom-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+  margin-top: auto;
+}
+
+.orbit-info-card {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  background: rgba(12, 12, 18, 0.55);
+  border: 1px solid rgba(212, 175, 55, 0.18);
+  backdrop-filter: blur(10px);
+  color: #e5e7eb;
+}
+
+.orbit-info-card strong {
+  display: block;
+  color: #fff;
+  font-size: 0.86rem;
+  margin-bottom: 0.2rem;
+}
+
+.orbit-info-card p {
+  margin: 0;
+  font-size: 0.72rem;
+  color: rgba(229, 231, 235, 0.75);
+  line-height: 1.4;
+}
+
+.orbit-hero-copy {
+  margin: 0.5rem 0 0;
+  font-size: 0.72rem;
+  color: rgba(212, 175, 55, 0.85);
+}
+
+/* Auth column */
+.orbit-auth {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem 1.5rem;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(59, 130, 246, 0.12), transparent 50%),
+    radial-gradient(ellipse at 80% 80%, rgba(212, 175, 55, 0.08), transparent 45%),
+    #07070b;
+}
+
+.orbit-glass-card {
+  width: min(440px, 100%);
+  padding: 2rem 1.75rem 1.5rem;
+  border-radius: 22px;
+  background: rgba(14, 14, 22, 0.72);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  box-shadow:
+    0 0 0 1px rgba(59, 130, 246, 0.25),
+    0 0 0 2px rgba(212, 175, 55, 0.12),
+    0 30px 80px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  position: relative;
+}
+
+.orbit-glass-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(145deg, rgba(59, 130, 246, 0.55), rgba(212, 175, 55, 0.45));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.orbit-auth-head {
+  text-align: center;
+  margin-bottom: 1.35rem;
+}
+
+.orbit-mail-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 999px;
+  color: var(--orbit-gold);
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  background: rgba(212, 175, 55, 0.08);
+  margin-bottom: 0.85rem;
+}
+
+.orbit-auth-head h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.orbit-auth-head h2 span,
+.orbit-auth-head p span {
+  color: var(--orbit-gold-bright);
+}
+
+.orbit-auth-head p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(229, 231, 235, 0.75);
+}
+
+.orbit-propform .form-group,
+.orbit-propform .row,
+.orbit-propform .form-floating {
+  margin-bottom: 0.85rem !important;
+}
+
+.orbit-propform label {
+  color: rgba(229, 231, 235, 0.7) !important;
+  font-size: 0.78rem !important;
+}
+
+.orbit-propform input.form-control,
+.orbit-propform #rcmloginuser,
+.orbit-propform #rcmloginpwd {
+  background: rgba(8, 8, 14, 0.9) !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  border-radius: 12px !important;
+  color: #fff !important;
+  min-height: 2.85rem !important;
+  padding: 0.65rem 0.9rem !important;
+  box-shadow: none !important;
+}
+
+.orbit-propform input.form-control:focus,
+.orbit-propform #rcmloginuser:focus,
+.orbit-propform #rcmloginpwd:focus {
+  border-color: rgba(212, 175, 55, 0.75) !important;
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.18) !important;
+  outline: none !important;
+}
+
+.orbit-extras {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.35rem 0 0.75rem;
+}
+
+.orbit-remember {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: rgba(229, 231, 235, 0.85);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.orbit-toggle-pass,
+.orbit-forgot {
+  background: none;
+  border: 0;
+  color: var(--orbit-gold-bright) !important;
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-decoration: none;
+  padding: 0;
+}
+
+.orbit-links {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.85rem;
+}
+
+.orbit-caps {
+  color: #fbbf24;
+  font-size: 0.75rem;
+  margin: 0 0 0.5rem;
+}
+
+.orbit-propform #rcmloginsubmit,
+.orbit-propform button[type="submit"],
+.orbit-propform input[type="submit"] {
+  width: 100% !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  min-height: 2.95rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+  color: #1a1200 !important;
+  background: var(--orbit-gold-grad) !important;
+  box-shadow: 0 10px 28px rgba(212, 175, 55, 0.35) !important;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.orbit-propform #rcmloginsubmit:hover,
+.orbit-propform button[type="submit"]:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.orbit-propform #rcmloginsubmit.orbit-loading {
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.orbit-or {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.1rem 0;
+  color: rgba(156, 163, 175, 0.9);
+  font-size: 0.75rem;
+  text-transform: lowercase;
+}
+
+.orbit-or::before,
+.orbit-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.orbit-sso {
+  width: 100%;
+  min-height: 2.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.55);
+  background: rgba(10, 16, 32, 0.65);
+  color: #93c5fd;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  cursor: not-allowed;
+  opacity: 0.9;
+}
+
+.orbit-help {
+  text-align: center;
+  margin: 1rem 0 0;
+  font-size: 0.8rem;
+  color: rgba(229, 231, 235, 0.7);
+}
+
+.orbit-help a {
+  color: var(--orbit-gold-bright);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.orbit-auth-footer {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: center;
+  font-size: 0.72rem;
+  color: rgba(156, 163, 175, 0.85);
+}
+
+.orbit-auth-footer a {
+  color: rgba(212, 175, 55, 0.9);
+  text-decoration: none;
+}
+
+.orbit-login-footer:empty { display: none; }
+
+/* ================================================================== */
+/* MAIL UI — premium dashboard (reference: dashboard-design.png)       */
+/* ================================================================== */
+
+#layout {
+  background: var(--orbit-bg-app) !important;
+}
+
+#layout-sidebar,
+#layout-list,
+#layout-content,
+#layout-menu {
+  background: var(--orbit-panel) !important;
+  border-color: var(--orbit-border) !important;
+  color: var(--orbit-text) !important;
+}
+
+#layout-menu,
+#layout-sidebar {
+  background: var(--orbit-sidebar) !important;
+  border-right: 1px solid var(--orbit-border) !important;
+}
+
+/* Compose — gold CTA */
+.button.create,
+a.button.create,
+#composebtn,
+.toolbar a.compose,
+.menu a.compose {
+  background: var(--orbit-gold-grad) !important;
+  color: #1a1200 !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  font-weight: 700 !important;
+  box-shadow: 0 8px 22px rgba(212, 175, 55, 0.28) !important;
+}
+
+#mailboxlist li.mailbox.selected > a,
+#mailboxlist li.selected > a,
+.folderlist li.selected > a {
+  background: var(--orbit-selected) !important;
+  color: var(--orbit-gold-bright) !important;
+  border-left: 3px solid var(--orbit-gold) !important;
+  border-radius: 10px !important;
+}
+
+#mailboxlist li > a:hover,
+.folderlist li > a:hover {
+  background: var(--orbit-hover) !important;
+  color: var(--orbit-text) !important;
+  border-radius: 10px;
+}
+
+.header,
+.toolbar,
+.searchbar,
+#messagetoolbar {
+  background: var(--orbit-toolbar) !important;
+  border-color: var(--orbit-border) !important;
+  color: var(--orbit-text) !important;
+}
+
+.searchbar input,
+.form-control,
+input[type="text"],
+input[type="search"],
+textarea {
+  background: var(--orbit-input-bg) !important;
+  border: 1px solid var(--orbit-border) !important;
+  color: var(--orbit-text) !important;
+  border-radius: 12px !important;
+}
+
+#messagelist tr,
+.messagelist tr {
+  border-color: var(--orbit-border) !important;
+}
+
+#messagelist tr.selected,
+.messagelist tr.selected,
+#messagelist tr.focused {
+  background: var(--orbit-selected) !important;
+  box-shadow: inset 3px 0 0 var(--orbit-gold);
+}
+
+#messagelist tr.unread td,
+.messagelist tr.unread {
+  font-weight: 700;
+}
+
+.message-part,
+#messagebody,
+#messagecontframe,
+.content {
+  color: var(--orbit-text) !important;
+}
+
+.button,
+.btn,
+a.button {
+  border-radius: 10px !important;
+}
+
+.btn-primary,
+.button.mainaction {
+  background: var(--orbit-gold-grad) !important;
+  border: 0 !important;
+  color: #1a1200 !important;
+  font-weight: 700 !important;
+}
+
+/* Unread badges */
+.badge,
+.bubble,
+.count {
+  background: var(--orbit-gold) !important;
+  color: #1a1200 !important;
+  border-radius: 999px !important;
+}
+
+/* Attachment cards */
+.attachment,
+.attachbox,
+#attachment-list li {
+  background: var(--orbit-panel-solid) !important;
+  border: 1px solid var(--orbit-border) !important;
+  border-radius: 12px !important;
+}
+
+/* Quota / storage */
+.quotameter,
+.quota {
+  border-radius: 10px;
+  overflow: hidden;
+}
+.quotameter .bar,
+.quota .bar {
+  background: var(--orbit-gold-grad) !important;
+}
+
+/* Logo in app chrome — transparent, no box */
+#logo,
+.logo,
+img[alt*="GLOBAL ORBIT"],
+.popover .logo {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  max-height: 42px;
+}
+
+/* ================================================================== */
+/* Responsive                                                          */
+/* ================================================================== */
+
+@media (max-width: 1100px) {
+  .orbit-feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
+  .orbit-split { grid-template-columns: 1fr; }
+  .orbit-hero {
+    min-height: 42vh;
+    padding: 1.25rem 1.25rem 1rem;
+  }
+  .orbit-bottom-cards { display: none; }
+  .orbit-feature-grid { gap: 0.75rem; }
+  .orbit-auth { padding: 1.25rem 1rem 2rem; }
+}
+
+@media (max-width: 560px) {
+  .orbit-feature-grid { grid-template-columns: 1fr 1fr; }
+  .orbit-hero-tagline { letter-spacing: 0.08em; font-size: 0.8rem; }
+  .orbit-logo-mark { width: min(280px, 85vw); }
 }

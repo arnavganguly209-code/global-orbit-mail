@@ -1,33 +1,25 @@
 <?php
 /**
- * GLOBAL ORBIT MAIL — Roundcube branding config snippet
+ * GLOBAL ORBIT MAIL — Roundcube branding (production)
  *
- * Merge these keys into the LIVE Roundcube config file, typically:
- *   /path/to/roundcube/config/config.inc.php
+ * Include from live config.inc.php:
+ *   include __DIR__ . '/orbit-branding.inc.php';
  *
- * Do NOT replace IMAP / SMTP / database / session settings.
- * Only apply skin + product branding keys below.
+ * Do NOT change IMAP / SMTP / database / session settings here.
  */
 
-// Product branding (browser title / UI product name)
 $config['product_name'] = 'Global Orbit Mail';
-
-// Use the custom Orbit skin (extends Elastic — update-safe isolation)
 $config['skin'] = 'orbit';
-
-// Optional: force logo assets from the orbit skin
 $config['skin_logo'] = [
-  'login[elastic]*' => '/images/logo.png',
-  'login[orbit]*'   => '/images/logo.png',
-  '*[orbit]*'       => '/images/logo.png',
-  '*[elastic]*'     => '/images/logo.png',
+  '*' => '/images/logo.png',
+  'login*' => '/images/logo.png',
+  '*[dark]' => '/images/logo-dark.png',
+  'print*' => '/images/logo.png',
 ];
-
-// Support / forgot-password destination
 $config['support_url'] = 'https://theglobalorbit.com';
-
-// Hide default Roundcube product/version footer (custom footer is in login template)
 $config['display_product_info'] = 0;
-
-// Keep Elastic dark-mode capability available in Orbit skin
-$config['skin_include_php'] = false;
+// Remove Roundcube vendor watermark / about links where supported
+$config['dont_override'] = array_values(array_unique(array_merge(
+  isset($config['dont_override']) && is_array($config['dont_override']) ? $config['dont_override'] : [],
+  ['skin', 'product_name']
+)));
