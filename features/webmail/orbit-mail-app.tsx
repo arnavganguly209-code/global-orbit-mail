@@ -791,7 +791,7 @@ export function OrbitMailApp({
   const topBar = (
     <header
       className={cn(
-        "flex h-14 shrink-0 items-center gap-3 border-b px-3 sm:px-4",
+        "flex h-16 shrink-0 items-center gap-3 border-b px-3 sm:h-[4.5rem] sm:px-4",
         light ? "border-slate-200 bg-white/95" : "border-white/[0.07] bg-[#0b0b11]/95 backdrop-blur-xl",
       )}
     >
@@ -808,7 +808,9 @@ export function OrbitMailApp({
           <Menu className="size-5" />
         </button>
       ) : (
-        <CompanyLogo className="h-11 max-h-12 w-auto max-w-[220px] sm:h-12 sm:max-h-14 sm:max-w-[260px]" />
+        <div className={cn("flex shrink-0 items-center", sidebarWidth)}>
+          <CompanyLogo className="h-[3.75rem] max-h-[4.25rem] w-auto max-w-[calc(100%-0.5rem)] sm:h-[4.5rem] sm:max-h-[5.25rem] sm:max-w-[280px] xl:max-w-[300px]" />
+        </div>
       )}
 
       <form
