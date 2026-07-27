@@ -63,6 +63,12 @@ fi
 export PORT="$APP_PORT"
 pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
 pm2 start npm --name "$APP_NAME" --cwd "$REPO_ROOT" -- start -- -p "$APP_PORT"
+# Apex site (globalorbitmail.cloud → :3003) shares this repo's .next build.
+# Always restart it after rebuild so HTML/CSS/JS hashes stay in sync.
+if pm2 describe global-orbit-mail >/dev/null 2>&1; then
+  echo "Restarting shared apex process: global-orbit-mail (shared .next)"
+  pm2 restart global-orbit-mail --update-env || true
+fi
 pm2 save || true
 
 # ── Discover existing valid TLS cert/key (never invent a missing path) ──
