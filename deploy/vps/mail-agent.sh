@@ -500,6 +500,10 @@ EOF
     postconf -e "myhostname = ${PTR_HOSTNAME}"
     postconf -e "smtp_helo_name = ${PTR_HOSTNAME}"
     postconf -e "soft_bounce = no"
+    postconf -e "smtp_tls_security_level = may"
+    postconf -e "smtpd_tls_security_level = may"
+    postconf -e "always_add_missing_headers = yes"
+    postconf -e "smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, defer_unauth_destination"
     # Gmail 550 5.7.1 IPv6AuthError: host IPv6 lacks PTR/SPF. Force IPv4 outbound/inbound SMTP.
     # MX hosts have A-only (no AAAA), so inbound mail stays on IPv4.
     ensure_postfix_ipv4_only

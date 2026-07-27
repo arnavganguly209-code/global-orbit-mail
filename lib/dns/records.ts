@@ -152,7 +152,7 @@ export function buildDnsRecordsForDomain(
       publishType: "TXT",
       name: `_dmarc.${apex}`,
       host: "_dmarc",
-      value: `v=DMARC1; p=quarantine; rua=mailto:dmarc@${apex}; ruf=mailto:dmarc@${apex}; fo=1`,
+      value: `v=DMARC1; p=quarantine; rua=mailto:dmarc@${apex}; ruf=mailto:dmarc@${apex}; fo=1; adkim=r; aspf=r`,
       priority: null,
       status: "PENDING",
       ttl: 3600,

@@ -40,7 +40,7 @@ if [[ ! -f "${RC_ROOT}/config/attachments-mime.inc.php" ]]; then
 $config['max_message_size'] = '25M';
 $config['temp_dir'] = RCUBE_INSTALL_PATH . 'temp/';
 $config['force_7bit'] = false;
-$config['smtp_helo_host'] = 'mail.globalorbitmail.cloud';
+$config['smtp_helo_host'] = 'mail.theglobalorbit.com';
 PHP
 fi
 

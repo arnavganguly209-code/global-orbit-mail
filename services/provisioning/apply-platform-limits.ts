@@ -251,7 +251,7 @@ function applyRoundcubeLimits(steps: string[]): void {
 $config['max_message_size'] = '25M';
 $config['temp_dir'] = 'temp/';
 $config['force_7bit'] = false;
-$config['smtp_helo_host'] = 'mail.globalorbitmail.cloud';
+$config['smtp_helo_host'] = '${PTR_HOSTNAME}';
 $config['mime_types'] = null;
 `,
     "utf8",
@@ -338,7 +338,14 @@ export async function applyPlatformLimitsLocal(): Promise<PlatformLimitsResult> 
       await tryExec(postconf, ["-e", `myhostname = ${PTR_HOSTNAME}`]);
       await tryExec(postconf, ["-e", `smtp_helo_name = ${PTR_HOSTNAME}`]);
       await tryExec(postconf, ["-e", "inet_protocols = ipv4"]);
-      steps.push("postfix: message_size_limit + ipv4");
+      await tryExec(postconf, ["-e", "smtp_tls_security_level = may"]);
+      await tryExec(postconf, ["-e", "smtpd_tls_security_level = may"]);
+      await tryExec(postconf, ["-e", "always_add_missing_headers = yes"]);
+      await tryExec(postconf, [
+        "-e",
+        "smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, defer_unauth_destination",
+      ]);
+      steps.push("postfix: size + ipv4 + opportunistic TLS + header/relay harden");
       await tryExec("systemctl", ["reload", "postfix"]);
     }
 

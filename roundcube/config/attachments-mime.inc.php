@@ -33,8 +33,9 @@ $config['force_7bit'] = false;
 // Allow common attachment types (Roundcube uses system mime.types when empty)
 $config['mime_types'] = null;
 
-// Identity HELO should be a real hostname (helps some filters; Postfix still owns outbound EHLO)
-$config['smtp_helo_host'] = 'mail.globalorbitmail.cloud';
+// HELO must match reverse DNS (PTR). Live PTR is mail.theglobalorbit.com.
+// Postfix smtp_helo_name is authoritative for outbound; keep Roundcube aligned.
+$config['smtp_helo_host'] = getenv('ORBIT_SMTP_HELO') ?: 'mail.theglobalorbit.com';
 
 // Attachment UI / compose
 $config['compose_save_localstorage'] = true;

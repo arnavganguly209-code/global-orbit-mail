@@ -19,6 +19,12 @@ install -m 755 deploy/vps/apply-attachment-limits-inline.sh /opt/global-orbit/bi
 echo "==> [2/6] Apply attachment / size / IPv4 limits"
 bash /opt/global-orbit/bin/apply-attachment-limits-inline.sh
 
+echo "==> [2b/6] Deliverability harden (TLS / HELO / open-relay / Roundcube headers)"
+if [[ -f deploy/vps/harden-deliverability.sh ]]; then
+  install -m 755 deploy/vps/harden-deliverability.sh /opt/global-orbit/bin/harden-deliverability.sh
+  bash /opt/global-orbit/bin/harden-deliverability.sh || true
+fi
+
 echo "==> [3/6] Maildir + Roundcube permissions"
 if id -u vmail >/dev/null 2>&1; then
   chown -R vmail:vmail /var/mail/vhosts 2>/dev/null || true
