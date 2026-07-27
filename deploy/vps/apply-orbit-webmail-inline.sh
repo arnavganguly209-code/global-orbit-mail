@@ -97,7 +97,15 @@ echo "—— Pre-cutover nginx webmail references ——"
 nginx -T 2>/dev/null | grep -nE "webmail|roundcube|/var/www/roundcube|ssl_certificate" | head -80 || true
 echo "—— End pre-cutover dump ——"
 
-bash deploy/vps/deploy-orbit-webmail.sh
+# If Next is already healthy on :3100, skip rebuild and only cut over Nginx
+APP_PORT="${ORBIT_WEBMAIL_PORT:-3100}"
+NEXT_CODE="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${APP_PORT}/webmail/login" || true)"
+if [[ "$NEXT_CODE" == "200" || "$NEXT_CODE" == "302" || "$NEXT_CODE" == "307" || "$NEXT_CODE" == "308" ]]; then
+  echo "Next.js already up on :${APP_PORT} — running Nginx-only cutover."
+  bash deploy/vps/cutover-nginx-webmail.sh
+else
+  bash deploy/vps/deploy-orbit-webmail.sh
+fi
 
 echo
 echo "Post-cutover public checks…"
