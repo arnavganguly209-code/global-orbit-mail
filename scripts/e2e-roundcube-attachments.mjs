@@ -124,7 +124,7 @@ const composeId =
   "";
 results.push(record("compose", Boolean(t1) && Boolean(composeId), `id=${composeId || "none"}`));
 
-# Upload each attachment via Roundcube upload handler (_file + _remote=1)
+// Upload each attachment via Roundcube upload handler (_file + _remote=1)
 const uploaded = [];
 for (const file of [pngPath, pdfPath, zipPath]) {
   const abs = file.replace(/\\/g, "/");
