@@ -134,7 +134,6 @@ body.task-login .menu.toolbar { display: none !important; }
   border: 0 !important;
   box-shadow: none !important;
   outline: none !important;
-  mix-blend-mode: screen;
   image-rendering: auto;
   filter: contrast(1.08) saturate(1.08) brightness(1.05);
 }
