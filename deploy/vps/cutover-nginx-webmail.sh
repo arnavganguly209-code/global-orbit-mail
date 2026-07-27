@@ -51,11 +51,67 @@ detect_ssl() {
 PAIR="$(detect_ssl || true)"
 [[ -n "$PAIR" ]] || { echo "FATAL: no TLS cert found"; exit 1; }
 CERT="${PAIR%%|*}"; KEY="${PAIR##*|}"
+# Never keep a non-existent LE path (common mistake: webmail.* dir missing)
+if [[ ! -f "$CERT" || ! -f "$KEY" ]]; then
+  echo "FATAL: detected TLS paths do not exist on disk: $CERT / $KEY" >&2
+  exit 1
+fi
 echo "TLS $CERT"
 
 OPT=""; DH=""
 [[ -f /etc/letsencrypt/options-ssl-nginx.conf ]] && OPT="include /etc/letsencrypt/options-ssl-nginx.conf;"
 [[ -f /etc/letsencrypt/ssl-dhparams.pem ]] && DH="ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;"
+
+# Drop server{} blocks that claim WEBMAIL_HOST from OTHER site files (keeps apex sites intact)
+python3 - "$WEBMAIL_HOST" <<'PY' || true
+import sys
+from pathlib import Path
+host = sys.argv[1]
+roots = [Path("/etc/nginx/sites-available"), Path("/etc/nginx/sites-enabled"), Path("/etc/nginx/conf.d")]
+skip_names = {host, f"{host}.conf"}
+for root in roots:
+    if not root.exists():
+        continue
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.name in skip_names:
+            continue
+        text = path.read_text(errors="ignore")
+        if host not in text:
+            continue
+        parts, buf, depth, started = [], [], 0, False
+        for line in text.splitlines(True):
+            if (not started) and line.lstrip().startswith("server") and "{" in line:
+                if buf:
+                    parts.append("".join(buf)); buf = []
+                started = True
+            if started:
+                buf.append(line)
+                depth += line.count("{") - line.count("}")
+                if depth <= 0:
+                    parts.append("".join(buf)); buf = []; started = False; depth = 0
+            else:
+                parts.append(line)
+        kept = []
+        changed = False
+        for p in parts:
+            if f"server_name {host}" in p or f"server_name {host};" in p:
+                # drop blocks whose only/primary claim is the webmail host
+                if "www." + host.split(".", 1)[-1] not in p or host in p:
+                    # If this block is dedicated to webmail host, drop it
+                    if p.count("server_name") == 1 and host in p and f"server_name {host.replace('webmail.', '')}" not in p:
+                        print(f"strip webmail block from {path}")
+                        changed = True
+                        continue
+                    if f"server_name {host};" in p and "globalorbitmail.cloud www" not in p:
+                        print(f"strip webmail-only block from {path}")
+                        changed = True
+                        continue
+            kept.append(p)
+        if changed:
+            path.write_text("".join(kept))
+PY
 
 cat > "$SITE" <<EOF
 upstream orbit_webmail_upstream { server ${UPSTREAM}; keepalive 32; }
@@ -91,15 +147,17 @@ server {
 EOF
 ln -sfn "$SITE" "$LINK"
 
-# Remove every other enabled config that still claims this host or Roundcube UI
+# Remove enabled units that still exclusively serve Roundcube for this host
 shopt -s nullglob
 for f in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*; do
   [[ -e "$f" ]] || continue
   real="$(readlink -f "$f" 2>/dev/null || echo "$f")"
   [[ "$real" == "$(readlink -f "$SITE")" ]] && continue
-  if grep -Eiq "server_name[[:space:]].*${WEBMAIL_HOST}|roundcube|/var/www/roundcube" "$f" 2>/dev/null; then
-    echo "disable $f"
-    rm -f "$f"
+  if grep -Eq "server_name[[:space:]]+${WEBMAIL_HOST};" "$f" 2>/dev/null; then
+    if grep -Eiq "roundcube|/var/www/roundcube" "$f" 2>/dev/null; then
+      echo "disable competing Roundcube claim: $f"
+      rm -f "$f"
+    fi
   fi
 done
 shopt -u nullglob
