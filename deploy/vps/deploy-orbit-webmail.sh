@@ -262,7 +262,7 @@ fi
 
 # Wait for Next
 for i in 1 2 3 4 5 6 7 8 9 10; do
-  code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${APP_PORT}/webmail/login" || true)"
+  code="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: ${WEBMAIL_HOST}" "http://127.0.0.1:${APP_PORT}/login" || true)"
   if [[ "$code" == "200" || "$code" == "302" || "$code" == "307" ]]; then
     echo "Next.js healthy on :${APP_PORT} (HTTP ${code})"
     break
@@ -275,7 +275,7 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
 done
 
 # Public verification
-PUB="$(curl -sL "https://${WEBMAIL_HOST}/webmail/login" || true)"
+PUB="$(curl -sL "https://${WEBMAIL_HOST}/" || true)"
 ROOT="$(curl -sL "https://${WEBMAIL_HOST}/" || true)"
 if printf '%s' "$PUB$ROOT" | grep -Eiq 'skins/elastic|rcmlogin|roundcube'; then
   echo "ERROR: Public site still looks like Roundcube after cutover" >&2

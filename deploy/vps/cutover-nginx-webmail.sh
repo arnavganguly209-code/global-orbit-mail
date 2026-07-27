@@ -17,11 +17,11 @@ echo "=== Orbit Nginx cutover ${WEBMAIL_HOST} → ${UPSTREAM} ==="
 command -v nginx >/dev/null
 command -v curl >/dev/null
 
-NC="$(curl -s -o /dev/null -w '%{http_code}' "http://${UPSTREAM}/webmail/login" || true)"
+NC="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: ${WEBMAIL_HOST}" "http://${UPSTREAM}/login" || true)"
 if [[ ! "$NC" =~ ^(200|302|307|308)$ ]]; then
   echo "Next not ready yet (HTTP $NC) — waiting..."
   for i in $(seq 1 40); do
-    NC="$(curl -s -o /dev/null -w '%{http_code}' "http://${UPSTREAM}/webmail/login" || true)"
+    NC="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: ${WEBMAIL_HOST}" "http://${UPSTREAM}/login" || true)"
     [[ "$NC" =~ ^(200|302|307|308)$ ]] && break
     sleep 1
   done
@@ -135,11 +135,10 @@ server {
   ${OPT}
   ${DH}
   client_max_body_size 50m;
-  location ~* \\.php(/|\$) { return 301 /webmail/login; }
-  location ~* ^/(skins|plugins|program|installer|bin|SQL|vendor|temp|logs)(/|\$) { return 301 /webmail/login; }
-  location = /index.php { return 301 /webmail/login; }
-  if (\$orbit_is_roundcube_task = 1) { return 301 /webmail/login; }
-  location = / { return 302 /webmail/login; }
+  location ~* \\.php(/|\$) { return 301 /; }
+  location ~* ^/(skins|plugins|program|installer|bin|SQL|vendor|temp|logs)(/|\$) { return 301 /; }
+  location = /index.php { return 301 /; }
+  if (\$orbit_is_roundcube_task = 1) { return 301 /; }
   location / {
     proxy_pass http://orbit_webmail_upstream;
     proxy_http_version 1.1;
@@ -189,13 +188,16 @@ done
 systemctl reload nginx
 sleep 1
 
-BODY="$(curl -fsSL "https://${WEBMAIL_HOST}/webmail/login" || true)"
+BODY="$(curl -fsSL "https://${WEBMAIL_HOST}/" || true)"
 if printf '%s' "$BODY" | grep -Eiq 'skins/elastic|rcmlogin|roundcube'; then
   echo "FAIL still Roundcube"; ls -la /etc/nginx/sites-enabled/; nginx -T 2>/dev/null | grep -nE "server_name|root |proxy_pass|roundcube" | head -80; exit 1
 fi
 if printf '%s' "$BODY" | grep -Eiq '_next/static|Sign In|Global Orbit'; then
-  echo "PASS Next.js is live"
+  echo "PASS Next.js is live at /"
 else
-  echo "WARN markers unclear"; curl -sI "https://${WEBMAIL_HOST}/webmail/login" | head -20
+  echo "WARN markers unclear"; curl -sI "https://${WEBMAIL_HOST}/" | head -20
 fi
+# Legacy path must redirect away from /webmail
+LOC="$(curl -sI "https://${WEBMAIL_HOST}/webmail/login" | tr -d '\r' | awk 'tolower($1)==\"location:\"{print $2; exit}')"
+echo "legacy /webmail/login Location: ${LOC:-none}"
 echo "DONE"

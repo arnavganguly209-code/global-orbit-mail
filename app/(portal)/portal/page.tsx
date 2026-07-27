@@ -1,10 +1,9 @@
 import { redirect } from "next/navigation";
-import { routes } from "@/config/routes";
+import { external } from "@/config/routes";
 
 /**
- * Portal surface reserved for authenticated webmail.
- * Inbox and compose arrive in later phases.
+ * Portal surface — send users to the webmail host inbox.
  */
 export default function PortalRootPage() {
-  redirect(routes.login);
+  redirect(external.webmail);
 }

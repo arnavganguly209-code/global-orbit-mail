@@ -1,5 +1,5 @@
 import { OrbitMailApp } from "@/features/webmail/orbit-mail-app";
 
-export default function WebmailInboxPage() {
+export default function MailPage() {
   return <OrbitMailApp />;
 }

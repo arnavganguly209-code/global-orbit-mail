@@ -47,6 +47,15 @@ const nextConfig: NextConfig = {
         destination: "/orbit/:path*",
         permanent: true,
       },
+      // Legacy /webmail UI → clean public paths (preserve query via Next)
+      { source: "/webmail", destination: "/", permanent: true },
+      { source: "/webmail/login", destination: "/", permanent: true },
+      { source: "/webmail/mail", destination: "/mail", permanent: true },
+      { source: "/webmail/mail/:id", destination: "/mail/:id", permanent: true },
+      { source: "/webmail/compose", destination: "/compose", permanent: true },
+      { source: "/webmail/settings", destination: "/settings", permanent: true },
+      { source: "/webmail/contacts", destination: "/contacts", permanent: true },
+      { source: "/webmail/:path*", destination: "/:path*", permanent: true },
     ];
   },
   async headers() {

@@ -99,7 +99,7 @@ echo "—— End pre-cutover dump ——"
 
 # If Next is already healthy on :3100, skip rebuild and only cut over Nginx
 APP_PORT="${ORBIT_WEBMAIL_PORT:-3100}"
-NEXT_CODE="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${APP_PORT}/webmail/login" || true)"
+NEXT_CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: webmail.globalorbitmail.cloud" "http://127.0.0.1:${APP_PORT}/login" || true)"
 if [[ "$NEXT_CODE" == "200" || "$NEXT_CODE" == "302" || "$NEXT_CODE" == "307" || "$NEXT_CODE" == "308" ]]; then
   echo "Next.js already up on :${APP_PORT} — running Nginx-only cutover."
   bash deploy/vps/cutover-nginx-webmail.sh
@@ -111,15 +111,15 @@ echo
 echo "Post-cutover public checks…"
 curl -sI "https://webmail.globalorbitmail.cloud/" | head -20 || true
 curl -sI "https://webmail.globalorbitmail.cloud/webmail/login" | head -20 || true
-BODY="$(curl -fsSL "https://webmail.globalorbitmail.cloud/webmail/login" || true)"
+BODY="$(curl -fsSL "https://webmail.globalorbitmail.cloud/" || true)"
 if printf '%s' "$BODY" | grep -Eiq 'skins/elastic|rcmlogin|roundcube'; then
-  echo "FAIL: Roundcube still visible on /webmail/login" >&2
+  echo "FAIL: Roundcube still visible on /" >&2
   exit 1
 fi
 if printf '%s' "$BODY" | grep -Eiq '_next/static|Sign In|Global Orbit Mail'; then
-  echo "PASS: Next.js Orbit login is live."
+  echo "PASS: Next.js Orbit login is live at /"
 else
-  echo "WARN: Could not confirm Next markers; inspect https://webmail.globalorbitmail.cloud/webmail/login"
+  echo "WARN: Could not confirm Next markers; inspect https://webmail.globalorbitmail.cloud/"
 fi
 
 echo

@@ -51,8 +51,8 @@ fi
 bash deploy/vps/deploy-orbit-webmail.sh
 # Wait until Next answers before nginx cutover
 for i in $(seq 1 40); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3100/webmail/login || true)
-  if [[ "$code" == "200" || "$code" == "302" || "$code" == "307" ]]; then
+  code=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: webmail.globalorbitmail.cloud" http://127.0.0.1:3100/login || true)
+  if [[ "$code" == "200" || "$code" == "302" || "$code" == "307" || "$code" == "308" ]]; then
     break
   fi
   sleep 1
@@ -66,11 +66,12 @@ $remote | & ssh @ssh "bash -s"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "Verifying public site..."
-$login = Invoke-WebRequest "https://webmail.globalorbitmail.cloud/webmail/login" -UseBasicParsing
-if ($login.Content -match 'skins/elastic|rcmlogin|roundcube') {
+$home = Invoke-WebRequest "https://webmail.globalorbitmail.cloud/" -UseBasicParsing
+if ($home.Content -match 'skins/elastic|rcmlogin|roundcube') {
   Write-Error "Public site still looks like Roundcube"
 }
-if ($login.Content -notmatch '_next/static') {
+if ($home.Content -notmatch '_next/static') {
   Write-Error "Public site missing Next.js markers"
 }
-Write-Host "OK - https://webmail.globalorbitmail.cloud is Next.js Orbit webmail"
+$legacy = Invoke-WebRequest "https://webmail.globalorbitmail.cloud/webmail/login" -MaximumRedirection 0 -ErrorAction SilentlyContinue
+Write-Host "OK - https://webmail.globalorbitmail.cloud/ is Next.js Orbit webmail"

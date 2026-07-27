@@ -17,7 +17,16 @@ export const routes = {
   signup: "/signup",
   orbitLogin: "/orbit/login",
   dashboard: "/dashboard",
-  webmail: "/webmail",
+  /** @deprecated Use webmailApp — public UI no longer uses /webmail prefix */
+  webmail: "/mail",
+  webmailApp: {
+    home: "/",
+    login: "/login",
+    mail: "/mail",
+    compose: "/compose",
+    settings: "/settings",
+    contacts: "/contacts",
+  },
   pages: {
     features: "/features",
     pricing: "/pricing",

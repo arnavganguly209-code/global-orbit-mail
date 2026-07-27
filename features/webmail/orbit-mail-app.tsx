@@ -35,6 +35,7 @@ import {
   FolderPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { webmailRoutes } from "@/config/webmail-routes";
 import { useLayoutMode } from "@/features/webmail/hooks/use-layout-mode";
 import { ComposeWindow, type ComposeState } from "@/features/webmail/compose-window";
 import {
@@ -60,7 +61,13 @@ const emptyCompose = (): ComposeState => ({
   attachments: [],
 });
 
-export function OrbitMailApp() {
+export function OrbitMailApp({
+  initialUid = null,
+  openCompose = false,
+}: {
+  initialUid?: number | null;
+  openCompose?: boolean;
+} = {}) {
   const router = useRouter();
   const qc = useQueryClient();
   const layout = useLayoutMode();
@@ -68,15 +75,37 @@ export function OrbitMailApp() {
   const light = resolvedTheme === "light";
 
   const [folder, setFolder] = React.useState("INBOX");
-  const [selectedUid, setSelectedUid] = React.useState<number | null>(null);
+  const [selectedUid, setSelectedUid] = React.useState<number | null>(initialUid);
   const [query, setQuery] = React.useState("");
   const [searchQ, setSearchQ] = React.useState("");
-  const [composeOpen, setComposeOpen] = React.useState(false);
+  const [composeOpen, setComposeOpen] = React.useState(openCompose);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
-  const [pane, setPane] = React.useState<Pane>("list");
+  const [pane, setPane] = React.useState<Pane>(initialUid != null ? "reader" : "list");
   const [compose, setCompose] = React.useState<ComposeState>(emptyCompose);
   const [moveTarget, setMoveTarget] = React.useState("");
   const [preview, setPreview] = React.useState<{ url: string; kind: "image" | "pdf" } | null>(null);
+
+  React.useEffect(() => {
+    if (initialUid != null) {
+      setSelectedUid(initialUid);
+      setPane("reader");
+    }
+  }, [initialUid]);
+
+  React.useEffect(() => {
+    if (openCompose) {
+      setCompose(emptyCompose());
+      setComposeOpen(true);
+    }
+  }, [openCompose]);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const to = new URLSearchParams(window.location.search).get("to");
+    if (to && openCompose) {
+      setCompose((c) => ({ ...c, to }));
+    }
+  }, [openCompose]);
 
   const meQuery = useQuery({
     queryKey: ["webmail", "me"],
@@ -88,7 +117,7 @@ export function OrbitMailApp() {
   React.useEffect(() => {
     if (meQuery.isError) {
       toast.error("Session expired");
-      router.replace("/webmail/login");
+      router.replace(webmailRoutes.home);
     }
   }, [meQuery.isError, router]);
 
@@ -174,11 +203,13 @@ export function OrbitMailApp() {
     setQuery("");
     setDrawerOpen(false);
     if (isStack) setPane("list");
+    router.push(webmailRoutes.mail, { scroll: false });
   }
 
   async function openMessage(uid: number) {
     setSelectedUid(uid);
     if (isStack) setPane("reader");
+    router.push(webmailRoutes.message(uid), { scroll: false });
     // Mark seen optimistically + persist to IMAP
     qc.setQueryData<{ messages: MessageItem[]; total: number }>(
       ["webmail", "messages", folder, searchQ],
@@ -242,6 +273,7 @@ export function OrbitMailApp() {
       );
       if (action === "delete" || action === "archive" || action === "spam" || action === "move") {
         setSelectedUid(null);
+        router.push(webmailRoutes.mail, { scroll: false });
         if (isStack) setPane("list");
       }
       await Promise.all([
@@ -256,7 +288,7 @@ export function OrbitMailApp() {
 
   async function logout() {
     await fetch("/api/webmail/auth/logout", { method: "POST" });
-    router.replace("/webmail/login");
+    router.replace(webmailRoutes.home);
     router.refresh();
   }
 
@@ -412,10 +444,20 @@ export function OrbitMailApp() {
       </div>
 
       <div className="flex items-center justify-around border-t border-white/8 px-2 py-3">
-        <button type="button" className="rounded-lg p-2 text-zinc-400 hover:bg-white/5" title="Settings">
+        <button
+          type="button"
+          onClick={() => router.push(webmailRoutes.settings)}
+          className="rounded-lg p-2 text-zinc-400 hover:bg-white/5"
+          title="Settings"
+        >
           <Settings className="size-4" />
         </button>
-        <button type="button" className="rounded-lg p-2 text-zinc-400 hover:bg-white/5" title="Help">
+        <button
+          type="button"
+          onClick={() => router.push(webmailRoutes.contacts)}
+          className="rounded-lg p-2 text-zinc-400 hover:bg-white/5"
+          title="Contacts"
+        >
           <HelpCircle className="size-4" />
         </button>
         <button
@@ -873,7 +915,10 @@ export function OrbitMailApp() {
         initial={compose}
         recentRecipients={recentRecipients}
         mobile={layout === "mobile"}
-        onClose={() => setComposeOpen(false)}
+        onClose={() => {
+          setComposeOpen(false);
+          if (openCompose) router.push(webmailRoutes.mail);
+        }}
         onSent={() => {
           setComposeOpen(false);
           setCompose(emptyCompose());
@@ -882,6 +927,7 @@ export function OrbitMailApp() {
             qc.invalidateQueries({ queryKey: ["webmail", "folders"] }),
             qc.invalidateQueries({ queryKey: ["webmail", "contacts"] }),
           ]);
+          router.push(webmailRoutes.mail);
         }}
       />
 

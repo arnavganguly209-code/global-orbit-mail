@@ -47,7 +47,8 @@ export function OrbitLoginPage() {
         throw new Error(json.message ?? "Sign in failed");
       }
       toast.success("Welcome to Global Orbit Mail");
-      router.push("/webmail");
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.push(next && next.startsWith("/") ? next : "/mail");
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Sign in failed");

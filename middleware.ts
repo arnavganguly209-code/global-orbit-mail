@@ -1,6 +1,7 @@
 /**
  * GLOBAL ORBIT MAIL — Edge Middleware
- * Protects /orbit, /dashboard, and /webmail UI routes.
+ * Protects /orbit, /dashboard, and webmail UI routes (/mail, /compose, …).
+ * On the webmail host, `/` is the login surface (rewrite to /login).
  */
 
 import { NextResponse } from "next/server";
@@ -8,6 +9,13 @@ import type { NextRequest } from "next/server";
 import { SESSION_COOKIE } from "@/lib/auth/constants";
 import { SECURITY_HEADERS } from "@/lib/security/headers";
 import { routes } from "@/config/routes";
+import {
+  isWebmailAppPath,
+  isWebmailHostname,
+  isWebmailPublicPath,
+  webmailLegacyRedirects,
+  webmailRoutes,
+} from "@/config/webmail-routes";
 
 /** Encrypted mailbox session cookie (IMAP credentials). */
 const WEBMAIL_SESSION_COOKIE = "go_webmail_session";
@@ -27,12 +35,32 @@ function isPublicOrbitPath(pathname: string) {
   return pathname === routes.orbitLogin;
 }
 
-function isPublicWebmailPath(pathname: string) {
-  return pathname === "/webmail/login" || pathname.startsWith("/webmail/login/");
-}
-
 function isPublicAdminApi(pathname: string) {
   return pathname === "/api/admin/auth/login";
+}
+
+function redirectPreservingQuery(request: NextRequest, pathname: string, status: 307 | 308 = 308) {
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  return NextResponse.redirect(url, status);
+}
+
+function legacyWebmailRedirect(pathname: string): string | null {
+  for (const rule of webmailLegacyRedirects) {
+    if (pathname === rule.source || pathname === `${rule.source}/`) {
+      return rule.destination;
+    }
+  }
+  // /webmail/mail/123 → /mail/123
+  if (pathname.startsWith("/webmail/mail/")) {
+    return pathname.replace(/^\/webmail/, "");
+  }
+  if (pathname.startsWith("/webmail/")) {
+    const rest = pathname.slice("/webmail".length);
+    if (rest === "/login" || rest.startsWith("/login/")) return webmailRoutes.home;
+    return rest || webmailRoutes.home;
+  }
+  return null;
 }
 
 export function middleware(request: NextRequest) {
@@ -40,8 +68,16 @@ export function middleware(request: NextRequest) {
   const enforce = process.env.ADMIN_AUTH_ENFORCE !== "false";
   const sessionToken = request.cookies.get(SESSION_COOKIE)?.value;
   const webmailToken = request.cookies.get(WEBMAIL_SESSION_COOKIE)?.value;
+  const host = request.headers.get("host");
+  const onWebmailHost = isWebmailHostname(host);
 
-  // Legacy Roundcube deep-links that somehow reach Next → Orbit login
+  // Permanent redirects away from /webmail/* public UI
+  const legacyDest = legacyWebmailRedirect(pathname);
+  if (legacyDest !== null) {
+    return withSecurity(redirectPreservingQuery(request, legacyDest, 308), pathname);
+  }
+
+  // Legacy Roundcube deep-links that somehow reach Next → login home
   const isRoundcubeLegacy =
     pathname === "/index.php" ||
     pathname.startsWith("/skins/") ||
@@ -50,10 +86,7 @@ export function middleware(request: NextRequest) {
     pathname.endsWith(".php") ||
     request.nextUrl.searchParams.has("_task");
   if (isRoundcubeLegacy) {
-    const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = "/webmail/login";
-    loginUrl.search = "";
-    return withSecurity(NextResponse.redirect(loginUrl), pathname);
+    return withSecurity(redirectPreservingQuery(request, webmailRoutes.home, 308), pathname);
   }
 
   if (pathname.startsWith("/api/admin") && !isPublicAdminApi(pathname)) {
@@ -66,14 +99,37 @@ export function middleware(request: NextRequest) {
     return withSecurity(NextResponse.next(), pathname);
   }
 
-  // Webmail UI — mailbox session only
-  if (pathname === routes.webmail || pathname.startsWith(`${routes.webmail}/`)) {
-    if (!isPublicWebmailPath(pathname) && enforce && !webmailToken) {
+  // Webmail host: `/` is login (or inbox when already signed in)
+  if (onWebmailHost && (pathname === "/" || pathname === "")) {
+    if (webmailToken) {
+      return withSecurity(redirectPreservingQuery(request, webmailRoutes.mail, 307), pathname);
+    }
+    const rewriteUrl = request.nextUrl.clone();
+    rewriteUrl.pathname = webmailRoutes.login;
+    return withSecurity(NextResponse.rewrite(rewriteUrl), pathname);
+  }
+
+  // Signed-in users hitting login → inbox
+  if (
+    (pathname === webmailRoutes.login || pathname.startsWith(`${webmailRoutes.login}/`)) &&
+    webmailToken
+  ) {
+    return withSecurity(redirectPreservingQuery(request, webmailRoutes.mail, 307), pathname);
+  }
+
+  // Protect webmail app surfaces
+  if (isWebmailAppPath(pathname)) {
+    if (enforce && !webmailToken) {
       const loginUrl = request.nextUrl.clone();
-      loginUrl.pathname = "/webmail/login";
+      loginUrl.pathname = onWebmailHost ? webmailRoutes.home : webmailRoutes.login;
       loginUrl.searchParams.set("next", pathname);
       return withSecurity(NextResponse.redirect(loginUrl), pathname);
     }
+    return withSecurity(NextResponse.next(), pathname);
+  }
+
+  // Login page itself is public
+  if (isWebmailPublicPath(pathname)) {
     return withSecurity(NextResponse.next(), pathname);
   }
 
@@ -102,12 +158,22 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     "/",
+    "/login",
+    "/login/:path*",
+    "/mail",
+    "/mail/:path*",
+    "/compose",
+    "/compose/:path*",
+    "/settings",
+    "/settings/:path*",
+    "/contacts",
+    "/contacts/:path*",
+    "/webmail",
+    "/webmail/:path*",
     "/orbit",
     "/orbit/:path*",
     "/dashboard",
     "/dashboard/:path*",
-    "/webmail",
-    "/webmail/:path*",
     "/portal/:path*",
     "/api/admin/:path*",
     "/index.php",
