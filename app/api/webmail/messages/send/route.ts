@@ -15,6 +15,16 @@ const schema = z.object({
   inReplyTo: z.string().optional(),
   references: z.string().optional(),
   saveSent: z.boolean().optional(),
+  attachments: z
+    .array(
+      z.object({
+        filename: z.string().min(1),
+        contentBase64: z.string().min(1),
+        contentType: z.string().optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
 });
 
 export async function POST(request: Request) {
@@ -22,7 +32,23 @@ export async function POST(request: Request) {
     const creds = await requireWebmailCredentials();
     const body = schema.parse(await parseJson(request));
     if (!body.text && !body.html) return fail("Message body required", 400);
-    const data = await sendAndStore(creds, body);
+    const attachments = body.attachments?.map((a) => ({
+      filename: a.filename,
+      content: Buffer.from(a.contentBase64, "base64"),
+      contentType: a.contentType,
+    }));
+    const data = await sendAndStore(creds, {
+      to: body.to,
+      cc: body.cc,
+      bcc: body.bcc,
+      subject: body.subject,
+      text: body.text,
+      html: body.html,
+      inReplyTo: body.inReplyTo,
+      references: body.references,
+      saveSent: body.saveSent,
+      attachments,
+    });
     return ok(data, undefined, "Message sent");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Send failed";
