@@ -80,9 +80,15 @@ function dnsbl(ip) {
     zones.map(async (z) => {
       try {
         const ans = await resolver.resolve4(`${rev}.${z}`);
-        return { z, listed: true, ans: ans.join(",") };
+        const codes = ans.join(",");
+        // Spamhaus returns 127.255.255.254 when public resolvers (1.1.1.1/8.8.8.8)
+        // are blocked — that is NOT a listing.
+        if (codes.includes("127.255.255.254") || codes.includes("127.255.255.255")) {
+          return { z, listed: false, unknown: true, ans: codes };
+        }
+        return { z, listed: true, unknown: false, ans: codes };
       } catch {
-        return { z, listed: false, ans: "" };
+        return { z, listed: false, unknown: false, ans: "" };
       }
     }),
   );
@@ -164,7 +170,8 @@ for (const domain of domains) {
 console.log("\n--- DNSBL ---");
 const bl = await dnsbl(MAIL_IP);
 for (const row of bl) {
-  if (row.listed) fail(`DNSBL ${row.z}`, row.ans);
+  if (row.unknown) info(`DNSBL ${row.z}`, `query blocked by zone (${row.ans}) — check https://check.spamhaus.org/`);
+  else if (row.listed) fail(`DNSBL ${row.z}`, row.ans);
   else pass(`DNSBL ${row.z}`, "clear");
 }
 

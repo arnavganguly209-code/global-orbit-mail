@@ -21,7 +21,7 @@ This report separates **configuration** (fixable in Orbit/Postfix) from **DNS pu
 | DMARC (platform) | PASS / weak | `theglobalorbit.com` quarantine; `globalorbitmail.cloud` is `p=none` |
 | PTR / FCrDNS | PASS | `200.97.170.235` ↔ `mail.theglobalorbit.com` |
 | PTR brand = MX hostname | INFO | Brand MX is `mail.globalorbitmail.cloud`; PTR is `.com` — **EHLO must match PTR** |
-| DNSBLs (5 major) | PASS | Not listed |
+| DNSBLs (major) | PASS / INFO | SpamCop/Barracuda/SORBS clear. Spamhaus via 1.1.1.1 returns `127.255.255.254` (public-resolver policy — **not** a listing). Confirm at https://check.spamhaus.org/ |
 | SMTP :25 from workstation | UNKNOWN | Filtered from this network; does not prove VPS broken |
 | OpenDKIM on VPS | UNKNOWN | Requires VPS access / `harden-deliverability.sh` |
 | Mail-Tester ≥ 9.5 | BLOCKED | Needs live send after DKIM+DMARC published + VPS harden |
@@ -109,7 +109,8 @@ Applied by: `deploy/vps/harden-deliverability.sh`
 - Script only **reads** doveconf (no auth rewrite).
 
 ### 14. Blacklists
-External check (2026-07-27): Spamhaus / SpamCop / Barracuda / SORBS — **clear**.  
+SpamCop / Barracuda / SORBS — **clear** (external check).  
+Spamhaus queried via public DNS often returns `127.255.255.254` (query blocked) — verify manually at https://check.spamhaus.org/  
 Re-check anytime: `node scripts/check-deliverability-dns.mjs zenspanp.com`
 
 ### 15. Open relay
