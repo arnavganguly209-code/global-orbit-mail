@@ -2,87 +2,101 @@
 
 <h1 class="voice"><roundcube:object name="productname" /> <roundcube:label name="login" /></h1>
 
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
 <div id="layout-content" class="selected no-navbar orbit-login-root" role="main">
 	<div class="orbit-split">
-		<!-- LEFT: brand / marketing (matches premium login reference) -->
 		<section class="orbit-hero" aria-label="GLOBAL ORBIT MAIL">
 			<div class="orbit-hero-media" style="background-image:url('skins/orbit/images/login-earth.png')"></div>
 			<div class="orbit-hero-scrim"></div>
 			<canvas id="orbit-stars" class="orbit-stars" aria-hidden="true"></canvas>
 
-			<div class="orbit-hero-content">
-				<header class="orbit-hero-brand">
+			<div class="orbit-hero-inner">
+				<div class="orbit-hero-top">
 					<img
 						class="orbit-logo-mark"
 						src="skins/orbit/images/logo.png"
+						srcset="skins/orbit/images/logo.png 2x"
 						alt="GLOBAL ORBIT PVT LTD"
-						width="420"
-						height="120"
+						width="560"
+						height="160"
 						decoding="async"
+						fetchpriority="high"
 					/>
+				</div>
+
+				<div class="orbit-hero-mid">
 					<p class="orbit-hero-tagline">BUSINESS EMAIL. BUILT FOR PROFESSIONALS.</p>
-				</header>
 
-				<div class="orbit-feature-grid">
-					<article class="orbit-feature">
-						<span class="orbit-feature-icon" aria-hidden="true">
-							<svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z" stroke="currentColor" stroke-width="1.6"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-						</span>
-						<h3>Secure</h3>
-						<p>Enterprise-grade security for your business communications.</p>
-					</article>
-					<article class="orbit-feature">
-						<span class="orbit-feature-icon" aria-hidden="true">
-							<svg viewBox="0 0 24 24" fill="none"><path d="M4 7.5l8-3.5 8 3.5v.5c0 5.5-3.4 9.4-8 11.5C7.4 17.4 4 13.5 4 8v-.5z" stroke="currentColor" stroke-width="1.6"/><path d="M8 12h8M8 15h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-						</span>
-						<h3>Reliable</h3>
-						<p>99.9% uptime and robust infrastructure you can trust.</p>
-					</article>
-					<article class="orbit-feature">
-						<span class="orbit-feature-icon" aria-hidden="true">
-							<svg viewBox="0 0 24 24" fill="none"><path d="M13 3L5 14h6l-1 7 9-12h-6l0-6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-						</span>
-						<h3>Fast</h3>
-						<p>Lightning fast delivery so your emails are always on time.</p>
-					</article>
-					<article class="orbit-feature">
-						<span class="orbit-feature-icon" aria-hidden="true">
-							<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 12h17M12 3.5c2.5 2.8 2.5 14.2 0 17M12 3.5c-2.5 2.8-2.5 14.2 0 17" stroke="currentColor" stroke-width="1.4"/></svg>
-						</span>
-						<h3>Global</h3>
-						<p>Access your mail from anywhere in the world.</p>
-					</article>
-				</div>
-
-				<div class="orbit-bottom-cards">
-					<div class="orbit-info-card">
-						<span class="orbit-info-icon" aria-hidden="true">🔒</span>
-						<div>
-							<strong>Your Data. Your Control.</strong>
-							<p>We never sell your data. Your privacy is our priority.</p>
-						</div>
-					</div>
-					<div class="orbit-info-card">
-						<span class="orbit-info-icon" aria-hidden="true">🏢</span>
-						<div>
-							<strong>100% Business Focused</strong>
-							<p>Designed exclusively for businesses and professional communication.</p>
-						</div>
+					<div class="orbit-feature-grid">
+						<article class="orbit-feature">
+							<span class="orbit-feature-icon" aria-hidden="true">
+								<svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z" stroke="currentColor" stroke-width="1.7"/><path d="M9.2 12.2l2 2 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+							</span>
+							<h3>Secure</h3>
+							<p>Enterprise-grade security for your business communications.</p>
+						</article>
+						<article class="orbit-feature">
+							<span class="orbit-feature-icon" aria-hidden="true">
+								<svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="6" width="17" height="12.5" rx="2.2" stroke="currentColor" stroke-width="1.7"/><path d="M4.5 8l7.5 5.5L19.5 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+							</span>
+							<h3>Reliable</h3>
+							<p>99.9% uptime and robust infrastructure you can trust.</p>
+						</article>
+						<article class="orbit-feature">
+							<span class="orbit-feature-icon" aria-hidden="true">
+								<svg viewBox="0 0 24 24" fill="none"><path d="M13 3L5 14h6l-1 7 9-12h-6V3z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+							</span>
+							<h3>Fast</h3>
+							<p>Lightning fast delivery so your emails are always on time.</p>
+						</article>
+						<article class="orbit-feature">
+							<span class="orbit-feature-icon" aria-hidden="true">
+								<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.25" stroke="currentColor" stroke-width="1.7"/><path d="M3.8 12h16.4M12 3.8c2.4 2.6 2.4 13.8 0 16.4M12 3.8c-2.4 2.6-2.4 13.8 0 16.4" stroke="currentColor" stroke-width="1.4"/></svg>
+							</span>
+							<h3>Global</h3>
+							<p>Access your mail from anywhere in the world.</p>
+						</article>
 					</div>
 				</div>
 
-				<p class="orbit-hero-copy">
-					© <span id="orbit-year">2026</span> Global Orbit Pvt Ltd. All rights reserved.
-				</p>
+				<div class="orbit-hero-bottom">
+					<div class="orbit-trust-bar">
+						<div class="orbit-trust-item">
+							<span class="orbit-trust-ico" aria-hidden="true">
+								<svg viewBox="0 0 24 24" width="18" height="18" fill="none"><rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M8 11V8a4 4 0 118 0v3" stroke="currentColor" stroke-width="1.7"/></svg>
+							</span>
+							<div>
+								<strong>Your Data. Your Control.</strong>
+								<p>We never sell your data. Your privacy is our priority.</p>
+							</div>
+						</div>
+						<div class="orbit-trust-divider" aria-hidden="true"></div>
+						<div class="orbit-trust-item">
+							<span class="orbit-trust-ico" aria-hidden="true">
+								<svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M4 20V9l8-4 8 4v11" stroke="currentColor" stroke-width="1.7"/><path d="M9 20v-6h6v6" stroke="currentColor" stroke-width="1.7"/></svg>
+							</span>
+							<div>
+								<strong>100% Business Focused</strong>
+								<p>Designed exclusively for businesses and professional communication.</p>
+							</div>
+						</div>
+					</div>
+					<p class="orbit-hero-copy">
+						<span class="orbit-copy-shield" aria-hidden="true">✓</span>
+						© <span id="orbit-year">2025</span> Global Orbit Pvt Ltd. All rights reserved.
+					</p>
+				</div>
 			</div>
 		</section>
 
-		<!-- RIGHT: glass login card -->
 		<section class="orbit-auth" aria-label="Sign in">
 			<div class="orbit-glass-card">
 				<div class="orbit-auth-head">
 					<span class="orbit-mail-badge" aria-hidden="true">
-						<svg viewBox="0 0 24 24" width="28" height="28" fill="none"><rect x="3" y="5" width="18" height="14" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M4 7l8 6 8-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+						<svg viewBox="0 0 24 24" width="26" height="26" fill="none"><rect x="3" y="5.5" width="18" height="13.5" rx="2.4" stroke="currentColor" stroke-width="1.7"/><path d="M4.2 7.5L12 13l7.8-5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
 					</span>
 					<h2>Welcome to <span>Global Orbit Mail</span></h2>
 					<p>Sign in with your <span>business email</span> to continue</p>
@@ -91,17 +105,11 @@
 				<roundcube:form id="login-form" name="login-form" method="post" class="propform orbit-propform">
 					<roundcube:object name="loginform" form="login-form" size="40" submit=true class="form-control" />
 
-					<div class="orbit-extras" id="orbit-extras">
+					<div class="orbit-row-actions" id="orbit-extras">
 						<label class="orbit-remember" for="orbit-remember">
 							<input type="checkbox" id="orbit-remember" name="orbit_remember" value="1" />
 							<span>Remember me</span>
 						</label>
-						<button type="button" class="orbit-toggle-pass" id="orbit-toggle-pass" aria-pressed="false" title="Show password">Show</button>
-					</div>
-
-					<p class="orbit-caps" id="orbit-caps" hidden>Caps Lock is on</p>
-
-					<div class="orbit-links">
 						<roundcube:if condition="config:support_url" />
 							<a class="orbit-forgot" href="<roundcube:var name='config:support_url' />" target="_blank" rel="noopener noreferrer">Forgot password?</a>
 						<roundcube:else />
@@ -109,33 +117,20 @@
 						<roundcube:endif />
 					</div>
 
+					<p class="orbit-caps" id="orbit-caps" hidden>Caps Lock is on</p>
+
+					<button type="button" class="orbit-toggle-pass" id="orbit-toggle-pass" aria-pressed="false" title="Show password">Show</button>
+
 					<div id="login-footer" class="orbit-login-footer" role="contentinfo">
 						<roundcube:container name="loginfooter" id="login-footer" />
 					</div>
 				</form>
-
-				<div class="orbit-or"><span>or</span></div>
-
-				<button type="button" class="orbit-sso" disabled title="Coming soon">
-					<span class="orbit-sso-icon" aria-hidden="true">🛡️</span>
-					Sign in with SSO (Coming Soon)
-				</button>
 
 				<p class="orbit-help">
 					Need help?
 					<a href="https://theglobalorbit.com" target="_blank" rel="noopener noreferrer">Contact our support team</a>
 				</p>
 			</div>
-
-			<footer class="orbit-auth-footer">
-				<a href="https://theglobalorbit.com">Privacy</a>
-				<span>·</span>
-				<a href="https://theglobalorbit.com">Terms</a>
-				<span>·</span>
-				<a href="https://theglobalorbit.com">Support</a>
-				<span>·</span>
-				<span>Global Orbit Mail</span>
-			</footer>
 		</section>
 	</div>
 </div>
