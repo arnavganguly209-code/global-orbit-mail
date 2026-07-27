@@ -18,6 +18,14 @@ command -v nginx >/dev/null
 command -v curl >/dev/null
 
 NC="$(curl -s -o /dev/null -w '%{http_code}' "http://${UPSTREAM}/webmail/login" || true)"
+if [[ ! "$NC" =~ ^(200|302|307|308)$ ]]; then
+  echo "Next not ready yet (HTTP $NC) — waiting..."
+  for i in $(seq 1 40); do
+    NC="$(curl -s -o /dev/null -w '%{http_code}' "http://${UPSTREAM}/webmail/login" || true)"
+    [[ "$NC" =~ ^(200|302|307|308)$ ]] && break
+    sleep 1
+  done
+fi
 [[ "$NC" =~ ^(200|302|307|308)$ ]] || { echo "FATAL: Next not on ${UPSTREAM} (HTTP $NC)"; exit 1; }
 echo "Next OK ($NC)"
 

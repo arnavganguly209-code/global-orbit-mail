@@ -49,6 +49,14 @@ if [[ -f .env ]]; then
   grep -q '^WEBMAIL_SMTP_HOST=' .env || echo 'WEBMAIL_SMTP_HOST=127.0.0.1' >> .env
 fi
 bash deploy/vps/deploy-orbit-webmail.sh
+# Wait until Next answers before nginx cutover
+for i in $(seq 1 40); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3100/webmail/login || true)
+  if [[ "$code" == "200" || "$code" == "302" || "$code" == "307" ]]; then
+    break
+  fi
+  sleep 1
+done
 # Always re-assert nginx cutover after deploy
 bash deploy/vps/cutover-nginx-webmail.sh
 '@
@@ -65,4 +73,4 @@ if ($login.Content -match 'skins/elastic|rcmlogin|roundcube') {
 if ($login.Content -notmatch '_next/static') {
   Write-Error "Public site missing Next.js markers"
 }
-Write-Host "OK — https://webmail.globalorbitmail.cloud is Next.js Orbit webmail"
+Write-Host "OK - https://webmail.globalorbitmail.cloud is Next.js Orbit webmail"
