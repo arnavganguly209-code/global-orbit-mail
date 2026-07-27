@@ -65,9 +65,11 @@ pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
 pm2 start npm --name "$APP_NAME" --cwd "$REPO_ROOT" -- start -- -p "$APP_PORT"
 # Apex site (globalorbitmail.cloud → :3003) shares this repo's .next build.
 # Always restart it after rebuild so HTML/CSS/JS hashes stay in sync.
+# Do NOT inherit PORT=3100 from this script — apex must stay on 3003.
 if pm2 describe global-orbit-mail >/dev/null 2>&1; then
-  echo "Restarting shared apex process: global-orbit-mail (shared .next)"
-  pm2 restart global-orbit-mail --update-env || true
+  echo "Restarting shared apex process: global-orbit-mail on :3003 (shared .next)"
+  pm2 delete global-orbit-mail >/dev/null 2>&1 || true
+  PORT=3003 pm2 start npm --name global-orbit-mail --cwd "$REPO_ROOT" -- start -- -p 3003
 fi
 pm2 save || true
 
