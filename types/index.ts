@@ -91,6 +91,9 @@ export interface AdminDomain {
   mailStatus: "DISABLED" | "PROVISIONING" | "ACTIVE" | "SUSPENDED" | "ERROR";
   organizationId: string;
   mailboxCount: number;
+  companyName: string | null;
+  brandColor: string | null;
+  logoDataUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -102,6 +105,19 @@ export interface AdminMailbox {
   domainId: string;
   domainName: string;
   displayName: string | null;
+  jobTitle: string | null;
+  department: string | null;
+  phone: string | null;
+  website: string | null;
+  company: string | null;
+  replyTo: string | null;
+  timezone: string | null;
+  language: string | null;
+  signatureHtml: string | null;
+  signatureText: string | null;
+  avatarUrl: string | null;
+  domainLogoDataUrl: string | null;
+  domainCompanyName: string | null;
   quotaMb: number;
   usedMb: number;
   remainingMb: number;

@@ -149,6 +149,45 @@ export async function listFolders(creds: WebmailCredentials): Promise<FolderDto[
   });
 }
 
+export async function createFolder(creds: WebmailCredentials, name: string) {
+  const path = name.replace(/^[/\\]+/, "").replace(/[/\\]+/g, "/").trim();
+  if (!path || path.toUpperCase() === "INBOX") {
+    throw Object.assign(new Error("Invalid folder name"), { status: 400 });
+  }
+  return withImap(creds, async (client) => {
+    await client.mailboxCreate(path);
+    return { path };
+  });
+}
+
+export async function renameFolder(creds: WebmailCredentials, from: string, to: string) {
+  const src = normalizeFolderPath(from);
+  const dest = to.replace(/^[/\\]+/, "").replace(/[/\\]+/g, "/").trim();
+  if (!src || !dest || src.toUpperCase() === "INBOX") {
+    throw Object.assign(new Error("Cannot rename this folder"), { status: 400 });
+  }
+  return withImap(creds, async (client) => {
+    await client.mailboxRename(src, dest);
+    return { path: dest };
+  });
+}
+
+export async function deleteFolder(creds: WebmailCredentials, pathInput: string) {
+  const path = normalizeFolderPath(pathInput);
+  if (!path || path.toUpperCase() === "INBOX") {
+    throw Object.assign(new Error("Cannot delete Inbox"), { status: 400 });
+  }
+  return withImap(creds, async (client) => {
+    const special = await client.list();
+    const box = special.find((b) => b.path === path);
+    if (box?.specialUse) {
+      throw Object.assign(new Error("Cannot delete system folder"), { status: 400 });
+    }
+    await client.mailboxDelete(path);
+    return { ok: true };
+  });
+}
+
 export async function listMessages(
   creds: WebmailCredentials,
   folder: string,
@@ -368,9 +407,38 @@ export async function applyMessageAction(creds: WebmailCredentials, action: Mess
 
 export async function sendAndStore(
   creds: WebmailCredentials,
-  input: SendMailInput & { saveSent?: boolean },
+  input: SendMailInput & { saveSent?: boolean; skipSignature?: boolean },
 ) {
-  const result = await sendMail(creds, input);
+  const { getMailboxBrandingByEmail, buildOutgoingSignatureHtml } = await import("./branding");
+  const branding = await getMailboxBrandingByEmail(creds.email);
+  const fromName = branding?.displayName || creds.email.split("@")[0] || creds.email;
+  const from = `"${fromName.replace(/"/g, "")}" <${creds.email}>`;
+
+  let text = input.text;
+  let html = input.html;
+  if (!input.skipSignature && branding) {
+    const sigHtml = buildOutgoingSignatureHtml(branding);
+    const sigText =
+      branding.signatureText?.trim() ||
+      [branding.displayName, branding.jobTitle, branding.company || branding.domainCompanyName, branding.email]
+        .filter(Boolean)
+        .join("\n");
+    if (html?.trim()) {
+      html = `${html}<br/>${sigHtml}`;
+    } else if (text?.trim()) {
+      html = `<div style="white-space:pre-wrap;font-family:system-ui,sans-serif">${escapeForHtml(text)}</div>${sigHtml}`;
+      text = `${text}\n\n--\n${sigText}`;
+    } else {
+      html = sigHtml;
+      text = sigText;
+    }
+  }
+
+  const result = await sendMail(
+    creds,
+    { ...input, text, html },
+    { from },
+  );
   let sentSaved = false;
   let sentError: string | undefined;
   if (input.saveSent !== false) {
@@ -393,6 +461,14 @@ export async function sendAndStore(
     sentSaved,
     sentError,
   };
+}
+
+function escapeForHtml(s: string) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 export async function saveDraft(creds: WebmailCredentials, input: SendMailInput) {

@@ -105,12 +105,17 @@ function formatSmtpError(error: unknown): Error {
   return err;
 }
 
-export async function sendMail(creds: WebmailCredentials, input: SendMailInput): Promise<SendMailResult> {
+export async function sendMail(
+  creds: WebmailCredentials,
+  input: SendMailInput,
+  opts?: { from?: string },
+): Promise<SendMailResult> {
   const to = normalizeList(input.to);
   if (!to?.length) {
     throw Object.assign(new Error("At least one To recipient is required"), { status: 400 });
   }
 
+  const fromHeader = opts?.from || creds.email;
   const transport = createSmtpTransport(creds);
   try {
     await transport.verify();
@@ -120,7 +125,7 @@ export async function sendMail(creds: WebmailCredentials, input: SendMailInput):
 
   try {
     const info = await transport.sendMail({
-      from: creds.email,
+      from: fromHeader,
       to,
       cc: normalizeList(input.cc),
       bcc: normalizeList(input.bcc),
@@ -141,12 +146,9 @@ export async function sendMail(creds: WebmailCredentials, input: SendMailInput):
       );
     }
 
-    // Rebuild MIME for Sent with the same Message-ID SMTP assigned (threading / history)
-    const rawForStore = await buildRfc822(creds.email, {
+    const rawForStore = await buildRfc822(fromHeader, {
       ...input,
-      // includeBcc false by default in buildRfc822
     });
-    // Prefer injecting SMTP Message-ID into stored copy when available
     let stored = rawForStore;
     if (info.messageId) {
       const mid = String(info.messageId).replace(/^<|>$/g, "");

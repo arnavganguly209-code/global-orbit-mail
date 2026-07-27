@@ -1,7 +1,3 @@
-/**
- * GLOBAL ORBIT MAIL — Mailbox IMAP login (not Prisma)
- */
-
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { verifyMailboxLogin } from "@/services/webmail/imap-client";
@@ -11,6 +7,7 @@ import {
   webmailSessionTtlSeconds,
   WEBMAIL_SESSION_COOKIE,
 } from "@/services/webmail/session-store";
+import { touchMailboxLastLogin } from "@/services/webmail/branding";
 
 const loginBodySchema = z.object({
   email: z.string().email().max(190),
@@ -32,6 +29,8 @@ export async function webmailMailboxLogin(request: Request) {
   const token = await sealWebmailSession({ email, password }, ttl);
   const jar = await cookies();
   jar.set(WEBMAIL_SESSION_COOKIE, token, webmailCookieOptions(ttl));
+
+  void touchMailboxLastLogin(email).catch(() => undefined);
 
   return {
     email,

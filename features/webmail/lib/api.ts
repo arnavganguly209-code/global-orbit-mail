@@ -33,6 +33,7 @@ export type Folder = {
   unseen: number;
   messages: number;
   specialUse?: string | null;
+  delimiter?: string;
 };
 
 export type MessageItem = {
@@ -62,7 +63,37 @@ export type MessageDetail = {
   attachments: Array<{ part: string; filename: string; contentType: string; size: number }>;
 };
 
-export type Me = { email: string; name: string; online: boolean };
+export type MeBranding = {
+  displayName: string;
+  jobTitle: string | null;
+  company: string | null;
+  phone: string | null;
+  website: string | null;
+  signatureHtml: string | null;
+  signatureText: string | null;
+  avatarUrl: string | null;
+  domainLogoDataUrl: string | null;
+  domainCompanyName: string | null;
+  brandColor: string | null;
+  quotaMb: number;
+  usedMb: number;
+  replyTo: string | null;
+  timezone: string | null;
+  language: string | null;
+};
+
+export type Me = {
+  email: string;
+  name: string;
+  online: boolean;
+  branding: MeBranding | null;
+};
+
+export function isSystemFolder(f: Folder) {
+  const path = (f.path || "").toUpperCase();
+  if (path === "INBOX") return true;
+  return Boolean(f.specialUse);
+}
 
 export function folderIconLabel(f: Folder) {
   const u = (f.specialUse || f.path || "").toUpperCase();
@@ -74,4 +105,9 @@ export function folderIconLabel(f: Folder) {
   if (u.includes("ARCHIVE")) return "Archive";
   if (u.includes("FLAG")) return "Starred";
   return f.name;
+}
+
+export function formatStorageMb(mb: number) {
+  if (mb >= 1024) return `${(mb / 1024).toFixed(mb >= 10240 ? 0 : 1)} GB`;
+  return `${Math.round(mb)} MB`;
 }

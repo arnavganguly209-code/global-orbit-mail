@@ -30,6 +30,9 @@ export function mapDomain(
     mailStatus: domain.mailStatus,
     organizationId: domain.organizationId,
     mailboxCount: domain._count?.mailboxes ?? 0,
+    companyName: domain.companyName ?? null,
+    brandColor: domain.brandColor ?? null,
+    logoDataUrl: domain.logoDataUrl ?? null,
     createdAt: domain.createdAt.toISOString(),
     updatedAt: domain.updatedAt.toISOString(),
   };
@@ -37,7 +40,7 @@ export function mapDomain(
 
 export function mapMailbox(
   mailbox: Mailbox & {
-    domain: { name: string };
+    domain: { name: string; logoDataUrl?: string | null; companyName?: string | null };
     quota: MailboxQuota | null;
     _count?: { aliases: number; forwarders: number };
   },
@@ -54,6 +57,19 @@ export function mapMailbox(
     domainId: mailbox.domainId,
     domainName: mailbox.domain.name,
     displayName: mailbox.displayName,
+    jobTitle: mailbox.jobTitle ?? null,
+    department: mailbox.department ?? null,
+    phone: mailbox.phone ?? null,
+    website: mailbox.website ?? null,
+    company: mailbox.company ?? null,
+    replyTo: mailbox.replyTo ?? null,
+    timezone: mailbox.timezone ?? null,
+    language: mailbox.language ?? null,
+    signatureHtml: mailbox.signatureHtml ?? null,
+    signatureText: mailbox.signatureText ?? null,
+    avatarUrl: mailbox.avatarUrl ?? null,
+    domainLogoDataUrl: mailbox.domain.logoDataUrl ?? null,
+    domainCompanyName: mailbox.domain.companyName ?? null,
     quotaMb,
     usedMb,
     remainingMb,

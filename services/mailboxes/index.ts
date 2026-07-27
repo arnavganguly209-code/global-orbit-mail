@@ -40,6 +40,8 @@ export const mailboxService = {
       id,
       {
         ...input,
+        replyTo:
+          input.replyTo === undefined ? undefined : input.replyTo === "" ? null : input.replyTo,
         vacationExpiresAt:
           input.vacationExpiresAt === undefined
             ? undefined
@@ -73,11 +75,13 @@ export const mailboxService = {
       : (input.password as string);
     const mailbox = await mailboxRepository.resetPassword(id, password, actorId);
     if (!mailbox) throw new Error("Mailbox not found");
+    const reveal = input.reveal !== false;
     return {
       id: mailbox.id,
       reset: true,
       generated,
-      password: generated ? password : undefined,
+      /** Plaintext shown once for admin copy — never recoverable later from hash. */
+      password: reveal ? password : undefined,
     };
   },
 

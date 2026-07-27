@@ -15,6 +15,8 @@ const schema = z.object({
   inReplyTo: z.string().optional(),
   references: z.string().optional(),
   saveSent: z.boolean().optional(),
+  /** When true, client already included the signature in html/text. */
+  skipSignature: z.boolean().optional(),
   attachments: z
     .array(
       z.object({
@@ -47,6 +49,7 @@ export async function POST(request: Request) {
       inReplyTo: body.inReplyTo,
       references: body.references,
       saveSent: body.saveSent,
+      skipSignature: body.skipSignature,
       attachments,
     });
     return ok(data, undefined, "Message sent");

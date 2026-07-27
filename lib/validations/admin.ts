@@ -24,6 +24,21 @@ export const domainUpdateSchema = z.object({
   mailStatus: z
     .enum(["DISABLED", "PROVISIONING", "ACTIVE", "SUSPENDED", "ERROR"])
     .optional(),
+  companyName: z.string().trim().max(120).nullable().optional(),
+  brandColor: z.string().trim().max(32).nullable().optional(),
+  logoDataUrl: z
+    .string()
+    .max(1_500_000)
+    .nullable()
+    .optional()
+    .refine(
+      (v) =>
+        v == null ||
+        v === "" ||
+        /^data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,/i.test(v) ||
+        v.startsWith("/"),
+      { message: "Logo must be an image data URL or path" },
+    ),
 });
 
 export const mailboxCreateSchema = z.object({
@@ -47,6 +62,29 @@ export const mailboxUpdateSchema = z.object({
   vacationSubject: z.string().trim().max(200).nullable().optional(),
   vacationBody: z.string().trim().max(10000).nullable().optional(),
   vacationExpiresAt: z.string().datetime().nullable().optional(),
+  jobTitle: z.string().trim().max(120).nullable().optional(),
+  department: z.string().trim().max(120).nullable().optional(),
+  phone: z.string().trim().max(60).nullable().optional(),
+  website: z.string().trim().max(200).nullable().optional(),
+  company: z.string().trim().max(120).nullable().optional(),
+  replyTo: z.union([z.string().trim().email().max(190), z.literal(""), z.null()]).optional(),
+  timezone: z.string().trim().max(80).nullable().optional(),
+  language: z.string().trim().max(40).nullable().optional(),
+  signatureHtml: z.string().max(50000).nullable().optional(),
+  signatureText: z.string().max(20000).nullable().optional(),
+  avatarUrl: z
+    .string()
+    .max(1_500_000)
+    .nullable()
+    .optional()
+    .refine(
+      (v) =>
+        v == null ||
+        v === "" ||
+        /^data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,/i.test(v) ||
+        v.startsWith("/"),
+      { message: "Avatar must be an image data URL or path" },
+    ),
 });
 
 export const mailboxPasswordSchema = z
@@ -54,6 +92,8 @@ export const mailboxPasswordSchema = z
     password: z.string().min(12).max(128).optional(),
     generate: z.boolean().optional(),
     length: z.coerce.number().int().min(12).max(64).optional(),
+    /** Return plaintext once for admin copy UI (never for existing hashes). */
+    reveal: z.boolean().optional().default(true),
   })
   .refine((v) => Boolean(v.password) || v.generate === true, {
     message: "Provide password or set generate=true",

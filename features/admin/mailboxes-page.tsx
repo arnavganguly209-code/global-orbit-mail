@@ -4,6 +4,10 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AtSign,
+  Check,
+  Copy,
+  Eye,
+  EyeOff,
   Forward,
   KeyRound,
   PauseCircle,
@@ -20,9 +24,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Search } from "@/components/ui/search";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -54,6 +60,30 @@ import type { AdminDomain, AdminMailbox, ApiResponse, PaginatedResult } from "@/
 type AliasRow = { id: string; address: string };
 type ForwarderRow = { id: string; destination: string; keepCopy: boolean };
 
+type EditFormState = {
+  displayName: string;
+  jobTitle: string;
+  department: string;
+  phone: string;
+  website: string;
+  company: string;
+  replyTo: string;
+  timezone: string;
+  language: string;
+  signatureHtml: string;
+  signatureText: string;
+  quotaMb: string;
+};
+
+type SigBuilderState = {
+  name: string;
+  title: string;
+  phone: string;
+  website: string;
+};
+
+type PasswordResetMode = "generate" | "set";
+
 function formatRelative(iso: string | null): string {
   if (!iso) return "—";
   const then = new Date(iso).getTime();
@@ -80,6 +110,81 @@ function avatarInitial(mailbox: AdminMailbox) {
   return source.charAt(0).toUpperCase();
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function buildSignatureHtml(fields: SigBuilderState, email: string): string {
+  const lines: string[] = [];
+  if (fields.name.trim()) {
+    lines.push(`<strong>${escapeHtml(fields.name.trim())}</strong>`);
+  }
+  if (fields.title.trim()) {
+    lines.push(`<div>${escapeHtml(fields.title.trim())}</div>`);
+  }
+  if (fields.phone.trim()) {
+    lines.push(`<div>${escapeHtml(fields.phone.trim())}</div>`);
+  }
+  if (fields.website.trim()) {
+    const site = fields.website.trim();
+    const href = site.startsWith("http") ? site : `https://${site}`;
+    lines.push(
+      `<div><a href="${escapeHtml(href)}">${escapeHtml(site)}</a></div>`,
+    );
+  }
+  lines.push(
+    `<div><a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a></div>`,
+  );
+  return `<div style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.45;color:#222">${lines.join("")}</div>`;
+}
+
+function emptyEditForm(): EditFormState {
+  return {
+    displayName: "",
+    jobTitle: "",
+    department: "",
+    phone: "",
+    website: "",
+    company: "",
+    replyTo: "",
+    timezone: "",
+    language: "",
+    signatureHtml: "",
+    signatureText: "",
+    quotaMb: "2048",
+  };
+}
+
+function editFormFromMailbox(mailbox: AdminMailbox): EditFormState {
+  return {
+    displayName: mailbox.displayName ?? "",
+    jobTitle: mailbox.jobTitle ?? "",
+    department: mailbox.department ?? "",
+    phone: mailbox.phone ?? "",
+    website: mailbox.website ?? "",
+    company: mailbox.company ?? "",
+    replyTo: mailbox.replyTo ?? "",
+    timezone: mailbox.timezone ?? "",
+    language: mailbox.language ?? "",
+    signatureHtml: mailbox.signatureHtml ?? "",
+    signatureText: mailbox.signatureText ?? "",
+    quotaMb: String(mailbox.quotaMb),
+  };
+}
+
+function sigBuilderFromMailbox(mailbox: AdminMailbox): SigBuilderState {
+  return {
+    name: mailbox.displayName ?? "",
+    title: mailbox.jobTitle ?? "",
+    phone: mailbox.phone ?? "",
+    website: mailbox.website ?? "",
+  };
+}
+
 export function MailboxesAdminPage() {
   const qc = useQueryClient();
   const [page, setPage] = React.useState(1);
@@ -89,6 +194,13 @@ export function MailboxesAdminPage() {
   const [bulkBusy, setBulkBusy] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [editMailbox, setEditMailbox] = React.useState<AdminMailbox | null>(null);
+  const [editForm, setEditForm] = React.useState<EditFormState>(emptyEditForm);
+  const [sigBuilder, setSigBuilder] = React.useState<SigBuilderState>({
+    name: "",
+    title: "",
+    phone: "",
+    website: "",
+  });
   const [manageMailbox, setManageMailbox] = React.useState<AdminMailbox | null>(null);
   const [aliasInput, setAliasInput] = React.useState("");
   const [forwarderInput, setForwarderInput] = React.useState("");
@@ -99,10 +211,12 @@ export function MailboxesAdminPage() {
     quotaMb: "2048",
     password: "",
   });
-  const [editForm, setEditForm] = React.useState({
-    displayName: "",
-    quotaMb: "2048",
-  });
+  const [resetMailbox, setResetMailbox] = React.useState<AdminMailbox | null>(null);
+  const [resetMode, setResetMode] = React.useState<PasswordResetMode>("generate");
+  const [resetPassword, setResetPassword] = React.useState("");
+  const [revealedPassword, setRevealedPassword] = React.useState<string | null>(null);
+  const [showRevealed, setShowRevealed] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-mailboxes", page, search],
@@ -206,7 +320,17 @@ export function MailboxesAdminPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          displayName: editForm.displayName || null,
+          displayName: editForm.displayName.trim() || null,
+          jobTitle: editForm.jobTitle.trim() || null,
+          department: editForm.department.trim() || null,
+          phone: editForm.phone.trim() || null,
+          website: editForm.website.trim() || null,
+          company: editForm.company.trim() || null,
+          replyTo: editForm.replyTo.trim() || null,
+          timezone: editForm.timezone.trim() || null,
+          language: editForm.language.trim() || null,
+          signatureHtml: editForm.signatureHtml.trim() || null,
+          signatureText: editForm.signatureText.trim() || null,
           quotaMb: Number(editForm.quotaMb),
         }),
       });
@@ -240,24 +364,47 @@ export function MailboxesAdminPage() {
   });
 
   const resetMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const password = window.prompt(
-        "Enter a new mailbox password (min 12 characters)",
+    mutationFn: async () => {
+      if (!resetMailbox) throw new Error("No mailbox selected");
+      const body =
+        resetMode === "generate"
+          ? { generate: true, reveal: true, length: 20 }
+          : { password: resetPassword, reveal: true };
+      if (resetMode === "set" && resetPassword.length < 12) {
+        throw new Error("Password must be at least 12 characters");
+      }
+      const res = await adminFetch(
+        `/api/admin/mailboxes/${resetMailbox.id}/reset-password`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
       );
-      if (!password) throw new Error("Password reset cancelled");
-      if (password.length < 12) throw new Error("Password must be at least 12 characters");
-      const res = await adminFetch(`/api/admin/mailboxes/${id}/reset-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.message ?? "Reset failed");
+      const data = json.data as {
+        password?: string;
+        generated?: boolean;
+        reset?: boolean;
+      };
+      if (!data.password) {
+        throw new Error("Password was reset but not returned for display");
+      }
+      return data;
     },
-    onSuccess: () => toast.success("Password reset stored (VPS provisioning deferred)"),
-    onError: (e: Error) => {
-      if (e.message !== "Password reset cancelled") toast.error(e.message);
+    onSuccess: (data) => {
+      setRevealedPassword(data.password ?? null);
+      setShowRevealed(true);
+      setCopied(false);
+      setResetPassword("");
+      toast.success(
+        data.generated
+          ? "Password generated — copy it now; it cannot be shown again"
+          : "Password set — copy it now; it cannot be shown again",
+      );
     },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const deleteMutation = useMutation({
@@ -366,6 +513,65 @@ export function MailboxesAdminPage() {
     });
   }
 
+  function openEdit(mailbox: AdminMailbox) {
+    setEditMailbox(mailbox);
+    setEditForm(editFormFromMailbox(mailbox));
+    setSigBuilder(sigBuilderFromMailbox(mailbox));
+  }
+
+  function openPasswordReset(mailbox: AdminMailbox) {
+    setResetMailbox(mailbox);
+    setResetMode("generate");
+    setResetPassword("");
+    setRevealedPassword(null);
+    setShowRevealed(false);
+    setCopied(false);
+  }
+
+  function closePasswordReset() {
+    setResetMailbox(null);
+    setResetPassword("");
+    setRevealedPassword(null);
+    setShowRevealed(false);
+    setCopied(false);
+  }
+
+  function applySignatureBuilder() {
+    if (!editMailbox) return;
+    const html = buildSignatureHtml(sigBuilder, editMailbox.email);
+    const text = [
+      sigBuilder.name.trim(),
+      sigBuilder.title.trim(),
+      sigBuilder.phone.trim(),
+      sigBuilder.website.trim(),
+      editMailbox.email,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    setEditForm((f) => ({
+      ...f,
+      displayName: sigBuilder.name.trim() || f.displayName,
+      jobTitle: sigBuilder.title.trim() || f.jobTitle,
+      phone: sigBuilder.phone.trim() || f.phone,
+      website: sigBuilder.website.trim() || f.website,
+      signatureHtml: html,
+      signatureText: text,
+    }));
+    toast.message("Signature applied to form — click Save to persist");
+  }
+
+  async function copyRevealedPassword() {
+    if (!revealedPassword) return;
+    try {
+      await navigator.clipboard.writeText(revealedPassword);
+      setCopied(true);
+      toast.success("Password copied");
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Could not copy to clipboard");
+    }
+  }
+
   async function runBulkSuspend() {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
@@ -420,6 +626,10 @@ export function MailboxesAdminPage() {
   }
 
   const pageCount = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+  const sigPreviewHtml = editMailbox
+    ? editForm.signatureHtml.trim() ||
+      buildSignatureHtml(sigBuilder, editMailbox.email)
+    : "";
 
   return (
     <AdminShell
@@ -570,19 +780,39 @@ export function MailboxesAdminPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
-                          {avatarInitial(mailbox)}
-                        </span>
+                        {mailbox.avatarUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={mailbox.avatarUrl}
+                            alt=""
+                            className="size-9 shrink-0 rounded-full object-cover ring-1 ring-border"
+                          />
+                        ) : (
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
+                            {avatarInitial(mailbox)}
+                          </span>
+                        )}
                         <div className="min-w-0">
                           <p className="truncate font-medium">{mailbox.email}</p>
                           <p className="truncate text-xs text-muted-foreground">
                             {mailbox.displayName ?? "—"}
+                            {mailbox.jobTitle ? ` · ${mailbox.jobTitle}` : ""}
                           </p>
                         </div>
                       </div>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {mailbox.domainName}
+                      <div className="flex items-center gap-2">
+                        {mailbox.domainLogoDataUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={mailbox.domainLogoDataUrl}
+                            alt=""
+                            className="size-5 shrink-0 rounded object-contain"
+                          />
+                        ) : null}
+                        <span>{mailbox.domainName}</span>
+                      </div>
                     </TableCell>
                     <TableCell className="tabular-nums text-sm">{mailbox.quotaMb} MB</TableCell>
                     <TableCell className="tabular-nums text-sm">{mailbox.usedMb} MB</TableCell>
@@ -590,6 +820,9 @@ export function MailboxesAdminPage() {
                     <TableCell>
                       <div className="min-w-[88px] space-y-1">
                         <div className="flex items-center justify-between text-[11px] tabular-nums text-muted-foreground">
+                          <span>
+                            {mailbox.usedMb}/{mailbox.quotaMb} MB
+                          </span>
                           <span>{usage}%</span>
                         </div>
                         <div className="h-1.5 overflow-hidden rounded-full bg-muted">
@@ -616,13 +849,7 @@ export function MailboxesAdminPage() {
                           size="icon"
                           variant="ghost"
                           title="Edit"
-                          onClick={() => {
-                            setEditMailbox(mailbox);
-                            setEditForm({
-                              displayName: mailbox.displayName ?? "",
-                              quotaMb: String(mailbox.quotaMb),
-                            });
-                          }}
+                          onClick={() => openEdit(mailbox)}
                         >
                           <Pencil className="size-4" />
                         </Button>
@@ -662,7 +889,7 @@ export function MailboxesAdminPage() {
                           size="icon"
                           variant="ghost"
                           title="Reset password"
-                          onClick={() => resetMutation.mutate(mailbox.id)}
+                          onClick={() => openPasswordReset(mailbox)}
                         >
                           <KeyRound className="size-4" />
                         </Button>
@@ -691,32 +918,352 @@ export function MailboxesAdminPage() {
         </div>
       ) : null}
 
-      <Dialog open={Boolean(editMailbox)} onOpenChange={(v) => !v && setEditMailbox(null)}>
-        <DialogContent>
+      <Dialog
+        open={Boolean(editMailbox)}
+        onOpenChange={(v) => {
+          if (!v) setEditMailbox(null);
+        }}
+      >
+        <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit {editMailbox?.email}</DialogTitle>
+            <DialogDescription>
+              Profile, quota, and email signature for this mailbox.
+            </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-3">
-            <div className="space-y-2">
-              <Label>Display name</Label>
-              <Input
-                value={editForm.displayName}
-                onChange={(e) => setEditForm((f) => ({ ...f, displayName: e.target.value }))}
-              />
+          {editMailbox ? (
+            <div className="space-y-6">
+              {(editMailbox.domainLogoDataUrl || editMailbox.domainCompanyName) && (
+                <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/20 px-3 py-2">
+                  {editMailbox.domainLogoDataUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={editMailbox.domainLogoDataUrl}
+                      alt=""
+                      className="max-h-10 max-w-[120px] object-contain"
+                    />
+                  ) : null}
+                  <div className="min-w-0 text-sm">
+                    <p className="font-medium">
+                      {editMailbox.domainCompanyName ?? editMailbox.domainName}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Domain branding</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Display name</Label>
+                  <Input
+                    value={editForm.displayName}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, displayName: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Job title</Label>
+                  <Input
+                    value={editForm.jobTitle}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, jobTitle: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Department</Label>
+                  <Input
+                    value={editForm.department}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, department: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Phone</Label>
+                  <Input
+                    value={editForm.phone}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, phone: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Website</Label>
+                  <Input
+                    value={editForm.website}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, website: e.target.value }))
+                    }
+                    placeholder="https://example.com"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Company</Label>
+                  <Input
+                    value={editForm.company}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, company: e.target.value }))
+                    }
+                    placeholder={editMailbox.domainCompanyName ?? undefined}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Reply-To</Label>
+                  <Input
+                    type="email"
+                    value={editForm.replyTo}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, replyTo: e.target.value }))
+                    }
+                    placeholder={editMailbox.email}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Quota (MB)</Label>
+                  <Input
+                    value={editForm.quotaMb}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, quotaMb: e.target.value }))
+                    }
+                  />
+                  <p className="text-[11px] tabular-nums text-muted-foreground">
+                    Using {editMailbox.usedMb} / {editMailbox.quotaMb} MB
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Timezone</Label>
+                  <Input
+                    value={editForm.timezone}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, timezone: e.target.value }))
+                    }
+                    placeholder="America/New_York"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Language</Label>
+                  <Input
+                    value={editForm.language}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, language: e.target.value }))
+                    }
+                    placeholder="en"
+                  />
+                </div>
+              </div>
+
+              <section className="space-y-3 rounded-xl border border-border/60 p-4">
+                <div>
+                  <h3 className="text-sm font-medium">Signature builder</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Fill fields, apply to generate HTML, then save the mailbox.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Name</Label>
+                    <Input
+                      value={sigBuilder.name}
+                      onChange={(e) =>
+                        setSigBuilder((s) => ({ ...s, name: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Title</Label>
+                    <Input
+                      value={sigBuilder.title}
+                      onChange={(e) =>
+                        setSigBuilder((s) => ({ ...s, title: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Phone</Label>
+                    <Input
+                      value={sigBuilder.phone}
+                      onChange={(e) =>
+                        setSigBuilder((s) => ({ ...s, phone: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Website</Label>
+                    <Input
+                      value={sigBuilder.website}
+                      onChange={(e) =>
+                        setSigBuilder((s) => ({ ...s, website: e.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+                <Button type="button" size="sm" variant="outline" onClick={applySignatureBuilder}>
+                  Apply to signature
+                </Button>
+                {sigPreviewHtml ? (
+                  <div className="rounded-lg border border-border/60 bg-background p-3">
+                    <p className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+                      Preview
+                    </p>
+                    <div
+                      className="prose prose-sm max-w-none dark:prose-invert"
+                      dangerouslySetInnerHTML={{ __html: sigPreviewHtml }}
+                    />
+                  </div>
+                ) : null}
+              </section>
+
+              <div className="space-y-2">
+                <Label>Signature HTML</Label>
+                <Textarea
+                  value={editForm.signatureHtml}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, signatureHtml: e.target.value }))
+                  }
+                  rows={5}
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Signature text (plain)</Label>
+                <Textarea
+                  value={editForm.signatureText}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, signatureText: e.target.value }))
+                  }
+                  rows={3}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Quota (MB)</Label>
-              <Input
-                value={editForm.quotaMb}
-                onChange={(e) => setEditForm((f) => ({ ...f, quotaMb: e.target.value }))}
-              />
-            </div>
-          </div>
+          ) : null}
           <DialogFooter>
-            <Button type="button" onClick={() => editMutation.mutate()}>
-              Save
+            <Button type="button" variant="outline" onClick={() => setEditMailbox(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={editMutation.isPending}
+              onClick={() => editMutation.mutate()}
+            >
+              {editMutation.isPending ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(resetMailbox)}
+        onOpenChange={(v) => {
+          if (!v) closePasswordReset();
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset password</DialogTitle>
+            <DialogDescription>
+              {resetMailbox?.email} — a new password is shown once after reset. Existing
+              passwords cannot be recovered from the stored hash.
+            </DialogDescription>
+          </DialogHeader>
+
+          {revealedPassword ? (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                Copy this password now. Closing this dialog clears it from view.
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  type={showRevealed ? "text" : "password"}
+                  value={revealedPassword}
+                  className="font-mono"
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  title={showRevealed ? "Hide" : "Show"}
+                  onClick={() => setShowRevealed((v) => !v)}
+                >
+                  {showRevealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  title="Copy"
+                  onClick={() => void copyRevealedPassword()}
+                >
+                  {copied ? <Check className="size-4 text-emerald-400" /> : <Copy className="size-4" />}
+                </Button>
+              </div>
+              <DialogFooter>
+                <Button type="button" onClick={closePasswordReset}>
+                  Done
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={resetMode === "generate" ? "default" : "outline"}
+                  onClick={() => setResetMode("generate")}
+                >
+                  Generate
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={resetMode === "set" ? "default" : "outline"}
+                  onClick={() => setResetMode("set")}
+                >
+                  Set password
+                </Button>
+              </div>
+              {resetMode === "set" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="reset-password">New password</Label>
+                  <Input
+                    id="reset-password"
+                    type="password"
+                    value={resetPassword}
+                    onChange={(e) => setResetPassword(e.target.value)}
+                    placeholder="At least 12 characters"
+                    autoComplete="new-password"
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Generates a secure 20-character password and returns it once for you to
+                  copy.
+                </p>
+              )}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={closePasswordReset}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={
+                    resetMutation.isPending ||
+                    (resetMode === "set" && resetPassword.length < 12)
+                  }
+                  onClick={() => resetMutation.mutate()}
+                >
+                  {resetMutation.isPending
+                    ? "Resetting…"
+                    : resetMode === "generate"
+                      ? "Generate & reset"
+                      : "Set & reset"}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

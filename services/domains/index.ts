@@ -1,4 +1,6 @@
 import { domainRepository } from "@/repositories/domain.repository";
+import { mailboxRepository } from "@/repositories/mailbox.repository";
+import { prisma } from "@/lib/db";
 import {
   domainCreateSchema,
   domainUpdateSchema,
@@ -7,6 +9,26 @@ import {
 import { getDefaultOrganizationId } from "@/repositories";
 import { getDomainDnsPayload } from "@/services/dns/engine";
 import { normalizeApexDomain, isValidApexDomain } from "@/lib/dns/domain-name";
+
+async function suspendDomainMailboxes(domainId: string, actorId?: string | null) {
+  const rows = await prisma.mailbox.findMany({
+    where: { domainId, deletedAt: null, status: { not: "SUSPENDED" } },
+    select: { id: true },
+  });
+  for (const row of rows) {
+    await mailboxRepository.setStatus(row.id, "SUSPENDED", actorId);
+  }
+}
+
+async function activateDomainMailboxes(domainId: string, actorId?: string | null) {
+  const rows = await prisma.mailbox.findMany({
+    where: { domainId, deletedAt: null, status: "SUSPENDED" },
+    select: { id: true },
+  });
+  for (const row of rows) {
+    await mailboxRepository.setStatus(row.id, "ACTIVE", actorId);
+  }
+}
 
 export const domainService = {
   async list(query: Record<string, string | string[] | undefined>) {
@@ -61,9 +83,41 @@ export const domainService = {
 
   async update(id: string, body: unknown, actorId?: string | null) {
     const input = domainUpdateSchema.parse(body);
-    const updated = await domainRepository.update(id, input, actorId);
+    const existing = await domainRepository.getById(id);
+    if (!existing) throw new Error("Domain not found");
+
+    const updated = await domainRepository.update(
+      id,
+      {
+        status: input.status,
+        sslStatus: input.sslStatus,
+        dnsStatus: input.dnsStatus,
+        mailStatus: input.mailStatus,
+        companyName: input.companyName === undefined ? undefined : input.companyName,
+        brandColor: input.brandColor === undefined ? undefined : input.brandColor,
+        logoDataUrl:
+          input.logoDataUrl === undefined
+            ? undefined
+            : input.logoDataUrl === ""
+              ? null
+              : input.logoDataUrl,
+      },
+      actorId,
+    );
     if (!updated) throw new Error("Domain not found");
-    return updated;
+
+    // Suspend/activate all mailboxes when domain status flips
+    if (input.status === "SUSPENDED" || input.mailStatus === "SUSPENDED") {
+      await suspendDomainMailboxes(id, actorId);
+      if (updated.mailStatus !== "SUSPENDED") {
+        await domainRepository.update(id, { mailStatus: "SUSPENDED" }, actorId);
+      }
+    } else if (input.status === "ACTIVE" && existing.status === "SUSPENDED") {
+      await activateDomainMailboxes(id, actorId);
+      await domainRepository.update(id, { mailStatus: "ACTIVE" }, actorId);
+    }
+
+    return this.get(id);
   },
 
   async remove(id: string, actorId?: string | null) {

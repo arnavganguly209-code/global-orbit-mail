@@ -8,7 +8,7 @@ import type { AdminMailbox, PaginatedResult } from "@/types";
 import type { MailboxStatus, Prisma } from "@prisma/client";
 
 const mailboxInclude = {
-  domain: { select: { name: true } },
+  domain: { select: { name: true, logoDataUrl: true, companyName: true } },
   quota: true,
   _count: {
     select: {
@@ -206,6 +206,17 @@ export const mailboxRepository = {
       vacationSubject?: string | null;
       vacationBody?: string | null;
       vacationExpiresAt?: Date | null;
+      jobTitle?: string | null;
+      department?: string | null;
+      phone?: string | null;
+      website?: string | null;
+      company?: string | null;
+      replyTo?: string | null;
+      timezone?: string | null;
+      language?: string | null;
+      signatureHtml?: string | null;
+      signatureText?: string | null;
+      avatarUrl?: string | null;
     },
     actorId?: string | null,
   ) {
@@ -227,6 +238,17 @@ export const mailboxRepository = {
         vacationBody: patch.vacationBody === undefined ? undefined : patch.vacationBody,
         vacationExpiresAt:
           patch.vacationExpiresAt === undefined ? undefined : patch.vacationExpiresAt,
+        jobTitle: patch.jobTitle === undefined ? undefined : patch.jobTitle,
+        department: patch.department === undefined ? undefined : patch.department,
+        phone: patch.phone === undefined ? undefined : patch.phone,
+        website: patch.website === undefined ? undefined : patch.website,
+        company: patch.company === undefined ? undefined : patch.company,
+        replyTo: patch.replyTo === undefined ? undefined : patch.replyTo,
+        timezone: patch.timezone === undefined ? undefined : patch.timezone,
+        language: patch.language === undefined ? undefined : patch.language,
+        signatureHtml: patch.signatureHtml === undefined ? undefined : patch.signatureHtml,
+        signatureText: patch.signatureText === undefined ? undefined : patch.signatureText,
+        avatarUrl: patch.avatarUrl === undefined ? undefined : patch.avatarUrl,
         ...(patch.quotaMb != null
           ? {
               quota: {

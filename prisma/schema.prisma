@@ -287,6 +287,11 @@ model Domain {
   dkimPublicKey  String?      @db.Text
   /// Private key PEM for OpenDKIM / Rspamd signing (server-side only)
   dkimPrivateKey String?      @db.Text
+  /// Per-domain company branding (Orbit Admin managed)
+  companyName    String?
+  brandColor     String?
+  /// Data URL or public path for company logo
+  logoDataUrl    String?      @db.Text
   provisionedAt  DateTime?
   verifiedAt     DateTime?
   createdAt      DateTime     @default(now())
@@ -317,6 +322,17 @@ model Mailbox {
   passwordHash   String?
   /// Dovecot-scheme password string, e.g. {BLF-CRYPT}...
   mailPasswordHash String?
+  jobTitle       String?
+  department     String?
+  phone          String?
+  website        String?
+  company        String?
+  replyTo        String?
+  timezone       String?
+  language       String?
+  signatureHtml  String?       @db.Text
+  signatureText  String?       @db.Text
+  avatarUrl      String?       @db.Text
   vacationEnabled  Boolean     @default(false)
   vacationSubject  String?
   vacationBody     String?     @db.Text
