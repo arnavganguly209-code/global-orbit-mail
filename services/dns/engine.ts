@@ -9,6 +9,7 @@ import {
 import { getConfiguredMailHostname } from "@/lib/dns/mail-host";
 import { generateDkimKeypair } from "@/lib/dns/dkim";
 import { resolveMailServerIpv4, resolveMailServerIpv6 } from "@/lib/dns/mail-ip";
+import { detectWebsiteDns } from "@/lib/dns/website-detect";
 import { promises as dns } from "node:dns";
 import { createHash } from "node:crypto";
 
@@ -152,8 +153,9 @@ async function markAlreadyPublished(
 
 /**
  * Apex mail DNS instructions for the setup wizard.
- * Required: MX + SPF + Mail A (+ verification TXT when enabled).
- * Advanced records are optional and hidden by default in the UI.
+ * Required (Workspace-class): MX + SPF + DKIM only.
+ * Advanced: DMARC, Autodiscover, Autoconfig, SRV, optional mail A/AAAA, verification.
+ * Never suggests replacing www / root website DNS.
  */
 export async function getDomainDnsPayload(domainId: string) {
   const domain = await prisma.domain.findFirst({
@@ -229,10 +231,11 @@ export async function getDomainDnsPayload(domainId: string) {
 
   const annotated = await markAlreadyPublished(apex, generated);
   const mailHost = getConfiguredMailHostname();
+  const website = await detectWebsiteDns(apex, mailHost);
 
   const existingSpf = await detectExistingSpf(apex);
   const spfMerge: SpfMergeRecommendation | null = existingSpf
-    ? recommendSpfMerge(existingSpf, mailHost)
+    ? recommendSpfMerge(existingSpf, mailHost, mailIpv4)
     : null;
 
   const withSpfFlags = annotated.map((record) => {
@@ -302,5 +305,15 @@ export async function getDomainDnsPayload(domainId: string) {
   return toDnsInstructionJson(apex, instructionRecords, {
     spfMerge: mergeForUi,
     verificationEnabled,
+    website: {
+      websiteSafe: website.websiteSafe,
+      hasWebsite: website.hasWebsite,
+      apexHasWebsite: website.apexHasWebsite,
+      wwwHasWebsite: website.wwwHasWebsite,
+      wwwIsCname: website.wwwIsCname,
+      existingForeignMx: website.existingForeignMx,
+      foreignMxTargets: website.foreignMxTargets,
+      notes: website.notes,
+    },
   });
 }

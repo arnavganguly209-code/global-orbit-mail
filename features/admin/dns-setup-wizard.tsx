@@ -4,9 +4,13 @@ import * as React from "react";
 import Link from "next/link";
 import {
   CheckCircle2,
+  ChevronDown,
+  Clock3,
   Copy,
+  Globe2,
   Loader2,
   Mail,
+  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -50,6 +54,24 @@ export type DnsWizardPayload = {
   required?: DnsWizardRecord[];
   advanced?: DnsWizardRecord[];
   flat: DnsWizardRecord[];
+  summary?: {
+    requiredRecords?: number;
+    estimatedSetupTime?: string;
+    websiteSafe?: string;
+    hasWebsite?: boolean;
+  };
+  website?: {
+    websiteSafe?: boolean;
+    hasWebsite?: boolean;
+    wwwIsCname?: boolean;
+    existingForeignMx?: boolean;
+    foreignMxTargets?: string[];
+    notes?: string[];
+  } | null;
+  providers?: {
+    oneClickStatus?: string;
+    message?: string;
+  };
   spfMerge?: {
     existing: string;
     recommended: string;
@@ -59,8 +81,12 @@ export type DnsWizardPayload = {
     requiredCount?: number;
     advancedCount?: number;
     verificationEnabled?: boolean;
+    estimatedSetupTime?: string;
+    websiteSafe?: string;
   };
 };
+
+const REQUIRED_PURPOSES = ["mx", "spf", "dkim"] as const;
 
 function DnsRecordCard({
   record,
@@ -145,10 +171,9 @@ export function DnsSetupWizard({
   onDomainRefresh?: () => void;
 }) {
   const [dnsSubmitted, setDnsSubmitted] = React.useState(false);
+  const [advancedOpen, setAdvancedOpen] = React.useState<string | undefined>(undefined);
   const [localReady, setLocalReady] = React.useState(
-    () =>
-      domainMeta.status === "ACTIVE" ||
-      domainMeta.dnsStatus === "VERIFIED",
+    () => domainMeta.status === "ACTIVE" || domainMeta.dnsStatus === "VERIFIED",
   );
 
   const auto = useDnsAutoVerify({
@@ -172,13 +197,17 @@ export function DnsSetupWizard({
   const required = payload.required?.length
     ? payload.required
     : payload.flat.filter((r) =>
-        ["mx", "spf", "mail_a", "verification"].includes(r.purpose),
+        (REQUIRED_PURPOSES as readonly string[]).includes(r.purpose),
       );
   const advanced = payload.advanced?.length
     ? payload.advanced
     : payload.flat.filter(
-        (r) => !["mx", "spf", "mail_a", "verification"].includes(r.purpose),
+        (r) => !(REQUIRED_PURPOSES as readonly string[]).includes(r.purpose),
       );
+
+  const requiredCount = payload.summary?.requiredRecords ?? required.length;
+  const setupTime = payload.summary?.estimatedSetupTime ?? "Under 2 minutes";
+  const websiteSafe = payload.summary?.websiteSafe ?? "YES";
 
   const friendly = getFriendlyDomainStatus({
     ...domainMeta,
@@ -226,6 +255,16 @@ export function DnsSetupWizard({
     });
   }
 
+  function openAdvanced() {
+    setAdvancedOpen("advanced");
+    requestAnimationFrame(() => {
+      document.getElementById("orbit-advanced-dns")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/5 via-background to-background p-4">
@@ -241,7 +280,7 @@ export function DnsSetupWizard({
             <p className="mt-1 text-sm text-muted-foreground">
               {localReady
                 ? "Your domain is ready for professional email."
-                : "Add the required mail DNS records. Website DNS stays untouched."}
+                : "Add 3 required mail records — the same flow as Google Workspace and Zoho Mail."}
             </p>
           </div>
           <span
@@ -265,6 +304,57 @@ export function DnsSetupWizard({
           />
         </div>
       </div>
+
+      {/* Commercial DNS Summary */}
+      {!localReady ? (
+        <div className="grid gap-3 rounded-2xl border border-border/70 bg-card/40 p-4 sm:grid-cols-3">
+          <div className="rounded-xl bg-muted/30 px-3 py-3">
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <ShieldCheck className="size-3.5" />
+              Required Records
+            </p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
+              {requiredCount}
+            </p>
+            <p className="text-[11px] text-muted-foreground">MX · SPF · DKIM</p>
+          </div>
+          <div className="rounded-xl bg-muted/30 px-3 py-3">
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <Clock3 className="size-3.5" />
+              Estimated Setup Time
+            </p>
+            <p className="mt-1 text-lg font-semibold tracking-tight text-foreground">
+              {setupTime}
+            </p>
+            <p className="text-[11px] text-muted-foreground">Copy, paste, verify</p>
+          </div>
+          <div className="rounded-xl bg-muted/30 px-3 py-3">
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <Globe2 className="size-3.5" />
+              Website Safe
+            </p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight text-emerald-600">
+              {websiteSafe}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {payload.website?.hasWebsite
+                ? "Website DNS detected — left untouched"
+                : "www / root records never replaced"}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {payload.website?.notes?.length && !localReady ? (
+        <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
+          <p className="text-xs font-medium text-foreground">DNS detection</p>
+          <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+            {payload.website.notes.map((note) => (
+              <li key={note}>• {note}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {localReady ? (
         <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5">
@@ -348,7 +438,7 @@ export function DnsSetupWizard({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold tracking-tight">Required DNS</h3>
-              <span className="text-[11px] text-muted-foreground">Minimum to go live</span>
+              <span className="text-[11px] text-muted-foreground">MX · SPF · DKIM only</span>
             </div>
             <div className="space-y-3">
               {required.map((record) => (
@@ -361,32 +451,7 @@ export function DnsSetupWizard({
             </div>
           </div>
 
-          {advanced.length > 0 ? (
-            <Accordion type="single" collapsible className="rounded-2xl border border-border/70 px-4">
-              <AccordionItem value="advanced" className="border-none">
-                <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
-                  Advanced Records
-                </AccordionTrigger>
-                <AccordionContent>
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    Optional for better deliverability and client autoconfig. Not required to start
-                    receiving mail.
-                  </p>
-                  <div className="space-y-3">
-                    {advanced.map((record) => (
-                      <DnsRecordCard
-                        key={`adv-${record.purpose}-${record.host}`}
-                        record={record}
-                        onCopy={(r) => void copyOne(r)}
-                      />
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          ) : null}
-
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
             <Button
               type="button"
               variant="outline"
@@ -395,6 +460,15 @@ export function DnsSetupWizard({
             >
               <Copy className="size-4" />
               Copy Required DNS
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="gap-2"
+              onClick={openAdvanced}
+            >
+              <ChevronDown className="size-4" />
+              Advanced DNS
             </Button>
             <Button
               type="button"
@@ -410,6 +484,49 @@ export function DnsSetupWizard({
               {dnsSubmitted ? "Checking DNS..." : "I've Added DNS"}
             </Button>
           </div>
+
+          {advanced.length > 0 ? (
+            <div id="orbit-advanced-dns">
+              <Accordion
+                type="single"
+                collapsible
+                value={advancedOpen}
+                onValueChange={setAdvancedOpen}
+                className="rounded-2xl border border-border/70 px-4"
+              >
+                <AccordionItem value="advanced" className="border-none">
+                  <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
+                    Advanced DNS
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      Optional: DMARC, Autodiscover, Autoconfig, and client SRV records. Not required
+                      to start receiving mail. Power users only.
+                    </p>
+                    <div className="space-y-3">
+                      {advanced.map((record) => (
+                        <DnsRecordCard
+                          key={`adv-${record.purpose}-${record.host}`}
+                          record={record}
+                          onCopy={(r) => void copyOne(r)}
+                        />
+                      ))}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </div>
+          ) : null}
+
+          {payload.providers?.message ? (
+            <p className="text-center text-[11px] text-muted-foreground">
+              {payload.providers.message}
+            </p>
+          ) : (
+            <p className="text-center text-[11px] text-muted-foreground">
+              One-click DNS for Hostinger, Cloudflare, GoDaddy, and Namecheap is coming soon.
+            </p>
+          )}
         </>
       ) : null}
 

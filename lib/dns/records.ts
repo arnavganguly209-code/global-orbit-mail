@@ -269,16 +269,17 @@ export type SpfMergeRecommendation = {
   message: string;
 };
 
-export const REQUIRED_DNS_PURPOSES = ["mx", "spf", "mail_a", "verification"] as const;
+export const REQUIRED_DNS_PURPOSES = ["mx", "spf", "dkim"] as const;
 export const ADVANCED_DNS_PURPOSES = [
-  "mail_aaaa",
-  "dkim",
   "dmarc",
   "autodiscover",
   "autoconfig",
   "imap",
   "pop",
   "smtp",
+  "mail_a",
+  "mail_aaaa",
+  "verification",
 ] as const;
 
 export function isRequiredDnsPurpose(purpose: string) {
@@ -290,10 +291,17 @@ export function isAdvancedDnsPurpose(purpose: string) {
 }
 
 /** Merge Orbit mail authorization into an existing SPF without replacing other includes. */
-export function recommendSpfMerge(existingSpf: string, mailHost: string): SpfMergeRecommendation {
+export function recommendSpfMerge(
+  existingSpf: string,
+  mailHost: string,
+  mailIpv4?: string,
+): SpfMergeRecommendation {
   const existing = existingSpf.trim().replace(/^"+|"+$/g, "");
-  const token = `a:${mailHost}`;
-  if (/\bv=spf1\b/i.test(existing) && existing.toLowerCase().includes(token.toLowerCase())) {
+  const tokens = [`a:${mailHost}`, ...(mailIpv4 ? [`ip4:${mailIpv4}`] : [])];
+  const missing = tokens.filter(
+    (token) => !existing.toLowerCase().includes(token.toLowerCase()),
+  );
+  if (/\bv=spf1\b/i.test(existing) && missing.length === 0) {
     return {
       existing,
       recommended: existing,
@@ -303,11 +311,14 @@ export function recommendSpfMerge(existingSpf: string, mailHost: string): SpfMer
 
   let recommended = existing;
   if (!/\bv=spf1\b/i.test(recommended)) {
-    recommended = `v=spf1 ${token} -all`;
-  } else if (/\s(~all|-all|\?all|\+all)\s*$/i.test(recommended)) {
-    recommended = recommended.replace(/\s(~all|-all|\?all|\+all)\s*$/i, ` ${token} $1`);
+    recommended = `v=spf1 ${tokens.join(" ")} -all`;
   } else {
-    recommended = `${recommended} ${token} -all`;
+    const insert = missing.join(" ");
+    if (/\s(~all|-all|\?all|\+all)\s*$/i.test(recommended)) {
+      recommended = recommended.replace(/\s(~all|-all|\?all|\+all)\s*$/i, ` ${insert} $1`);
+    } else {
+      recommended = `${recommended} ${insert} -all`;
+    }
   }
 
   return {
@@ -337,6 +348,16 @@ export function toDnsInstructionJson(
   options?: {
     spfMerge?: SpfMergeRecommendation | null;
     verificationEnabled?: boolean;
+    website?: {
+      websiteSafe: boolean;
+      hasWebsite: boolean;
+      apexHasWebsite?: boolean;
+      wwwHasWebsite?: boolean;
+      wwwIsCname?: boolean;
+      existingForeignMx?: boolean;
+      foreignMxTargets?: string[];
+      notes?: string[];
+    } | null;
   },
 ) {
   const apex = normalizeApexDomain(domainName);
@@ -348,9 +369,21 @@ export function toDnsInstructionJson(
     };
   });
 
-  const required = formatted.filter((r) => r.tier === "required");
-  const advanced = formatted.filter((r) => r.tier === "advanced");
+  // Enforce commercial ordering: MX → SPF → DKIM
+  const requiredOrder = ["mx", "spf", "dkim"] as const;
+  const required = requiredOrder
+    .map((purpose) => formatted.find((r) => r.purpose === purpose))
+    .filter((r): r is (typeof formatted)[number] => Boolean(r));
+  const advanced = formatted
+    .filter((r) => r.tier === "advanced")
+    .sort((a, b) => {
+      const order = ADVANCED_DNS_PURPOSES as readonly string[];
+      return order.indexOf(a.purpose) - order.indexOf(b.purpose);
+    });
   const byPurpose = (purpose: string) => formatted.filter((r) => r.purpose === purpose);
+
+  const websiteSafe = options?.website?.websiteSafe !== false;
+  const hasWebsite = Boolean(options?.website?.hasWebsite);
 
   return {
     domain: apex,
@@ -358,12 +391,32 @@ export function toDnsInstructionJson(
     mailHostname: sharedMailHost(),
     title: "Connect your domain",
     notice:
-      "Add only the required mail records below. Leave website records (www, root A/CNAME, CDN) unchanged.",
+      "Add only 3 required mail records. Leave website DNS (www, root A/CNAME, CDN, Cloudflare proxy) unchanged.",
+    summary: {
+      requiredRecords: required.length,
+      estimatedSetupTime: "Under 2 minutes",
+      websiteSafe: websiteSafe ? "YES" : "REVIEW",
+      hasWebsite,
+      style: "google-workspace",
+    },
+    website: options?.website ?? {
+      websiteSafe: true,
+      hasWebsite: false,
+      notes: ["Orbit never asks you to change www or root website records."],
+    },
+    providers: {
+      oneClickStatus: "available_soon" as const,
+      supported: ["hostinger", "cloudflare", "godaddy", "namecheap"] as const,
+      message:
+        "One-click DNS for Hostinger, Cloudflare, GoDaddy, and Namecheap is coming soon. Use Copy Required DNS today.",
+    },
     wizard: {
       style: "google-workspace",
       requiredCount: required.length,
       advancedCount: advanced.length,
       verificationEnabled: Boolean(options?.verificationEnabled),
+      estimatedSetupTime: "Under 2 minutes",
+      websiteSafe: websiteSafe ? "YES" : "REVIEW",
     },
     required,
     advanced,
@@ -384,18 +437,18 @@ export function toDnsInstructionJson(
     },
     flat: formatted,
     instructions: {
-      a: "Create an A record: Host mail → production mail server IPv4.",
+      a: "Optional: A record Host mail → mail server IPv4 (not required when MX points to shared mail host).",
       aaaa: "Optional AAAA for Host mail when IPv6 is enabled.",
-      mx: "Create MX on Host @ (or apex domain) with priority 10.",
+      mx: "Create MX on Host @ with priority 10 → shared mail host.",
       spf: "Publish SPF TXT on Host @ (merge if one already exists).",
       verification: "Optional ownership TXT used only when domain verification is enabled.",
-      dkim: "Publish DKIM TXT on Host selector._domainkey.",
-      dmarc: "Publish DMARC TXT on Host _dmarc.",
-      autodiscover: "CNAME Host autodiscover → webmail host (Outlook).",
-      autoconfig: "CNAME Host autoconfig → webmail host (Thunderbird).",
-      imap: "SRV Host _imap._tcp for IMAP 993.",
-      pop: "SRV Host _pop3._tcp for POP3 995.",
-      smtp: "SRV Host _submission._tcp for SMTP 587.",
+      dkim: "Publish DKIM TXT on Host orbit._domainkey (required for Gmail/Outlook).",
+      dmarc: "Optional DMARC TXT on Host _dmarc (recommended after go-live).",
+      autodiscover: "Optional CNAME Host autodiscover → webmail (Outlook).",
+      autoconfig: "Optional CNAME Host autoconfig → webmail (Thunderbird).",
+      imap: "Optional SRV Host _imap._tcp for IMAP 993.",
+      pop: "Optional SRV Host _pop3._tcp for POP3 995.",
+      smtp: "Optional SRV Host _submission._tcp for SMTP 587.",
     },
   };
 }

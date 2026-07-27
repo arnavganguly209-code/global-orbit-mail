@@ -23,7 +23,7 @@ export type DomainVerifyReport = {
   dkim: CheckResult;
   dmarc: CheckResult;
   ssl: CheckResult;
-  /** True when required mail DNS (MX + SPF + mail A) is valid */
+  /** True when required mail DNS (MX + SPF + DKIM) is valid — Workspace-class */
   ready: boolean;
   requiredPassed: number;
   requiredTotal: number;
@@ -296,14 +296,14 @@ export const dnsVerificationService = {
       }
     }
 
-    const requiredChecks = [mailA, mx, spf];
+    const requiredChecks = [mx, spf, dkim];
     const requiredPassed = requiredChecks.filter((c) => c.ok).length;
     const requiredTotal = requiredChecks.length;
     const ready = requiredPassed === requiredTotal;
     const waitingFor =
       requiredChecks.find((c) => !c.ok)?.label ?? null;
 
-    // overall reflects required readiness for product UX (advanced DKIM/DMARC optional)
+    // overall reflects required readiness (MX + SPF + DKIM). mail A / DMARC are advanced.
     let overall: DomainVerifyReport["overall"] = "PENDING";
     if (ready) overall = "VERIFIED";
     else if (requiredPassed === 0) overall = "FAILED";
