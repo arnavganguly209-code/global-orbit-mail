@@ -1,7 +1,6 @@
 /**
  * GLOBAL ORBIT MAIL — Edge Middleware
  * Protects /orbit, /dashboard, and /webmail UI routes.
- * Admin API: requires session cookie (JSON 401). Full RBAC (DB role) is enforced in route handlers.
  */
 
 import { NextResponse } from "next/server";
@@ -9,6 +8,9 @@ import type { NextRequest } from "next/server";
 import { SESSION_COOKIE } from "@/lib/auth/constants";
 import { SECURITY_HEADERS } from "@/lib/security/headers";
 import { routes } from "@/config/routes";
+
+/** Encrypted mailbox session cookie (IMAP credentials). */
+const WEBMAIL_SESSION_COOKIE = "go_webmail_session";
 
 function withSecurity(response: NextResponse, pathname: string) {
   response.headers.set(
@@ -33,25 +35,12 @@ function isPublicAdminApi(pathname: string) {
   return pathname === "/api/admin/auth/login";
 }
 
-function requiresUiSession(pathname: string) {
-  if (pathname.startsWith("/orbit") && !pathname.startsWith("/api/")) {
-    return !isPublicOrbitPath(pathname);
-  }
-  if (pathname === routes.dashboard || pathname.startsWith(`${routes.dashboard}/`)) {
-    return true;
-  }
-  if (pathname === routes.webmail || pathname.startsWith(`${routes.webmail}/`)) {
-    return !isPublicWebmailPath(pathname);
-  }
-  return false;
-}
-
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const enforce = process.env.ADMIN_AUTH_ENFORCE !== "false";
   const sessionToken = request.cookies.get(SESSION_COOKIE)?.value;
+  const webmailToken = request.cookies.get(WEBMAIL_SESSION_COOKIE)?.value;
 
-  // Admin API (except login): session cookie required. Role/permission checks run in handlers.
   if (pathname.startsWith("/api/admin") && !isPublicAdminApi(pathname)) {
     if (enforce && !sessionToken) {
       return withSecurity(
@@ -62,14 +51,31 @@ export function middleware(request: NextRequest) {
     return withSecurity(NextResponse.next(), pathname);
   }
 
-  if (requiresUiSession(pathname)) {
+  // Webmail UI — mailbox session only
+  if (pathname === routes.webmail || pathname.startsWith(`${routes.webmail}/`)) {
+    if (!isPublicWebmailPath(pathname) && enforce && !webmailToken) {
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = "/webmail/login";
+      loginUrl.searchParams.set("next", pathname);
+      return withSecurity(NextResponse.redirect(loginUrl), pathname);
+    }
+    return withSecurity(NextResponse.next(), pathname);
+  }
+
+  // Admin / customer dashboard UI
+  if (pathname.startsWith("/orbit") && !pathname.startsWith("/api/")) {
+    if (!isPublicOrbitPath(pathname) && enforce && !sessionToken) {
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = routes.orbitLogin;
+      loginUrl.searchParams.set("next", pathname);
+      return withSecurity(NextResponse.redirect(loginUrl), pathname);
+    }
+  }
+
+  if (pathname === routes.dashboard || pathname.startsWith(`${routes.dashboard}/`)) {
     if (enforce && !sessionToken) {
       const loginUrl = request.nextUrl.clone();
-      if (pathname.startsWith("/orbit")) {
-        loginUrl.pathname = routes.orbitLogin;
-      } else {
-        loginUrl.pathname = routes.signin;
-      }
+      loginUrl.pathname = routes.signin;
       loginUrl.searchParams.set("next", pathname);
       return withSecurity(NextResponse.redirect(loginUrl), pathname);
     }

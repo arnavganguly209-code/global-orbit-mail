@@ -1,5 +1,5 @@
-import { WebmailShell } from "@/features/webmail/webmail-shell";
+import { OrbitMailApp } from "@/features/webmail/orbit-mail-app";
 
 export default function WebmailInboxPage() {
-  return <WebmailShell />;
+  return <OrbitMailApp />;
 }
