@@ -687,19 +687,18 @@ export function OrbitMailApp({
     "orbit-mail-shell flex h-dvh flex-col overflow-hidden font-sans antialiased",
     light ? "bg-[#eef1f6] text-slate-900" : "bg-[#050508] text-[#f7f8fb]",
   );
-  const brandLogo =
-    me?.branding?.domainLogoDataUrl ||
-    me?.branding?.avatarUrl ||
-    "/brand/logo.png";
+  // Company logo only (never mailbox avatar) — one brand mark for all customers
+  const companyLogo = me?.branding?.domainLogoDataUrl || "/brand/logo.png";
+  const mailboxAvatar = me?.branding?.avatarUrl || null;
   const accent = me?.branding?.brandColor || "#d4af37";
 
-  function BrandLogo({ className }: { className?: string }) {
+  function CompanyLogo({ className }: { className?: string }) {
     // eslint-disable-next-line @next/next/no-img-element
     return (
       <img
-        src={brandLogo}
+        src={companyLogo}
         alt={me?.branding?.domainCompanyName || "GLOBAL ORBIT PVT LTD"}
-        className={cn("orbit-brand-logo", className)}
+        className={cn("orbit-brand-logo object-contain", className)}
       />
     );
   }
@@ -809,7 +808,7 @@ export function OrbitMailApp({
           <Menu className="size-5" />
         </button>
       ) : (
-        <BrandLogo className="max-h-12 w-auto sm:max-h-14" />
+        <CompanyLogo className="h-11 max-h-12 w-auto max-w-[220px] sm:h-12 sm:max-h-14 sm:max-w-[260px]" />
       )}
 
       <form
@@ -901,9 +900,9 @@ export function OrbitMailApp({
             onClick={() => router.push(webmailRoutes.profile)}
             className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#d4af37]/50 to-[#1e5fa1]/50 text-xs font-bold"
           >
-            {me?.branding?.avatarUrl ? (
+            {mailboxAvatar ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={me.branding.avatarUrl} alt="" className="size-full object-cover" />
+              <img src={mailboxAvatar} alt="" className="size-full object-cover" />
             ) : (
               initials(displayName || me?.email || "?")
             )}
@@ -922,15 +921,8 @@ export function OrbitMailApp({
         isStack && "fixed inset-y-0 left-0 z-40 shadow-2xl",
       )}
     >
-      {isStack ? (
-        <div className="px-4 pb-2 pt-5">
-          <BrandLogo className="mx-auto max-h-16 w-auto max-w-[220px]" />
-        </div>
-      ) : (
-        <div className="px-4 pb-1 pt-4">
-          <BrandLogo className="mx-auto max-h-14 w-auto max-w-[200px]" />
-        </div>
-      )}
+      {/* No second company logo in sidebar — brand lives only in top-left header */}
+      <div className={cn("shrink-0", isStack ? "pt-3" : "pt-2")} />
 
       <button
         type="button"
@@ -939,7 +931,7 @@ export function OrbitMailApp({
           setComposeOpen(true);
           setDrawerOpen(false);
         }}
-        className="mx-3 mb-3 mt-2 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#f6e7a8] via-[#e0bc4a] to-[#c9971a] px-4 py-3 text-sm font-bold text-[#1a1200] shadow-[0_8px_22px_rgba(212,175,55,0.28)] transition hover:brightness-105 active:scale-[0.99]"
+        className="mx-3 mb-3 mt-1 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#f6e7a8] via-[#e0bc4a] to-[#c9971a] px-4 py-3 text-sm font-bold text-[#1a1200] shadow-[0_8px_22px_rgba(212,175,55,0.28)] transition hover:brightness-105 active:scale-[0.99]"
       >
         <PenSquare className="size-4" />
         Compose
@@ -1619,7 +1611,7 @@ export function OrbitMailApp({
       {showMobileFolders ? (
         <div className="flex min-w-0 flex-1 flex-col bg-[#0b0b11]">
           <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
-            <Image src={brandLogo} alt="GLOBAL ORBIT" width={160} height={48} className="h-11 w-auto max-w-[160px] object-contain" unoptimized={brandLogo.startsWith("data:")} />
+            <Image src={companyLogo} alt="GLOBAL ORBIT" width={160} height={48} className="h-11 w-auto max-w-[160px] object-contain" unoptimized={companyLogo.startsWith("data:")} />
             <button type="button" onClick={() => setPane("list")} className="rounded-lg p-2 hover:bg-white/5">
               <X className="size-4" />
             </button>

@@ -557,13 +557,14 @@
 .orbit-brand-logo {
   height: auto;
   width: auto;
-  max-height: 2.75rem;
+  max-height: 3rem;
   object-fit: contain;
+  object-position: left center;
 }
 
 @media (min-width: 1280px) {
   .orbit-brand-logo {
-    max-height: 3.25rem;
+    max-height: 3.5rem;
   }
 }
 
