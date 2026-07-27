@@ -155,26 +155,58 @@ postfix check 2>/dev/null || true
 systemctl reload postfix 2>/dev/null || systemctl restart postfix 2>/dev/null || true
 
 # --- 5) Open relay self-test (localhost unauth must fail) ---
+# Never hang: hard wall-clock timeout + Python socket (no /dev/tcp + background cat).
 echo "==> [5/10] Open-relay probe (expect reject)"
 set +e
-RELAY_OUT="$(timeout 8 bash -c "exec 3<>/dev/tcp/127.0.0.1/25
-sleep 0.3
-cat <&3 &
-sleep 0.2
-printf 'EHLO test.invalid\r\n' >&3
-sleep 0.3
-printf 'MAIL FROM:<probe@example.com>\r\n' >&3
-sleep 0.3
-printf 'RCPT TO:<probe@gmail.com>\r\n' >&3
-sleep 0.5
-printf 'QUIT\r\n' >&3
-sleep 0.3
-" 2>&1)"
+RELAY_OUT="$(
+  timeout --kill-after=2s 8s python3 - <<'PY' 2>&1
+import socket
+import sys
+
+host, port = "127.0.0.1", 25
+deadline = 6.0
+try:
+    s = socket.create_connection((host, port), timeout=deadline)
+    s.settimeout(deadline)
+    buf = b""
+
+    def recv_more():
+        global buf
+        try:
+            chunk = s.recv(4096)
+            if chunk:
+                buf += chunk
+        except socket.timeout:
+            pass
+
+    def send_line(line: str):
+        s.sendall((line + "\r\n").encode("ascii", "ignore"))
+        recv_more()
+
+    recv_more()
+    send_line("EHLO orbit-relay-probe.invalid")
+    send_line("MAIL FROM:<probe@example.com>")
+    send_line("RCPT TO:<probe@gmail.com>")
+    send_line("QUIT")
+    recv_more()
+    s.close()
+    sys.stdout.write(buf.decode("latin-1", "replace"))
+except Exception as exc:
+    sys.stdout.write(f"PROBE_ERROR: {exc}\n")
+    sys.exit(0)
+PY
+)"
+RELAY_RC=$?
 set -e
-if echo "$RELAY_OUT" | grep -Eqi '554|550|553|Relay access denied|Sender address rejected|Recipient address rejected|Authentication required'; then
+if [[ $RELAY_RC -eq 124 ]] || [[ $RELAY_RC -eq 137 ]]; then
+  echo "    WARN: open-relay probe timed out (continuing — does not block deploy)"
+elif echo "$RELAY_OUT" | grep -Eqi '554|550|553|Relay access denied|Sender address rejected|Recipient address rejected|Authentication required'; then
   echo "    PASS: unauthenticated relay rejected"
+elif echo "$RELAY_OUT" | grep -qi 'PROBE_ERROR'; then
+  echo "    WARN: open-relay probe could not connect — continuing"
+  echo "$RELAY_OUT" | head -n 3
 else
-  echo "    WARN: could not confirm reject (output truncated). Review smtpd_*_restrictions."
+  echo "    WARN: could not confirm reject. Review smtpd_*_restrictions."
   echo "$RELAY_OUT" | head -n 20
 fi
 
