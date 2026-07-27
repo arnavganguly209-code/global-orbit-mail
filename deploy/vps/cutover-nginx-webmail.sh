@@ -198,6 +198,9 @@ else
   echo "WARN markers unclear"; curl -sI "https://${WEBMAIL_HOST}/" | head -20
 fi
 # Legacy path must redirect away from /webmail
-LOC="$(curl -sI "https://${WEBMAIL_HOST}/webmail/login" | tr -d '\r' | awk 'tolower($1)==\"location:\"{print $2; exit}')"
-echo "legacy /webmail/login Location: ${LOC:-none}"
+LEGACY_HDR="$(curl -sI "https://${WEBMAIL_HOST}/webmail/login" | tr -d '\r')"
+echo "$LEGACY_HDR" | head -15
+echo "$LEGACY_HDR" | grep -qiE '^location:[[:space:]]*/([[:space:]]|$|\?)' \
+  && echo "PASS legacy /webmail/login → /" \
+  || echo "WARN legacy Location header unexpected"
 echo "DONE"
