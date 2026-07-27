@@ -756,19 +756,64 @@ body.task-login img[alt*="GLOBAL ORBIT"] {
   border-radius: 10px !important;
 }
 
-.orbit-theme-toggle {
-  position: fixed;
-  right: 1rem;
-  bottom: 1rem;
-  z-index: 50;
-  width: 2.4rem;
-  height: 2.4rem;
+.orbit-online {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.7rem;
   border-radius: 999px;
   border: 1px solid var(--orbit-border);
-  background: #12121a;
-  color: var(--orbit-gold-2);
-  cursor: pointer;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  background: rgba(16,185,129,0.1);
+  color: #d1fae5 !important;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-left: 0.5rem;
+}
+.orbit-online i {
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34,197,94,0.25);
+}
+
+/* Extra Elastic chrome suppression */
+body.orbit-mail #layout-menu .popover,
+body.orbit-mail .menu.toolbar .special-buttons {
+  border-color: var(--orbit-border) !important;
+}
+body.orbit-mail #messagelist thead,
+body.orbit-mail .messagelist thead {
+  background: #0e0e16 !important;
+  color: var(--orbit-muted) !important;
+  border-bottom: 1px solid var(--orbit-border) !important;
+}
+body.orbit-mail #messagelist td,
+body.orbit-mail .messagelist td {
+  padding-top: 0.7rem !important;
+  padding-bottom: 0.7rem !important;
+}
+body.orbit-mail .listing li,
+body.orbit-mail .listing tbody tr {
+  border-radius: 10px;
+}
+
+/* Floating compose dialog */
+.ui-dialog.ui-widget,
+#compose-dialog,
+.popup.compose {
+  background: #0e0e16 !important;
+  border: 1px solid rgba(212,175,55,0.25) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.55) !important;
+  color: var(--orbit-text) !important;
+}
+.ui-dialog .ui-dialog-titlebar {
+  background: #12121a !important;
+  border: 0 !important;
+  color: #fff !important;
+  border-radius: 16px 16px 0 0 !important;
 }
 
 /* Light mode */
