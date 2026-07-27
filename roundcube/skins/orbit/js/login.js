@@ -168,9 +168,20 @@
     }
   }
 
+  function forceLogoSize() {
+    var logo = qs('.orbit-logo-mark');
+    if (!logo) return;
+    logo.style.setProperty('width', 'min(560px, 78vw)', 'important');
+    logo.style.setProperty('max-width', '560px', 'important');
+    logo.style.setProperty('max-height', 'none', 'important');
+    logo.style.setProperty('height', 'auto', 'important');
+    logo.style.setProperty('min-width', '280px', 'important');
+  }
+
   function boot() {
     document.body.classList.add('task-login');
     document.documentElement.style.setProperty('--orbit-font', '"Inter", "Segoe UI", system-ui, sans-serif');
+    forceLogoSize();
     enhanceFields();
     placeActions();
     wireRemember();
@@ -181,6 +192,7 @@
     killSso();
     setTimeout(killSso, 50);
     setTimeout(killSso, 400);
+    setTimeout(forceLogoSize, 100);
     stars();
   }
 

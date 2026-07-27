@@ -123,19 +123,24 @@ body.task-login .menu.toolbar { display: none !important; }
   line-height: 1.4;
 }
 
-.orbit-logo-mark {
-  display: block;
-  width: min(580px, 82%);
-  max-width: 580px;
-  height: auto;
-  margin: 0;
+.orbit-logo-mark,
+body.task-login img.orbit-logo-mark,
+body.task-login .orbit-hero img.orbit-logo-mark {
+  display: block !important;
+  width: min(560px, 78vw) !important;
+  max-width: 560px !important;
+  min-width: 280px !important;
+  height: auto !important;
+  max-height: none !important;
+  margin: 0 !important;
   padding: 0 !important;
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
   outline: none !important;
-  image-rendering: auto;
-  filter: contrast(1.08) saturate(1.08) brightness(1.05);
+  object-fit: contain !important;
+  image-rendering: auto !important;
+  filter: contrast(1.06) saturate(1.06) brightness(1.04) !important;
 }
 
 .orbit-feature-grid {
@@ -154,7 +159,7 @@ body.task-login .menu.toolbar { display: none !important; }
 .orbit-feature-icon svg { width: 100%; height: 100%; }
 .orbit-feature h3 {
   margin: 0 0 0.4rem;
-  color: #fff;
+  color: var(--orbit-gold-2);
   font-size: 0.98rem;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -242,17 +247,20 @@ body.task-login .menu.toolbar { display: none !important; }
     #07070b;
 }
 .orbit-glass-card {
-  width: min(400px, 100%);
-  padding: 1.85rem 1.6rem 1.35rem;
+  width: min(420px, 100%);
+  padding: 2rem 1.75rem 1.5rem;
   border-radius: 20px;
-  background: rgba(12, 12, 20, 0.72);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(12, 12, 20, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
   box-shadow:
     0 0 0 1px rgba(59, 130, 246, 0.28),
     0 0 0 1px rgba(212, 175, 55, 0.12) inset,
     0 28px 70px rgba(0,0,0,0.55);
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 .orbit-glass-card::before {
   content: "";
@@ -299,32 +307,95 @@ body.task-login .menu.toolbar { display: none !important; }
 
 .orbit-propform .form-group,
 .orbit-propform .row { margin-bottom: 0.7rem !important; }
-.orbit-propform label {
+.orbit-propform label,
+.orbit-propform .form-group > label,
+body.task-login .propform label {
   color: rgba(255,255,255,0.72) !important;
   font-size: 0.74rem !important;
   font-weight: 500 !important;
   margin-bottom: 0.3rem !important;
 }
-.orbit-propform input.form-control,
-.orbit-propform #rcmloginuser,
-.orbit-propform #rcmloginpwd {
+
+/* Crush Bootstrap input-group-lg — premium compact fields */
+body.task-login .orbit-propform .input-group,
+body.task-login .orbit-propform .input-group-lg {
+  height: 2.55rem !important;
+  min-height: 2.55rem !important;
+  max-height: 2.55rem !important;
+  border-radius: 11px !important;
+  overflow: hidden;
   background: rgba(6,6,12,0.92) !important;
   border: 1px solid rgba(148,163,184,0.28) !important;
-  border-radius: 11px !important;
+  box-shadow: none !important;
+}
+body.task-login .orbit-propform .input-group-prepend,
+body.task-login .orbit-propform .input-group-text {
+  background: transparent !important;
+  border: 0 !important;
+  color: var(--orbit-gold-2) !important;
+  padding: 0 0.55rem 0 0.75rem !important;
+  font-size: 0.95rem !important;
+  min-width: auto !important;
+  box-shadow: none !important;
+}
+body.task-login .orbit-propform .input-group-text.icon {
+  width: 1.1rem !important;
+  height: 1.1rem !important;
+  background-color: transparent !important;
+  opacity: 0.9;
+}
+body.task-login .orbit-propform input.form-control,
+body.task-login .orbit-propform #rcmloginuser,
+body.task-login .orbit-propform #rcmloginpwd,
+body.task-login .orbit-propform .input-group > .form-control {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
   color: #fff !important;
   height: 2.55rem !important;
   min-height: 2.55rem !important;
   max-height: 2.55rem !important;
-  padding: 0.45rem 0.85rem !important;
+  padding: 0.45rem 0.85rem 0.45rem 0.25rem !important;
   font-size: 0.9rem !important;
   font-family: var(--orbit-font) !important;
   box-shadow: none !important;
+  line-height: 1.2 !important;
+}
+body.task-login .orbit-propform .input-group:focus-within {
+  border-color: rgba(212,175,55,0.8) !important;
+  box-shadow: 0 0 0 3px rgba(212,175,55,0.16) !important;
 }
 .orbit-propform input.form-control:focus,
 .orbit-propform #rcmloginuser:focus,
 .orbit-propform #rcmloginpwd:focus {
-  border-color: rgba(212,175,55,0.8) !important;
-  box-shadow: 0 0 0 3px rgba(212,175,55,0.16) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Hide Elastic "Username" table chrome leftovers */
+body.task-login .orbit-propform table,
+body.task-login .orbit-propform tbody,
+body.task-login .orbit-propform tr,
+body.task-login .orbit-propform td,
+body.task-login .orbit-propform th {
+  display: block !important;
+  width: 100% !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+body.task-login .orbit-propform th.title,
+body.task-login .orbit-propform .title {
+  color: rgba(255,255,255,0.72) !important;
+  font-size: 0.74rem !important;
+  font-weight: 500 !important;
+  margin: 0 0 0.3rem !important;
+  padding: 0 !important;
+  text-align: left !important;
+}
+body.task-login .orbit-propform tr + tr {
+  margin-top: 0.7rem !important;
 }
 
 .orbit-row-actions {
@@ -642,16 +713,25 @@ button.mainaction {
   border-radius: 999px !important;
 }
 
-#logo, .logo, img[alt*="GLOBAL ORBIT"],
-#layout-menu img.logo,
-.header img.logo {
+/* Sidebar / header logos only — NEVER the login hero mark */
+#layout-menu #logo,
+#layout-menu .logo,
+#layout-menu img[alt*="GLOBAL ORBIT"],
+.header img.logo:not(.orbit-logo-mark),
+#taskmenu img.logo {
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
-  max-height: 48px !important;
+  max-height: 44px !important;
   width: auto !important;
   padding: 0.35rem 0.5rem !important;
   filter: contrast(1.05);
+}
+
+/* Kill Elastic/Bootstrap logo caps on login hero */
+body.task-login #logo,
+body.task-login img[alt*="GLOBAL ORBIT"] {
+  max-height: none !important;
 }
 
 .message-htmlpart,
