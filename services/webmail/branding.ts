@@ -121,28 +121,44 @@ export async function updateMailboxProfileByEmail(
 
 /** Build HTML signature block with optional domain logo for outgoing mail. */
 export function buildOutgoingSignatureHtml(branding: WebmailBranding): string {
-  if (branding.signatureHtml?.trim()) return branding.signatureHtml.trim();
+  const logo =
+    branding.domainLogoDataUrl
+      ? `<img src="${branding.domainLogoDataUrl}" alt="" style="max-height:48px;max-width:180px;display:block;margin-bottom:10px" />`
+      : "";
+
+  if (branding.signatureHtml?.trim()) {
+    const custom = branding.signatureHtml.trim();
+    if (logo && !/<img[\s>]/i.test(custom)) {
+      return `<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5;font-family:system-ui,sans-serif;font-size:13px;color:#333">${logo}${custom}</div>`;
+    }
+    return custom;
+  }
+
   const lines: string[] = [];
-  if (branding.domainLogoDataUrl) {
+  if (logo) lines.push(logo);
+  lines.push(`<strong style="font-size:14px;color:#111">${escapeHtml(branding.displayName)}</strong>`);
+  if (branding.jobTitle) lines.push(`<div style="color:#555">${escapeHtml(branding.jobTitle)}</div>`);
+  if (branding.company || branding.domainCompanyName) {
     lines.push(
-      `<img src="${branding.domainLogoDataUrl}" alt="" style="max-height:48px;max-width:180px;display:block;margin-bottom:8px" />`,
+      `<div style="color:#555;font-weight:600">${escapeHtml(branding.company || branding.domainCompanyName || "")}</div>`,
     );
   }
-  lines.push(`<strong>${escapeHtml(branding.displayName)}</strong>`);
-  if (branding.jobTitle) lines.push(`<div>${escapeHtml(branding.jobTitle)}</div>`);
-  if (branding.company || branding.domainCompanyName) {
-    lines.push(`<div>${escapeHtml(branding.company || branding.domainCompanyName || "")}</div>`);
-  }
-  if (branding.phone) lines.push(`<div>${escapeHtml(branding.phone)}</div>`);
+  if (branding.phone) lines.push(`<div style="color:#555">${escapeHtml(branding.phone)}</div>`);
   if (branding.website) {
     const href = branding.website.startsWith("http") ? branding.website : `https://${branding.website}`;
-    lines.push(`<div><a href="${escapeHtml(href)}">${escapeHtml(branding.website)}</a></div>`);
+    lines.push(
+      `<div><a href="${escapeHtml(href)}" style="color:#8a6d1a;text-decoration:none">${escapeHtml(branding.website)}</a></div>`,
+    );
   }
-  lines.push(`<div><a href="mailto:${escapeHtml(branding.email)}">${escapeHtml(branding.email)}</a></div>`);
+  lines.push(
+    `<div><a href="mailto:${escapeHtml(branding.email)}" style="color:#8a6d1a;text-decoration:none">${escapeHtml(branding.email)}</a></div>`,
+  );
   if (branding.signatureText?.trim()) {
-    lines.push(`<div style="margin-top:8px;white-space:pre-wrap">${escapeHtml(branding.signatureText.trim())}</div>`);
+    lines.push(
+      `<div style="margin-top:8px;white-space:pre-wrap;color:#666">${escapeHtml(branding.signatureText.trim())}</div>`,
+    );
   }
-  return `<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5;font-family:system-ui,sans-serif;font-size:13px;color:#333">${lines.join("")}</div>`;
+  return `<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5;font-family:system-ui,sans-serif;font-size:13px;line-height:1.45;color:#333">${lines.join("")}</div>`;
 }
 
 function escapeHtml(s: string) {

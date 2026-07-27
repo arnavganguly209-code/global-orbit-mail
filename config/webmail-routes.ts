@@ -9,6 +9,7 @@ export const webmailRoutes = {
   mail: "/mail",
   compose: "/compose",
   settings: "/settings",
+  profile: "/profile",
   contacts: "/contacts",
   message: (id: string | number) => `/mail/${id}`,
 } as const;
@@ -51,6 +52,8 @@ export function isWebmailAppPath(pathname: string) {
     pathname.startsWith(`${webmailRoutes.compose}/`) ||
     pathname === webmailRoutes.settings ||
     pathname.startsWith(`${webmailRoutes.settings}/`) ||
+    pathname === webmailRoutes.profile ||
+    pathname.startsWith(`${webmailRoutes.profile}/`) ||
     pathname === webmailRoutes.contacts ||
     pathname.startsWith(`${webmailRoutes.contacts}/`)
   );

@@ -27,6 +27,26 @@ export function OrbitLoginPage() {
   const [emailError, setEmailError] = React.useState<string | null>(null);
   const [passwordError, setPasswordError] = React.useState<string | null>(null);
 
+  const [logoSrc, setLogoSrc] = React.useState("/brand/logo.png");
+  const [productName, setProductName] = React.useState("Global Orbit Mail");
+
+  React.useEffect(() => {
+    const domain = email.includes("@") ? email.split("@")[1] : "";
+    if (!domain || domain.length < 3) return;
+    const t = window.setTimeout(() => {
+      void fetch(`/api/webmail/branding?domain=${encodeURIComponent(domain)}`)
+        .then((r) => r.json())
+        .then((json) => {
+          if (json?.success && json.data?.loginLogoUrl) {
+            setLogoSrc(json.data.loginLogoUrl);
+            if (json.data.productName) setProductName(json.data.productName);
+          }
+        })
+        .catch(() => undefined);
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [email]);
+
   if (!layout) {
     return <div className="min-h-dvh bg-[#050508]" aria-hidden />;
   }
@@ -81,7 +101,7 @@ export function OrbitLoginPage() {
   }
 
   const logoWidth =
-    layout === "desktop" ? 320 : layout === "laptop" ? 280 : layout === "tablet" ? 240 : 200;
+    layout === "desktop" ? 380 : layout === "laptop" ? 340 : layout === "tablet" ? 300 : 240;
 
   return (
     <div
@@ -129,12 +149,13 @@ export function OrbitLoginPage() {
           className="mb-7 flex flex-col items-center"
         >
           <Image
-            src="/brand/logo.png"
+            src={logoSrc}
             alt="GLOBAL ORBIT PVT LTD"
             width={logoWidth}
-            height={Math.round(logoWidth * 0.28)}
+            height={Math.round(logoWidth * 0.32)}
             priority
-            className="h-auto w-auto max-w-[min(100%,var(--logo-w))] bg-transparent object-contain"
+            unoptimized={logoSrc.startsWith("data:")}
+            className="h-auto w-auto max-w-[min(100%,var(--logo-w))] bg-transparent object-contain drop-shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
             style={{ ["--logo-w" as string]: `${logoWidth}px`, width: logoWidth, height: "auto" }}
           />
           <p
@@ -170,8 +191,8 @@ export function OrbitLoginPage() {
               <span className="mx-auto mb-3 inline-flex size-12 items-center justify-center rounded-full border border-[#d4af37]/50 bg-[#d4af37]/10 text-[#d4af37]">
                 <Mail className="size-6" strokeWidth={1.7} />
               </span>
-              <h1 className="text-[clamp(1.05rem,2.4vw,1.28rem)] font-bold tracking-tight">
-                Welcome to <span className="text-[#d4af37]">Global Orbit Mail</span>
+              <h1 className="text-[clamp(1.15rem,2.6vw,1.4rem)] font-bold tracking-tight">
+                Welcome to <span className="text-[#d4af37]">{productName}</span>
               </h1>
               <p className={cn("mt-1 text-sm", light ? "text-slate-600" : "text-white/70")}>
                 Sign in with your <span className="font-medium text-[#d4af37]">business email</span> to

@@ -110,14 +110,28 @@ export function SettingsAdminPage() {
     name: "",
     supportEmail: "",
     website: "",
+    phone: "",
+    address: "",
     timezone: "Asia/Kathmandu",
     language: "en",
   });
   const [brand, setBrand] = React.useState({
     product: "",
-    primaryColor: "#2f6fed",
+    primaryColor: "#1a1a1a",
     accentColor: "#d4af37",
     logoPath: "/brand/logo.png",
+    loginLogoPath: "/brand/logo.png",
+    mailLogoPath: "/brand/logo.png",
+    headerLogoPath: "/brand/logo.png",
+    sidebarLogoPath: "/brand/logo.png",
+    signatureLogoPath: "/brand/logo.png",
+    faviconPath: "/brand/favicon.svg",
+    socialLinks: {
+      linkedin: "",
+      twitter: "",
+      facebook: "",
+      instagram: "",
+    },
   });
   const [smtp, setSmtp] = React.useState({
     host: "",
@@ -150,14 +164,29 @@ export function SettingsAdminPage() {
       name: String(c.name ?? ""),
       supportEmail: String(c.supportEmail ?? ""),
       website: String(c.website ?? ""),
+      phone: String(c.phone ?? ""),
+      address: String(c.address ?? ""),
       timezone: String(c.timezone ?? "Asia/Kathmandu"),
       language: String(c.language ?? "en"),
     });
+    const social = (b.socialLinks ?? {}) as Record<string, string>;
     setBrand({
       product: String(b.product ?? ""),
-      primaryColor: String(b.primaryColor ?? "#2f6fed"),
+      primaryColor: String(b.primaryColor ?? "#1a1a1a"),
       accentColor: String(b.accentColor ?? "#d4af37"),
       logoPath: String(b.logoPath ?? "/brand/logo.png"),
+      loginLogoPath: String(b.loginLogoPath ?? b.logoPath ?? "/brand/logo.png"),
+      mailLogoPath: String(b.mailLogoPath ?? b.logoPath ?? "/brand/logo.png"),
+      headerLogoPath: String(b.headerLogoPath ?? b.logoPath ?? "/brand/logo.png"),
+      sidebarLogoPath: String(b.sidebarLogoPath ?? b.logoPath ?? "/brand/logo.png"),
+      signatureLogoPath: String(b.signatureLogoPath ?? b.logoPath ?? "/brand/logo.png"),
+      faviconPath: String(b.faviconPath ?? "/brand/favicon.svg"),
+      socialLinks: {
+        linkedin: String(social.linkedin ?? ""),
+        twitter: String(social.twitter ?? ""),
+        facebook: String(social.facebook ?? ""),
+        instagram: String(social.instagram ?? ""),
+      },
     });
     setSmtp({
       host: String(sm.host ?? ""),
@@ -197,20 +226,35 @@ export function SettingsAdminPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  function onLogoSelected(file: File | null) {
+  function onLogoSelected(file: File | null, key: keyof typeof brand = "logoPath") {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       toast.error("Logo must be an image file");
       return;
     }
-    if (file.size > 512_000) {
-      toast.error("Logo must be under 512KB");
+    if (file.size > 800_000) {
+      toast.error("Logo must be under 800KB");
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
       const result = typeof reader.result === "string" ? reader.result : "";
-      setBrand((b) => ({ ...b, logoPath: result }));
+      setBrand((b) => {
+        const next = { ...b, [key]: result } as typeof b;
+        if (key === "logoPath") {
+          // Seed empty slot defaults from master logo
+          for (const slot of [
+            "loginLogoPath",
+            "mailLogoPath",
+            "headerLogoPath",
+            "sidebarLogoPath",
+            "signatureLogoPath",
+          ] as const) {
+            if (!b[slot] || b[slot] === "/brand/logo.png") next[slot] = result;
+          }
+        }
+        return next;
+      });
       toast.message("Logo loaded", { description: "Save brand to persist" });
     };
     reader.readAsDataURL(file);
@@ -247,6 +291,20 @@ export function SettingsAdminPage() {
                 onChange={(e) => setCompany((c) => ({ ...c, website: e.target.value }))}
               />
             </div>
+            <div className="space-y-2">
+              <Label>Phone</Label>
+              <Input
+                value={company.phone}
+                onChange={(e) => setCompany((c) => ({ ...c, phone: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Address</Label>
+              <Input
+                value={company.address}
+                onChange={(e) => setCompany((c) => ({ ...c, address: e.target.value }))}
+              />
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Timezone</Label>
@@ -273,8 +331,8 @@ export function SettingsAdminPage() {
             </Button>
           </section>
 
-          <section className="glass-surface space-y-4 rounded-2xl p-6">
-            <h2 className="font-display text-xl font-semibold">Brand & Logo</h2>
+          <section className="glass-surface space-y-4 rounded-2xl p-6 lg:col-span-2">
+            <h2 className="font-display text-xl font-semibold">White Label · Brand & Logos</h2>
             <div className="space-y-2">
               <Label>Product name</Label>
               <Input
@@ -291,42 +349,72 @@ export function SettingsAdminPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Accent color</Label>
+                <Label>Accent / gold color</Label>
                 <Input
                   value={brand.accentColor}
                   onChange={(e) => setBrand((b) => ({ ...b, accentColor: e.target.value }))}
                 />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Logo path / URL</Label>
-              <Input
-                value={brand.logoPath.startsWith("data:") ? "(uploaded data URL)" : brand.logoPath}
-                onChange={(e) => setBrand((b) => ({ ...b, logoPath: e.target.value }))}
-                disabled={brand.logoPath.startsWith("data:")}
-              />
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {(
+                [
+                  ["logoPath", "Master / company logo"],
+                  ["loginLogoPath", "Login logo"],
+                  ["mailLogoPath", "Mail logo"],
+                  ["headerLogoPath", "Header logo"],
+                  ["sidebarLogoPath", "Sidebar logo"],
+                  ["signatureLogoPath", "Signature logo"],
+                  ["faviconPath", "Favicon"],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key} className="space-y-2 rounded-xl border border-white/10 p-3">
+                  <Label>{label}</Label>
+                  <Input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml,image/x-icon"
+                    onChange={(e) => onLogoSelected(e.target.files?.[0] ?? null, key)}
+                  />
+                  {brand[key] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={brand[key]}
+                      alt={label}
+                      className="mt-2 h-12 w-auto max-w-full object-contain"
+                    />
+                  ) : null}
+                </div>
+              ))}
             </div>
-            <div className="space-y-2">
-              <Label>Upload logo</Label>
-              <Input
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                onChange={(e) => onLogoSelected(e.target.files?.[0] ?? null)}
-              />
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {(
+                [
+                  ["linkedin", "LinkedIn"],
+                  ["twitter", "Twitter / X"],
+                  ["facebook", "Facebook"],
+                  ["instagram", "Instagram"],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key} className="space-y-2">
+                  <Label>{label}</Label>
+                  <Input
+                    value={brand.socialLinks[key]}
+                    onChange={(e) =>
+                      setBrand((b) => ({
+                        ...b,
+                        socialLinks: { ...b.socialLinks, [key]: e.target.value },
+                      }))
+                    }
+                    placeholder="https://"
+                  />
+                </div>
+              ))}
             </div>
-            {brand.logoPath ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={brand.logoPath}
-                alt="Brand logo preview"
-                className="h-12 w-auto object-contain"
-              />
-            ) : null}
             <Button
               type="button"
               onClick={() => saveMutation.mutate({ section: "brand", values: brand })}
             >
-              Save brand
+              Save white-label branding
             </Button>
           </section>
 

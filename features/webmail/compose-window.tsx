@@ -169,15 +169,59 @@ function htmlToPlain(html: string) {
   return (tmp.innerText || tmp.textContent || "").replace(/\u00a0/g, " ").trimEnd();
 }
 
-function buildSignatureBlock(signatureHtml?: string | null, signatureText?: string | null) {
+function buildSignatureBlock(
+  signatureHtml?: string | null,
+  signatureText?: string | null,
+  opts?: {
+    logo?: string | null;
+    displayName?: string | null;
+    companyName?: string | null;
+    phone?: string | null;
+    website?: string | null;
+    email?: string | null;
+  },
+) {
+  const logo = opts?.logo?.trim()
+    ? `<img src="${opts.logo}" alt="" style="max-height:48px;max-width:180px;display:block;margin-bottom:10px" />`
+    : "";
+
   if (signatureHtml?.trim()) {
-    return { html: `<br/><div data-orbit-sig="1">${signatureHtml.trim()}</div>`, text: "" };
+    const custom = signatureHtml.trim();
+    if (logo && !/<img[\s>]/i.test(custom)) {
+      return {
+        html: `<br/><div data-orbit-sig="1">${logo}${custom}</div>`,
+        text: "",
+      };
+    }
+    return { html: `<br/><div data-orbit-sig="1">${custom}</div>`, text: "" };
   }
-  if (signatureText?.trim()) {
-    const t = signatureText.trim();
+
+  if (signatureText?.trim() || logo || opts?.displayName) {
+    const lines: string[] = [];
+    if (logo) lines.push(logo);
+    if (opts?.displayName) lines.push(`<strong>${escapeHtml(opts.displayName)}</strong>`);
+    if (opts?.companyName) lines.push(`<div style="font-weight:600">${escapeHtml(opts.companyName)}</div>`);
+    if (opts?.phone) lines.push(`<div>${escapeHtml(opts.phone)}</div>`);
+    if (opts?.website) {
+      const href = opts.website.startsWith("http") ? opts.website : `https://${opts.website}`;
+      lines.push(`<div><a href="${escapeHtml(href)}" style="color:#8a6d1a">${escapeHtml(opts.website)}</a></div>`);
+    }
+    if (opts?.email) {
+      lines.push(`<div><a href="mailto:${escapeHtml(opts.email)}" style="color:#8a6d1a">${escapeHtml(opts.email)}</a></div>`);
+    }
+    if (signatureText?.trim()) {
+      lines.push(
+        `<div style="margin-top:8px;white-space:pre-wrap">${escapeHtml(signatureText.trim())}</div>`,
+      );
+    }
+    const text = signatureText?.trim()
+      ? `\n\n--\n${signatureText.trim()}`
+      : opts?.displayName
+        ? `\n\n--\n${opts.displayName}`
+        : "";
     return {
-      html: `<br/><div data-orbit-sig="1" style="white-space:pre-wrap">${escapeHtml(t)}</div>`,
-      text: `\n\n--\n${t}`,
+      html: `<br/><div data-orbit-sig="1" style="margin-top:8px;padding-top:10px;border-top:1px solid #333">${lines.join("")}</div>`,
+      text,
     };
   }
   return null;
@@ -504,6 +548,12 @@ export function ComposeWindow({
   mobile,
   signatureHtml,
   signatureText,
+  signatureLogo,
+  displayName,
+  companyName,
+  phone,
+  website,
+  senderEmail,
   onClose,
   onSent,
 }: {
@@ -513,6 +563,12 @@ export function ComposeWindow({
   mobile?: boolean;
   signatureHtml?: string | null;
   signatureText?: string | null;
+  signatureLogo?: string | null;
+  displayName?: string | null;
+  companyName?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  senderEmail?: string | null;
   onClose: () => void;
   onSent: () => void;
 }) {
@@ -584,7 +640,14 @@ export function ComposeWindow({
     let usedSig = false;
 
     if (initial.mode === "new" && !initial.body.trim() && !initial.html?.trim()) {
-      const sig = buildSignatureBlock(signatureHtml, signatureText);
+      const sig = buildSignatureBlock(signatureHtml, signatureText, {
+        logo: signatureLogo,
+        displayName,
+        companyName,
+        phone,
+        website,
+        email: senderEmail,
+      });
       if (sig) {
         body = sig.text;
         html = sig.html;
@@ -609,7 +672,19 @@ export function ComposeWindow({
       editor.setEditable(true);
       editor.commands.setContent(html || (body ? textToHtml(body) : "<p></p>"));
     }
-  }, [open, initial, signatureHtml, signatureText, editor]);
+  }, [
+    open,
+    initial,
+    signatureHtml,
+    signatureText,
+    signatureLogo,
+    displayName,
+    companyName,
+    phone,
+    website,
+    senderEmail,
+    editor,
+  ]);
 
   React.useEffect(() => {
     if (!open) return;
