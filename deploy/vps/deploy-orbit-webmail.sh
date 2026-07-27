@@ -48,11 +48,10 @@ if ! command -v pm2 >/dev/null 2>&1; then
   npm install -g pm2
 fi
 
-if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
-  pm2 restart "$APP_NAME" --update-env
-else
-  pm2 start npm --name "$APP_NAME" -- start -- -p "$APP_PORT"
-fi
+export PORT="$APP_PORT"
+# Recreate so port/env always match (restart alone keeps old args)
+pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
+pm2 start npm --name "$APP_NAME" --cwd "$REPO_ROOT" -- start -- -p "$APP_PORT"
 pm2 save || true
 
 # Nginx vhost — proxy to Next, keep TLS if already configured
