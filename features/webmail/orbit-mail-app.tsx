@@ -5,7 +5,6 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import {
   Archive,
@@ -37,6 +36,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLayoutMode } from "@/features/webmail/hooks/use-layout-mode";
+import { ComposeWindow, type ComposeState } from "@/features/webmail/compose-window";
 import {
   folderIconLabel,
   formatWhen,
@@ -49,6 +49,16 @@ import {
 } from "@/features/webmail/lib/api";
 
 type Pane = "folders" | "list" | "reader";
+
+const emptyCompose = (): ComposeState => ({
+  to: "",
+  cc: "",
+  bcc: "",
+  subject: "",
+  body: "",
+  mode: "new",
+  attachments: [],
+});
 
 export function OrbitMailApp() {
   const router = useRouter();
@@ -64,12 +74,9 @@ export function OrbitMailApp() {
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [pane, setPane] = React.useState<Pane>("list");
-  const [compose, setCompose] = React.useState({
-    to: "",
-    subject: "",
-    body: "",
-    mode: "new" as "new" | "reply" | "replyAll" | "forward",
-  });
+  const [compose, setCompose] = React.useState<ComposeState>(emptyCompose);
+  const [moveTarget, setMoveTarget] = React.useState("");
+  const [preview, setPreview] = React.useState<{ url: string; kind: "image" | "pdf" } | null>(null);
 
   const meQuery = useQuery({
     queryKey: ["webmail", "me"],
@@ -91,7 +98,8 @@ export function OrbitMailApp() {
       const data = await webmailApi<{ folders: Folder[] }>("/api/webmail/folders");
       return data.folders;
     },
-    staleTime: 30_000,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
     enabled: !!meQuery.data,
   });
 
@@ -108,8 +116,16 @@ export function OrbitMailApp() {
         `/api/webmail/messages?folder=${encodeURIComponent(folder)}&page=1`,
       );
     },
-    staleTime: 12_000,
+    staleTime: 8_000,
+    refetchInterval: 20_000,
     placeholderData: keepPreviousData,
+    enabled: !!meQuery.data,
+  });
+
+  const contactsQuery = useQuery({
+    queryKey: ["webmail", "contacts"],
+    queryFn: () => webmailApi<{ recent: string[] }>("/api/webmail/contacts"),
+    staleTime: 120_000,
     enabled: !!meQuery.data,
   });
 
@@ -163,7 +179,7 @@ export function OrbitMailApp() {
   async function openMessage(uid: number) {
     setSelectedUid(uid);
     if (isStack) setPane("reader");
-    // Mark seen optimistically
+    // Mark seen optimistically + persist to IMAP
     qc.setQueryData<{ messages: MessageItem[]; total: number }>(
       ["webmail", "messages", folder, searchQ],
       (prev) =>
@@ -174,6 +190,15 @@ export function OrbitMailApp() {
             }
           : prev,
     );
+    try {
+      await webmailApi("/api/webmail/messages/action", {
+        method: "POST",
+        body: JSON.stringify({ action: "seen", folder, uids: [uid], seen: true }),
+      });
+      void qc.invalidateQueries({ queryKey: ["webmail", "folders"] });
+    } catch {
+      /* non-blocking */
+    }
   }
 
   function prefetchMessage(uid: number) {
@@ -194,12 +219,35 @@ export function OrbitMailApp() {
         method: "POST",
         body: JSON.stringify({ action, folder, uids: [selectedUid], ...extra }),
       });
-      toast.success("Done");
-      setSelectedUid(null);
-      if (isStack) setPane("list");
+      toast.success(
+        action === "delete"
+          ? "Deleted"
+          : action === "archive"
+            ? "Archived"
+            : action === "spam"
+              ? "Moved to Spam"
+              : action === "flag"
+                ? extra?.flagged
+                  ? "Starred"
+                  : "Unstarred"
+                : action === "seen"
+                  ? extra?.seen === false
+                    ? "Marked unread"
+                    : "Marked read"
+                  : action === "move"
+                    ? "Moved"
+                    : action === "copy"
+                      ? "Copied"
+                      : "Done",
+      );
+      if (action === "delete" || action === "archive" || action === "spam" || action === "move") {
+        setSelectedUid(null);
+        if (isStack) setPane("list");
+      }
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["webmail", "messages"] }),
         qc.invalidateQueries({ queryKey: ["webmail", "folders"] }),
+        qc.invalidateQueries({ queryKey: ["webmail", "message"] }),
       ]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Action failed");
@@ -218,43 +266,40 @@ export function OrbitMailApp() {
       mode === "forward"
         ? ""
         : mode === "replyAll"
-          ? [detail.fromEmail, detail.to].filter(Boolean).join(", ")
+          ? [detail.fromEmail, ...detail.to.split(",").map((s) => s.trim())]
+              .filter((e) => e && e.toLowerCase() !== (me?.email || "").toLowerCase())
+              .filter((v, i, a) => a.indexOf(v) === i)
+              .join(", ")
           : detail.fromEmail;
+    const cc =
+      mode === "replyAll"
+        ? detail.cc
+            .split(",")
+            .map((s) => s.trim())
+            .filter((e) => e && e.toLowerCase() !== (me?.email || "").toLowerCase())
+            .join(", ")
+        : "";
     const subjectPrefix = mode === "forward" ? "Fwd: " : "Re: ";
     const subject =
       detail.subject.startsWith("Re:") || detail.subject.startsWith("Fwd:")
         ? detail.subject
         : `${subjectPrefix}${detail.subject}`;
-    const quoted = `\n\n----------\nOn ${detail.date || ""}, ${detail.from} wrote:\n${detail.text || ""}`;
+    const quoted = `\n\n----------\nOn ${detail.date || ""}, ${detail.from} <${detail.fromEmail}> wrote:\n${detail.text || ""}`;
     setCompose({
       to,
+      cc,
+      bcc: "",
       subject,
-      body: mode === "forward" ? detail.text || "" : quoted,
+      body: mode === "forward" ? detail.text || detail.html?.replace(/<[^>]+>/g, " ") || "" : quoted,
       mode,
+      inReplyTo: detail.messageId,
+      references: detail.messageId,
+      attachments: [],
     });
     setComposeOpen(true);
   }
 
-  async function sendCompose() {
-    try {
-      await webmailApi("/api/webmail/messages/send", {
-        method: "POST",
-        body: JSON.stringify({
-          to: compose.to,
-          subject: compose.subject,
-          text: compose.body,
-          inReplyTo: compose.mode.startsWith("reply") ? detail?.messageId : undefined,
-        }),
-      });
-      toast.success("Message sent");
-      setComposeOpen(false);
-      setCompose({ to: "", subject: "", body: "", mode: "new" });
-      await qc.invalidateQueries({ queryKey: ["webmail", "folders"] });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Send failed");
-    }
-  }
-
+  const recentRecipients = contactsQuery.data?.recent ?? [];
   const sidebarWidth =
     layout === "desktop" ? "w-[272px]" : layout === "laptop" ? "w-[232px]" : "w-[min(320px,86vw)]";
   const listWidth =
@@ -287,16 +332,16 @@ export function OrbitMailApp() {
 
       <button
         type="button"
-        onClick={() => {
-          setCompose({ to: "", subject: "", body: "", mode: "new" });
-          setComposeOpen(true);
-          setDrawerOpen(false);
-        }}
-        className="mx-3 mb-3 mt-2 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#f6e7a8] via-[#e0bc4a] to-[#c9971a] px-4 py-3 text-sm font-bold text-[#1a1200] shadow-[0_8px_22px_rgba(212,175,55,0.28)] transition hover:brightness-105 active:scale-[0.99]"
-      >
-        <PenSquare className="size-4" />
-        Compose
-      </button>
+          onClick={() => {
+            setCompose(emptyCompose());
+            setComposeOpen(true);
+            setDrawerOpen(false);
+          }}
+          className="mx-3 mb-3 mt-2 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#f6e7a8] via-[#e0bc4a] to-[#c9971a] px-4 py-3 text-sm font-bold text-[#1a1200] shadow-[0_8px_22px_rgba(212,175,55,0.28)] transition hover:brightness-105 active:scale-[0.99]"
+        >
+          <PenSquare className="size-4" />
+          Compose
+        </button>
 
       <nav className="orbit-scroll flex-1 overflow-y-auto overscroll-contain px-2 pb-3">
         <p className="mb-1 px-3 pt-1 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[#d4af37]/85">
@@ -361,11 +406,9 @@ export function OrbitMailApp() {
           light ? "border-slate-200 bg-slate-50" : "border-white/8 bg-[#12121a]",
         )}
       >
-        <p className="text-xs text-zinc-400">Storage</p>
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
-          <div className="h-full w-[24%] rounded-full bg-gradient-to-r from-[#f6e7a8] to-[#c9971a]" />
-        </div>
-        <p className="mt-1.5 text-[0.7rem] text-zinc-500">Connected · live mailbox</p>
+        <p className="text-xs text-zinc-400">Mailbox</p>
+        <p className="mt-1 truncate text-sm font-medium">{me?.email || "…"}</p>
+        <p className="mt-1 text-[0.7rem] text-zinc-500">IMAP sync · {folders.length} folders</p>
       </div>
 
       <div className="flex items-center justify-around border-t border-white/8 px-2 py-3">
@@ -429,7 +472,9 @@ export function OrbitMailApp() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={layout === "mobile" ? "Search" : "Search mail…"}
+            placeholder={
+              layout === "mobile" ? "Search" : "Search… from: to: since: has:attachment"
+            }
             className={cn(
               "h-9 w-full rounded-xl border pl-9 pr-3 text-sm outline-none focus:border-[#d4af37]/70",
               light ? "border-slate-200 bg-slate-50" : "border-white/10 bg-[#0a0a12] text-white",
@@ -562,6 +607,60 @@ export function OrbitMailApp() {
               {layout === "mobile" ? null : a.label}
             </button>
           ))}
+          {selectedUid ? (
+            <>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-white/5"
+                onClick={() => void runAction("seen", { seen: false })}
+                title="Mark unread"
+              >
+                Unread
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-white/5"
+                onClick={() =>
+                  void runAction("flag", { flagged: !(detail?.uid === selectedUid && messages.find((m) => m.uid === selectedUid)?.flagged) })
+                }
+                title="Star"
+              >
+                <Star className="size-3.5" />
+              </button>
+              {layout !== "mobile" ? (
+                <span className="ml-1 inline-flex items-center gap-1">
+                  <select
+                    value={moveTarget}
+                    onChange={(e) => setMoveTarget(e.target.value)}
+                    className="h-8 rounded-lg border border-white/10 bg-transparent px-2 text-xs"
+                  >
+                    <option value="">Move to…</option>
+                    {folders.map((f) => (
+                      <option key={f.path} value={f.path}>
+                        {folderIconLabel(f)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={!moveTarget}
+                    className="rounded-lg px-2 py-1.5 text-xs hover:bg-white/5 disabled:opacity-40"
+                    onClick={() => void runAction("move", { target: moveTarget })}
+                  >
+                    Move
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!moveTarget}
+                    className="rounded-lg px-2 py-1.5 text-xs hover:bg-white/5 disabled:opacity-40"
+                    onClick={() => void runAction("copy", { target: moveTarget })}
+                  >
+                    Copy
+                  </button>
+                </span>
+              ) : null}
+            </>
+          ) : null}
         </div>
         <div className="hidden min-w-0 text-right sm:block">
           <p className="truncate text-sm font-semibold">{me?.name}</p>
@@ -599,7 +698,10 @@ export function OrbitMailApp() {
                     {detail.from}{" "}
                     <span className="font-normal text-zinc-500">&lt;{detail.fromEmail}&gt;</span>
                   </p>
-                  <p className="text-xs text-zinc-500">to me</p>
+                  <p className="text-xs text-zinc-500">
+                    to {detail.to || "me"}
+                    {detail.cc ? ` · cc ${detail.cc}` : ""}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-1 text-zinc-400">
@@ -638,22 +740,38 @@ export function OrbitMailApp() {
               <div className="mt-8">
                 <p className="mb-3 text-sm font-semibold">{detail.attachments.length} Attachments</p>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {detail.attachments.map((a) => (
-                    <a
-                      key={a.part}
-                      href={`/api/webmail/messages/${detail.uid}/attachments/${a.part}?folder=${encodeURIComponent(folder)}`}
-                      className={cn(
-                        "flex items-center gap-3 rounded-xl border px-3 py-3 text-sm transition hover:border-[#d4af37]/40",
-                        light ? "border-slate-200 bg-slate-50" : "border-white/10 bg-[#14141e]",
-                      )}
-                    >
-                      <FileText className="size-5 text-[#d4af37]" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{a.filename}</span>
-                        <span className="text-xs text-zinc-500">{Math.round(a.size / 1024)} KB</span>
-                      </span>
-                    </a>
-                  ))}
+                  {detail.attachments.map((a) => {
+                    const href = `/api/webmail/messages/${detail.uid}/attachments/${a.part}?folder=${encodeURIComponent(folder)}`;
+                    const isImage = /^image\//i.test(a.contentType) || /\.(png|jpe?g|gif|webp|bmp)$/i.test(a.filename);
+                    const isPdf = /pdf/i.test(a.contentType) || /\.pdf$/i.test(a.filename);
+                    return (
+                      <div
+                        key={a.part}
+                        className={cn(
+                          "flex items-center gap-3 rounded-xl border px-3 py-3 text-sm",
+                          light ? "border-slate-200 bg-slate-50" : "border-white/10 bg-[#14141e]",
+                        )}
+                      >
+                        <FileText className="size-5 shrink-0 text-[#d4af37]" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{a.filename}</span>
+                          <span className="text-xs text-zinc-500">{Math.round(a.size / 1024)} KB</span>
+                        </span>
+                        {isImage || isPdf ? (
+                          <button
+                            type="button"
+                            className="shrink-0 text-xs font-medium text-[#d4af37] hover:underline"
+                            onClick={() => setPreview({ url: href, kind: isPdf ? "pdf" : "image" })}
+                          >
+                            Preview
+                          </button>
+                        ) : null}
+                        <a href={href} download={a.filename} className="shrink-0 text-xs font-medium text-zinc-400 hover:text-white">
+                          Download
+                        </a>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ) : null}
@@ -711,7 +829,7 @@ export function OrbitMailApp() {
           <button
             type="button"
             onClick={() => {
-              setCompose({ to: "", subject: "", body: "", mode: "new" });
+              setCompose(emptyCompose());
               setComposeOpen(true);
             }}
             className="mx-4 my-3 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#f6e7a8] via-[#e0bc4a] to-[#c9971a] px-4 py-3 text-sm font-bold text-[#1a1200]"
@@ -750,87 +868,45 @@ export function OrbitMailApp() {
         </>
       )}
 
-      <AnimatePresence>
-        {composeOpen ? (
-          <motion.div
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-0 sm:items-center sm:p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+      <ComposeWindow
+        open={composeOpen}
+        initial={compose}
+        recentRecipients={recentRecipients}
+        mobile={layout === "mobile"}
+        onClose={() => setComposeOpen(false)}
+        onSent={() => {
+          setComposeOpen(false);
+          setCompose(emptyCompose());
+          void Promise.all([
+            qc.invalidateQueries({ queryKey: ["webmail", "messages"] }),
+            qc.invalidateQueries({ queryKey: ["webmail", "folders"] }),
+            qc.invalidateQueries({ queryKey: ["webmail", "contacts"] }),
+          ]);
+        }}
+      />
+
+      {preview ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" onClick={() => setPreview(null)}>
+          <div
+            className="relative max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl border border-white/15 bg-[#0e0e16]"
+            onClick={(e) => e.stopPropagation()}
           >
-            <motion.div
-              initial={{ y: 48, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 24, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 380, damping: 32 }}
-              className={cn(
-                "flex flex-col overflow-hidden border border-[#d4af37]/25 bg-[#0e0e16] shadow-2xl",
-                layout === "mobile"
-                  ? "h-[92dvh] w-full rounded-t-2xl"
-                  : "h-[min(640px,90vh)] w-full max-w-2xl rounded-2xl",
-              )}
+            <button
+              type="button"
+              className="absolute right-2 top-2 z-10 rounded-lg bg-black/50 p-2 text-white hover:bg-black/70"
+              onClick={() => setPreview(null)}
             >
-              <div className="flex items-center justify-between border-b border-white/10 bg-[#12121a] px-4 py-3">
-                <p className="font-semibold">New Message</p>
-                <button type="button" onClick={() => setComposeOpen(false)} className="rounded-lg p-1 hover:bg-white/5">
-                  <X className="size-4" />
-                </button>
-              </div>
-              <div className="space-y-2 border-b border-white/10 px-4 py-3">
-                <input
-                  value={compose.to}
-                  onChange={(e) => setCompose((c) => ({ ...c, to: e.target.value }))}
-                  placeholder="To"
-                  className="h-9 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-sm outline-none focus:border-[#d4af37]/6"
-                />
-                <input
-                  value={compose.subject}
-                  onChange={(e) => setCompose((c) => ({ ...c, subject: e.target.value }))}
-                  placeholder="Subject"
-                  className="h-9 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-sm outline-none focus:border-[#d4af37]/6"
-                />
-              </div>
-              <textarea
-                value={compose.body}
-                onChange={(e) => setCompose((c) => ({ ...c, body: e.target.value }))}
-                className="min-h-0 flex-1 resize-none bg-transparent px-4 py-3 text-sm outline-none"
-                placeholder="Write your message…"
-              />
-              <div className="flex items-center justify-between border-t border-white/10 px-4 py-3">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      await webmailApi("/api/webmail/messages/draft", {
-                        method: "POST",
-                        body: JSON.stringify({
-                          to: compose.to,
-                          subject: compose.subject,
-                          text: compose.body,
-                        }),
-                      });
-                      toast.success("Draft saved");
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Draft failed");
-                    }
-                  }}
-                  className="text-sm text-zinc-400 hover:text-white"
-                >
-                  Save draft
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void sendCompose()}
-                  className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#f6e7a8] to-[#c9971a] px-5 py-2 text-sm font-bold text-[#1a1200]"
-                >
-                  <Send className="size-3.5" />
-                  Send
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+              <X className="size-4" />
+            </button>
+            {preview.kind === "pdf" ? (
+              <iframe title="Attachment preview" src={preview.url} className="h-[85vh] w-full bg-white" />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={preview.url} alt="Attachment preview" className="max-h-[85vh] w-full object-contain" />
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

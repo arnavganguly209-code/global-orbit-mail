@@ -313,6 +313,7 @@ export async function getAttachment(
 export type MessageAction =
   | { type: "delete"; folder: string; uids: number[] }
   | { type: "move"; folder: string; uids: number[]; target: string }
+  | { type: "copy"; folder: string; uids: number[]; target: string }
   | { type: "flag"; folder: string; uids: number[]; flagged: boolean }
   | { type: "seen"; folder: string; uids: number[]; seen: boolean };
 
@@ -345,6 +346,10 @@ export async function applyMessageAction(creds: WebmailCredentials, action: Mess
         await client.messageMove(uidSet, action.target, { uid: true });
         return { ok: true };
       }
+      if (action.type === "copy") {
+        await client.messageCopy(uidSet, action.target, { uid: true });
+        return { ok: true };
+      }
       if (action.type === "delete") {
         const trash = (await findSpecialFolder(client, "Trash")) || "Trash";
         if (folder.toUpperCase().includes("TRASH") || folder.toUpperCase().includes("DELETED")) {
@@ -361,86 +366,196 @@ export async function applyMessageAction(creds: WebmailCredentials, action: Mess
   });
 }
 
-export async function searchMessages(
-  creds: WebmailCredentials,
-  folder: string,
-  query: string,
-): Promise<MessageListItem[]> {
-  const path = normalizeFolderPath(folder);
-  const q = query.trim();
-  if (!q) return [];
-  return withImap(creds, async (client) => {
-    const lock = await client.getMailboxLock(path);
-    try {
-      const uids = await client.search({ or: [{ subject: q }, { body: q }, { from: q }] }, { uid: true });
-      if (!uids || uids.length === 0) return [];
-      const slice = uids.slice(-50);
-      const messages: MessageListItem[] = [];
-      for await (const msg of client.fetch(slice, { uid: true, flags: true, envelope: true }, { uid: true })) {
-        const from = addressText(msg.envelope?.from);
-        const flags = msg.flags || new Set<string>();
-        messages.push({
-          uid: msg.uid,
-          seq: msg.seq,
-          subject: msg.envelope?.subject || "(no subject)",
-          from: from.name,
-          fromEmail: from.email,
-          date: msg.envelope?.date ? new Date(msg.envelope.date).toISOString() : null,
-          preview: "",
-          unseen: !flags.has("\\Seen"),
-          flagged: flags.has("\\Flagged"),
-          answered: flags.has("\\Answered"),
-          hasAttachment: false,
-        });
-      }
-      return messages.sort((a, b) => b.uid - a.uid);
-    } finally {
-      lock.release();
-    }
-  });
-}
-
 export async function sendAndStore(
   creds: WebmailCredentials,
   input: SendMailInput & { saveSent?: boolean },
 ) {
   const result = await sendMail(creds, input);
+  let sentSaved = false;
+  let sentError: string | undefined;
   if (input.saveSent !== false) {
     try {
       await withImap(creds, async (client) => {
         const sent = (await findSpecialFolder(client, "Sent")) || "Sent";
-        const raw = buildSimpleRfc822(creds.email, input);
-        await client.append(sent, raw, ["\\Seen"]);
+        await client.append(sent, result.rawForStore, ["\\Seen"]);
       });
-    } catch {
-      /* sent folder optional */
+      sentSaved = true;
+    } catch (error) {
+      sentError = error instanceof Error ? error.message : "Failed to append to Sent";
     }
   }
-  return result;
+  return {
+    messageId: result.messageId,
+    accepted: result.accepted,
+    rejected: result.rejected,
+    smtpResponse: result.response,
+    smtpCode: result.responseCode ?? 250,
+    sentSaved,
+    sentError,
+  };
 }
 
 export async function saveDraft(creds: WebmailCredentials, input: SendMailInput) {
   return withImap(creds, async (client) => {
     const drafts = (await findSpecialFolder(client, "Drafts")) || "Drafts";
-    const raw = buildSimpleRfc822(creds.email, input);
+    const { buildRfc822 } = await import("./smtp-client");
+    const raw = await buildRfc822(creds.email, input, { includeBcc: false });
     const info = await client.append(drafts, raw, ["\\Draft"]);
     const uid = info && typeof info === "object" && "uid" in info ? Number(info.uid) : undefined;
     return { uid, path: drafts };
   });
 }
 
-function buildSimpleRfc822(from: string, input: SendMailInput) {
-  const to = Array.isArray(input.to) ? input.to.join(", ") : input.to;
-  const headers = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${input.subject || ""}`,
-    "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    "",
-    input.text || (input.html ? input.html.replace(/<[^>]+>/g, " ") : ""),
-  ];
-  return headers.join("\r\n");
+export async function searchMessages(
+  creds: WebmailCredentials,
+  folder: string,
+  query: string,
+  opts?: { from?: string; to?: string; since?: string; hasAttachment?: boolean },
+): Promise<MessageListItem[]> {
+  const path = normalizeFolderPath(folder);
+  // Support operators in q: from:x to:y since:YYYY-MM-DD has:attachment
+  let q = query.trim();
+  const parsed = { ...opts };
+  const fromMatch = q.match(/\bfrom:(\S+)/i);
+  if (fromMatch) {
+    parsed.from = parsed.from || fromMatch[1];
+    q = q.replace(fromMatch[0], "").trim();
+  }
+  const toMatch = q.match(/\bto:(\S+)/i);
+  if (toMatch) {
+    parsed.to = parsed.to || toMatch[1];
+    q = q.replace(toMatch[0], "").trim();
+  }
+  const sinceMatch = q.match(/\bsince:(\S+)/i);
+  if (sinceMatch) {
+    parsed.since = parsed.since || sinceMatch[1];
+    q = q.replace(sinceMatch[0], "").trim();
+  }
+  if (/\bhas:attachment\b/i.test(q)) {
+    parsed.hasAttachment = true;
+    q = q.replace(/\bhas:attachment\b/i, "").trim();
+  }
+
+  return withImap(creds, async (client) => {
+    const lock = await client.getMailboxLock(path);
+    try {
+      const criteria: Record<string, unknown> = {};
+      if (parsed.from) criteria.from = parsed.from;
+      if (parsed.to) criteria.to = parsed.to;
+      if (parsed.since) {
+        const d = new Date(parsed.since);
+        if (!Number.isNaN(d.getTime())) criteria.since = d;
+      }
+
+      let uids: number[] = [];
+      if (q) {
+        // Run separate searches and union — more reliable than nested OR across servers
+        const parts = await Promise.all([
+          client.search({ ...criteria, subject: q }, { uid: true }),
+          client.search({ ...criteria, body: q }, { uid: true }),
+          client.search({ ...criteria, from: q }, { uid: true }),
+          client.search({ ...criteria, to: q }, { uid: true }),
+        ]);
+        const set = new Set<number>();
+        for (const part of parts) {
+          if (part) for (const uid of part) set.add(uid);
+        }
+        uids = [...set];
+      } else if (Object.keys(criteria).length) {
+        const found = await client.search(criteria, { uid: true });
+        uids = found || [];
+      } else if (parsed.hasAttachment) {
+        const status = await client.status(path, { messages: true });
+        const exists = status.messages || 0;
+        if (exists === 0) return [];
+        const start = Math.max(1, exists - 200);
+        for await (const msg of client.fetch(`${start}:*`, { uid: true })) {
+          uids.push(msg.uid);
+        }
+      } else {
+        return [];
+      }
+
+      if (uids.length === 0) return [];
+      const slice = uids.slice(-100);
+      const messages: MessageListItem[] = [];
+      for await (const msg of client.fetch(
+        slice,
+        { uid: true, flags: true, envelope: true, bodyStructure: true },
+        { uid: true },
+      )) {
+        const env = msg.envelope;
+        const from = addressText(env?.from);
+        const flags = msg.flags || new Set<string>();
+        const hasAttachment = (() => {
+          const walk = (node: unknown): boolean => {
+            if (!node || typeof node !== "object") return false;
+            const n = node as { disposition?: string; childNodes?: unknown[] };
+            if (String(n.disposition || "").toLowerCase() === "attachment") return true;
+            if (Array.isArray(n.childNodes)) return n.childNodes.some(walk);
+            return false;
+          };
+          return walk(msg.bodyStructure);
+        })();
+        if (parsed.hasAttachment && !hasAttachment) continue;
+        messages.push({
+          uid: msg.uid,
+          seq: msg.seq,
+          subject: env?.subject || "(no subject)",
+          from: from.name,
+          fromEmail: from.email,
+          date: env?.date ? new Date(env.date).toISOString() : null,
+          preview: "",
+          unseen: !flags.has("\\Seen"),
+          flagged: flags.has("\\Flagged"),
+          answered: flags.has("\\Answered"),
+          hasAttachment,
+        });
+      }
+      return messages.reverse();
+    } finally {
+      lock.release();
+    }
+  });
+}
+
+/** Recent recipient emails from Sent + INBOX envelopes for autocomplete. */
+export async function listRecentRecipients(creds: WebmailCredentials, limit = 40): Promise<string[]> {
+  return withImap(creds, async (client) => {
+    const found = new Set<string>();
+    const scan = async (folderHint: string) => {
+      try {
+        const special =
+          folderHint === "Sent"
+            ? (await findSpecialFolder(client, "Sent")) || "Sent"
+            : normalizeFolderPath(folderHint);
+        const path = normalizeFolderPath(special);
+        const lock = await client.getMailboxLock(path);
+        try {
+          const status = await client.status(path, { messages: true });
+          const exists = status.messages || 0;
+          if (exists === 0) return;
+          const start = Math.max(1, exists - 40);
+          for await (const msg of client.fetch(`${start}:*`, { envelope: true })) {
+            for (const field of [msg.envelope?.to, msg.envelope?.cc, msg.envelope?.from] as const) {
+              for (const a of field || []) {
+                if (a.address && a.address.toLowerCase() !== creds.email.toLowerCase()) {
+                  found.add(a.address.toLowerCase());
+                }
+              }
+            }
+          }
+        } finally {
+          lock.release();
+        }
+      } catch {
+        /* folder may not exist */
+      }
+    };
+    await scan("Sent");
+    await scan("INBOX");
+    return [...found].slice(0, limit);
+  });
 }
 
 export async function spamOrArchive(
