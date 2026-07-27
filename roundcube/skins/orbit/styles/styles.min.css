@@ -289,21 +289,32 @@ body.task-login .orbit-hero img.orbit-logo-mark {
   background: rgba(212,175,55,0.08);
   margin-bottom: 0.75rem;
 }
-.orbit-auth-head h2 {
+.orbit-auth-head h2,
+.orbit-welcome {
   margin: 0 0 0.35rem;
-  font-size: 1.28rem;
+  font-size: clamp(1.05rem, 1.15vw, 1.28rem);
   font-weight: 700;
   color: #fff;
   letter-spacing: -0.01em;
+  white-space: nowrap !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
 }
+.orbit-welcome-brand,
 .orbit-auth-head h2 span,
 .orbit-auth-head p span { color: var(--orbit-gold-2); }
+.orbit-welcome-sub,
 .orbit-auth-head p {
   margin: 0;
   font-size: 0.86rem;
   color: rgba(255,255,255,0.7);
   font-weight: 400;
 }
+
+/* Prevent help text leaking into inputs */
+body.task-login #rcmloginuser::placeholder { color: rgba(255,255,255,0.35) !important; }
+body.task-login .orbit-help { pointer-events: auto; position: relative; z-index: 1; }
 
 .orbit-propform .form-group,
 .orbit-propform .row { margin-bottom: 0.7rem !important; }
@@ -814,6 +825,92 @@ body.orbit-mail .listing tbody tr {
   border: 0 !important;
   color: #fff !important;
   border-radius: 16px 16px 0 0 !important;
+}
+
+/* ===== ORBIT MAIL CHROME (template rebuild) ===== */
+.orbit-sidebar-logo {
+  display: block !important;
+  width: min(200px, 88%) !important;
+  height: auto !important;
+  max-height: none !important;
+  margin: 0.75rem auto 0.35rem !important;
+  background: transparent !important;
+  border: 0 !important;
+  filter: contrast(1.05);
+}
+.orbit-brand-header {
+  background: transparent !important;
+  border: 0 !important;
+  justify-content: center !important;
+}
+.orbit-section-label {
+  margin: 0.85rem 1rem 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--orbit-gold);
+  opacity: 0.85;
+}
+.orbit-topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem 0.25rem;
+}
+.orbit-topbar .orbit-search,
+.orbit-topbar .searchbar {
+  flex: 1;
+}
+.orbit-tabs {
+  display: flex;
+  gap: 1.1rem;
+  padding: 0.35rem 1rem 0.55rem;
+  border-bottom: 1px solid var(--orbit-border);
+}
+.orbit-tab {
+  font-size: 0.82rem;
+  color: var(--orbit-muted);
+  padding: 0.35rem 0;
+  cursor: default;
+  border-bottom: 2px solid transparent;
+}
+.orbit-tab.active {
+  color: var(--orbit-gold-2);
+  border-bottom-color: var(--orbit-gold);
+  font-weight: 600;
+}
+.orbit-storage-label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--orbit-muted);
+  margin-bottom: 0.25rem;
+}
+body.orbit-mail #layout-menu.orbit-task-rail,
+#layout-menu.orbit-task-rail {
+  background: #09090f !important;
+}
+body.orbit-mail #layout-sidebar.orbit-sidebar {
+  background: #0b0b12 !important;
+}
+#messagelist.orbit-messagelist tr {
+  border-radius: 12px !important;
+}
+#messagelist.orbit-messagelist tr.selected,
+#messagelist.orbit-messagelist tr.focused {
+  box-shadow: inset 0 0 0 1px rgba(212,175,55,0.55), 0 0 24px rgba(212,175,55,0.08) !important;
+  background: rgba(212,175,55,0.12) !important;
+}
+.orbit-reading-pane .header a {
+  border-radius: 10px !important;
+}
+a.orbit-compose,
+.orbit-compose {
+  font-weight: 700 !important;
+}
+body.orbit-mail a.about,
+#layout-menu a.about {
+  display: none !important;
 }
 
 /* Light mode */

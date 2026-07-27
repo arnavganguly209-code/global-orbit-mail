@@ -1,5 +1,5 @@
 /**
- * GLOBAL ORBIT MAIL — login UX (auth fields untouched)
+ * GLOBAL ORBIT MAIL — login UX only (does not alter auth fields names/ids)
  */
 (function () {
   'use strict';
@@ -7,10 +7,24 @@
 
   function qs(sel, root) { return (root || document).querySelector(sel); }
 
+  function forceLogoSize() {
+    var logo = qs('.orbit-logo-mark');
+    if (!logo) return;
+    logo.style.setProperty('width', 'min(560px, 72%)', 'important');
+    logo.style.setProperty('max-width', '560px', 'important');
+    logo.style.setProperty('max-height', 'none', 'important');
+    logo.style.setProperty('height', 'auto', 'important');
+  }
+
   function enhanceFields() {
     var user = qs('#rcmloginuser');
     var pass = qs('#rcmloginpwd');
     if (user) {
+      // Never allow help-link text to leak into the field
+      if (/need help|contact our support/i.test(user.value || '')) user.value = '';
+      if (/need help|contact our support/i.test(user.getAttribute('placeholder') || '')) {
+        user.setAttribute('placeholder', 'name@yourdomain.com');
+      }
       user.setAttribute('placeholder', 'name@yourdomain.com');
       user.setAttribute('autocomplete', 'username');
       user.setAttribute('aria-label', 'Email Address');
@@ -29,7 +43,10 @@
     if (!box || !user || !form) return;
     try {
       var saved = localStorage.getItem(REMEMBER_KEY);
-      if (saved) { user.value = saved; box.checked = true; }
+      if (saved && !/need help/i.test(saved)) {
+        user.value = saved;
+        box.checked = true;
+      }
     } catch (e) {}
     form.addEventListener('submit', function () {
       try {
@@ -43,18 +60,19 @@
     var btn = qs('#orbit-toggle-pass');
     var pass = qs('#rcmloginpwd');
     if (!btn || !pass) return;
-    // Place eye control near password field
-    var wrap = pass.closest('.form-group, .row, .form-floating, td, label') || pass.parentNode;
-    if (wrap && wrap.style) {
-      wrap.style.position = 'relative';
+    var group = pass.closest('.input-group, .input, td') || pass.parentNode;
+    if (group && group.style) {
+      group.style.position = 'relative';
+      if (!group.contains(btn)) group.appendChild(btn);
       btn.style.position = 'absolute';
-      btn.style.right = '12px';
+      btn.style.right = '10px';
       btn.style.top = '50%';
       btn.style.transform = 'translateY(-50%)';
       btn.style.zIndex = '6';
-      if (wrap !== document.body) wrap.appendChild(btn);
     }
-    btn.addEventListener('click', function () {
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
       var show = pass.type === 'password';
       pass.type = show ? 'text' : 'password';
       btn.textContent = show ? 'Hide' : 'Show';
@@ -73,6 +91,14 @@
     pass.addEventListener('keyup', check);
   }
 
+  function placeActions() {
+    var extras = qs('#orbit-extras');
+    var submit = qs('#rcmloginsubmit');
+    if (!extras || !submit || !submit.parentNode) return;
+    // Place remember/forgot immediately before the submit control
+    submit.parentNode.insertBefore(extras, submit);
+  }
+
   function wireSubmit() {
     var form = qs('#login-form');
     var btn = qs('#rcmloginsubmit');
@@ -87,11 +113,17 @@
     });
   }
 
-  function placeActions() {
-    var extras = qs('#orbit-extras');
-    var submit = qs('#rcmloginsubmit');
-    if (!extras || !submit || !submit.parentNode) return;
-    submit.parentNode.insertBefore(extras, submit);
+  function killSso() {
+    var nodes = document.querySelectorAll('button, a, .btn, .button, .orbit-sso, .orbit-or');
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var t = ((el.textContent || '') + ' ' + (el.getAttribute('title') || '')).toLowerCase();
+      if (t.indexOf('sso') !== -1 || t.indexOf('coming soon') !== -1) {
+        if (el.parentNode) el.parentNode.removeChild(el);
+      }
+    }
+    var foot = qs('#login-footer');
+    if (foot) foot.setAttribute('hidden', 'hidden');
   }
 
   function setYear() {
@@ -146,41 +178,8 @@
     requestAnimationFrame(frame);
   }
 
-  function killSso() {
-    var nodes = document.querySelectorAll(
-      '.orbit-sso, .orbit-or, button[disabled], a, button, .btn, .button'
-    );
-    for (var i = 0; i < nodes.length; i++) {
-      var el = nodes[i];
-      var t = ((el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '')).toLowerCase();
-      if (t.indexOf('sso') !== -1 || t.indexOf('coming soon') !== -1 || /^\s*or\s*$/i.test((el.textContent || '').trim())) {
-        el.parentNode && el.parentNode.removeChild(el);
-      }
-    }
-    var foot = document.getElementById('login-footer');
-    if (foot) {
-      foot.querySelectorAll('a, button, .btn').forEach(function (el) {
-        var t = (el.textContent || '').toLowerCase();
-        if (t.indexOf('sso') !== -1 || t.indexOf('privacy') !== -1 || t.indexOf('terms') !== -1) {
-          el.style.display = 'none';
-        }
-      });
-    }
-  }
-
-  function forceLogoSize() {
-    var logo = qs('.orbit-logo-mark');
-    if (!logo) return;
-    logo.style.setProperty('width', 'min(560px, 78vw)', 'important');
-    logo.style.setProperty('max-width', '560px', 'important');
-    logo.style.setProperty('max-height', 'none', 'important');
-    logo.style.setProperty('height', 'auto', 'important');
-    logo.style.setProperty('min-width', '280px', 'important');
-  }
-
   function boot() {
-    document.body.classList.add('task-login');
-    document.documentElement.style.setProperty('--orbit-font', '"Inter", "Segoe UI", system-ui, sans-serif');
+    document.body.classList.add('task-login', 'orbit-login');
     forceLogoSize();
     enhanceFields();
     placeActions();
@@ -190,9 +189,7 @@
     wireSubmit();
     setYear();
     killSso();
-    setTimeout(killSso, 50);
-    setTimeout(killSso, 400);
-    setTimeout(forceLogoSize, 100);
+    setTimeout(function () { enhanceFields(); killSso(); forceLogoSize(); }, 80);
     stars();
   }
 
