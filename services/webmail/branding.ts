@@ -119,25 +119,28 @@ export async function updateMailboxProfileByEmail(
   return getMailboxBrandingByEmail(email);
 }
 
-/** Prefer mailbox upload (avatar), then domain company logo. */
+/** Prefer mailbox avatar (Orbit upload), then domain company logo. */
 export function resolveSignatureLogo(branding: WebmailBranding): string | null {
   const logo = branding.avatarUrl?.trim() || branding.domainLogoDataUrl?.trim() || "";
   return logo || null;
 }
 
+export function buildBrandLogoHtml(logoSrc: string): string {
+  return `<div data-orbit-brand-logo="1" style="margin:0 0 16px 0;padding:0"><img src="${logoSrc}" alt="" width="160" height="auto" style="max-height:72px;max-width:200px;width:auto;height:auto;display:block;border:0;outline:none;text-decoration:none" /></div>`;
+}
+
 /** Build HTML signature block with optional company logo for outgoing mail. */
 export function buildOutgoingSignatureHtml(
   branding: WebmailBranding,
-  opts?: { logoSrc?: string | null },
+  opts?: { logoSrc?: string | null; includeLogo?: boolean },
 ): string {
+  const includeLogo = opts?.includeLogo !== false;
   const logoUrl = opts?.logoSrc !== undefined ? opts.logoSrc : resolveSignatureLogo(branding);
-  const logo = logoUrl
-    ? `<img src="${logoUrl}" alt="" style="max-height:56px;max-width:200px;display:block;margin-bottom:10px" />`
-    : "";
+  const logo = includeLogo && logoUrl ? buildBrandLogoHtml(logoUrl) : "";
 
   if (branding.signatureHtml?.trim()) {
     const custom = branding.signatureHtml.trim();
-    if (logo && !/<img[\s>]/i.test(custom)) {
+    if (logo && !/<img[\s>]/i.test(custom) && !/data-orbit-brand-logo/i.test(custom)) {
       return `<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5;font-family:system-ui,sans-serif;font-size:13px;color:#333">${logo}${custom}</div>`;
     }
     return custom;
@@ -147,7 +150,6 @@ export function buildOutgoingSignatureHtml(
     return `<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5;font-family:system-ui,sans-serif;font-size:13px;line-height:1.45;color:#333">${logo}<div style="white-space:pre-wrap;color:#666">${escapeHtml(branding.signatureText.trim())}</div></div>`;
   }
 
-  // Default: company logo only — do not auto-append display name / email.
   if (logo) {
     return `<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5">${logo}</div>`;
   }

@@ -586,9 +586,12 @@ export async function sendAndStore(
   creds: WebmailCredentials,
   input: SendMailInput & { saveSent?: boolean; skipSignature?: boolean },
 ) {
-  const { getMailboxBrandingByEmail, buildOutgoingSignatureHtml, resolveSignatureLogo } = await import(
-    "./branding"
-  );
+  const {
+    getMailboxBrandingByEmail,
+    buildOutgoingSignatureHtml,
+    resolveSignatureLogo,
+    buildBrandLogoHtml,
+  } = await import("./branding");
   const branding = await getMailboxBrandingByEmail(creds.email);
   const fromName = branding?.displayName || creds.email.split("@")[0] || creds.email;
   const from = `"${fromName.replace(/"/g, "")}" <${creds.email}>`;
@@ -597,24 +600,32 @@ export async function sendAndStore(
   let html = input.html;
   const attachments = [...(input.attachments || [])];
 
-  if (!input.skipSignature && branding) {
-    const logoDataUrl = resolveSignatureLogo(branding);
-    let logoSrc: string | null = logoDataUrl;
-    if (logoDataUrl?.startsWith("data:")) {
-      const parsed = parseDataUrl(logoDataUrl);
-      if (parsed) {
-        const cid = "orbit-brand-logo@globalorbit";
-        attachments.push({
-          filename: `company-logo.${extFromMime(parsed.contentType)}`,
-          content: parsed.buffer,
-          contentType: parsed.contentType,
-          cid,
-          contentDisposition: "inline",
-        });
-        logoSrc = `cid:${cid}`;
-      }
+  const logoDataUrl = branding ? resolveSignatureLogo(branding) : null;
+  let logoCidSrc: string | null = null;
+
+  // Always prepare CID logo so Gmail (and others) can render it — data: URLs are stripped.
+  if (logoDataUrl?.startsWith("data:")) {
+    const parsed = parseDataUrl(logoDataUrl);
+    if (parsed) {
+      const cid = "orbit-brand-logo@globalorbit";
+      attachments.push({
+        filename: `company-logo.${extFromMime(parsed.contentType)}`,
+        content: parsed.buffer,
+        contentType: parsed.contentType,
+        cid,
+        contentDisposition: "inline",
+      });
+      logoCidSrc = `cid:${cid}`;
     }
-    const sigHtml = buildOutgoingSignatureHtml(branding, { logoSrc });
+  } else if (logoDataUrl) {
+    logoCidSrc = logoDataUrl;
+  }
+
+  if (!input.skipSignature && branding) {
+    const sigHtml = buildOutgoingSignatureHtml(branding, {
+      logoSrc: logoCidSrc,
+      includeLogo: false, // logo is prepended once below so it sits at the top of the message
+    });
     const sigText = branding.signatureText?.trim() || "";
     if (sigHtml) {
       if (html?.trim()) {
@@ -629,7 +640,24 @@ export async function sendAndStore(
     }
   }
 
-  // Convert any remaining data:image URLs in HTML to inline CID parts (Gmail etc. strip data URLs).
+  // Ensure HTML exists when we have body text (needed for inline logo).
+  if (!html?.trim() && text?.trim()) {
+    html = `<div style="white-space:pre-wrap;font-family:system-ui,sans-serif">${escapeForHtml(text)}</div>`;
+  }
+
+  // Always put company logo at the TOP of HTML mail (even if client skipped signature).
+  if (logoCidSrc && html?.trim()) {
+    const alreadyBranded =
+      /data-orbit-brand-logo\s*=/.test(html) ||
+      /cid:orbit-brand-logo@globalorbit/i.test(html);
+    if (!alreadyBranded) {
+      html = `${buildBrandLogoHtml(logoCidSrc)}${html}`;
+    }
+  } else if (logoCidSrc && !html?.trim()) {
+    html = buildBrandLogoHtml(logoCidSrc);
+  }
+
+  // Convert any remaining data:image URLs in HTML to inline CID parts.
   if (html?.includes("data:image")) {
     const converted = embedDataImagesAsCid(html, attachments);
     html = converted.html;

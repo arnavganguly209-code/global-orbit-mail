@@ -601,8 +601,8 @@ export function MailboxesAdminPage() {
       toast.error("Avatar must be an image file");
       return;
     }
-    if (file.size > 512_000) {
-      toast.error("Avatar must be under 512KB");
+    if (file.size > 800_000) {
+      toast.error("Logo must be under 800KB");
       return;
     }
     const reader = new FileReader();
@@ -1008,9 +1008,11 @@ export function MailboxesAdminPage() {
 
               <section className="space-y-3 rounded-xl border border-border/60 p-4">
                 <div>
-                  <h3 className="text-sm font-medium">Avatar</h3>
+                  <h3 className="text-sm font-medium">Company logo (email)</h3>
                   <p className="text-xs text-muted-foreground">
-                    Profile photo shown in mailbox lists and webmail.
+                    This logo is embedded at the top of every email this mailbox sends (Gmail body).
+                    It does not replace Gmail&apos;s round sender icon — that requires BIMI + a verified mark
+                    certificate. Also set Domain branding logo as a fallback for all mailboxes.
                   </p>
                 </div>
                 <div className="flex items-center gap-4">
@@ -1039,7 +1041,7 @@ export function MailboxesAdminPage() {
                         variant="outline"
                         onClick={() => setEditForm((f) => ({ ...f, avatarUrl: null }))}
                       >
-                        Remove avatar
+                        Remove logo
                       </Button>
                     ) : null}
                   </div>

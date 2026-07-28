@@ -634,7 +634,11 @@ export function DomainsAdminPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Logo</Label>
+                <Label>Company logo (sent in emails)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Fallback logo for every mailbox on this domain. Embedded in outbound mail. Gmail&apos;s
+                  round profile icon is separate (BIMI).
+                </p>
                 <input
                   ref={logoInputRef}
                   type="file"
