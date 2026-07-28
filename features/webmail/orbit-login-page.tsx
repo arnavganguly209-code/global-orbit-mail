@@ -248,7 +248,7 @@ export function OrbitLoginPage() {
           <div
             className={cn(
               "mt-5 grid gap-3 sm:mt-6 sm:gap-4",
-              isCompact ? "grid-cols-2 text-left" : "grid-cols-4",
+              isCompact ? "hidden" : "grid-cols-4",
             )}
           >
             {FEATURES.map(({ title, body, Icon }) => (
@@ -273,7 +273,7 @@ export function OrbitLoginPage() {
           <div
             className={cn(
               "mt-4 grid gap-2.5 sm:mt-5 sm:gap-3",
-              isCompact ? "grid-cols-1" : "grid-cols-2",
+              isCompact ? "hidden" : "grid-cols-2",
             )}
           >
             {TRUST.map(({ title, body, Icon }) => (
