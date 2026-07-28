@@ -460,9 +460,10 @@ export function DnsSetupWizard({
         <>
           {payload.spfMerge ? (
             <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
-              <p className="text-sm font-medium text-foreground">SPF merge recommended</p>
+              <p className="text-sm font-medium text-foreground">SPF: keep exactly ONE record</p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                {payload.spfMerge.message}
+                {payload.spfMerge.message} Delete every other SPF TXT at your DNS host. Two SPF
+                records cause Gmail 550 5.7.26 (hard fail) even when one of them is correct.
               </p>
               <div className="mt-3 grid gap-2">
                 <div className="rounded-xl bg-background/70 px-3 py-2">

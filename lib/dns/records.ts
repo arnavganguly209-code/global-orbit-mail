@@ -421,7 +421,7 @@ export function toDnsInstructionJson(
     mailServerIpv4: byPurpose("mail_a")[0]?.value ?? null,
     title: "Connect your domain",
     notice:
-      "Copy these production DNS records exactly. Keep Cloudflare proxy OFF (DNS only / grey cloud) on mail A and MX. Do not change www or root website DNS.",
+      "Copy these production DNS records exactly. Keep Cloudflare proxy OFF (DNS only / grey cloud) on mail A and MX. Publish exactly ONE SPF TXT — never leave an old GoDaddy/Hostinger SPF alongside Orbit SPF (Gmail blocks with 550 5.7.26). Do not change www or root website DNS.",
     summary: {
       requiredRecords: required.length,
       estimatedSetupTime: "Under 5 minutes",

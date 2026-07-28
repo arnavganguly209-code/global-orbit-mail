@@ -59,17 +59,41 @@ function normalizeTxt(values: string[][]): string[] {
   return values.map((parts) => parts.join("")).map((v) => v.replace(/^"|"$/g, "").trim());
 }
 
-/** SPF must authorize Orbit (a:mailHost and/or ip4:mailServer) — old GoDaddy/etc SPF alone fails. */
-function includesSpf(observed: string[], expected: string): boolean {
+/**
+ * Exactly ONE SPF TXT may exist. Multiple SPFs are invalid — Gmail may pick the
+ * old GoDaddy record (with -all) and block Orbit IP 550 5.7.26.
+ * The single SPF must authorize Orbit via a:mailHost and/or ip4:mailServer.
+ */
+function evaluateSpf(
+  observed: string[],
+  expected: string,
+): { ok: boolean; detail: string; spfRecords: string[] } {
   const mailHost = getMailHostname().toLowerCase().replace(/\.$/, "");
   const expectedIp = /ip4:([0-9.]+)/i.exec(expected)?.[1] ?? null;
-  return observed.some((o) => {
-    const v = o.toLowerCase().replace(/\s+/g, " ");
-    if (!v.includes("v=spf1")) return false;
-    const aOk = v.includes(`a:${mailHost}`);
-    const ipOk = expectedIp ? v.includes(`ip4:${expectedIp}`) : false;
-    return aOk || ipOk;
-  });
+  const spfRecords = observed.filter((o) => /\bv=spf1\b/i.test(o));
+
+  if (spfRecords.length === 0) {
+    return { ok: false, detail: "SPF TXT missing", spfRecords };
+  }
+  if (spfRecords.length > 1) {
+    return {
+      ok: false,
+      detail: `Multiple SPF TXT records (${spfRecords.length}) — delete the old one. Keep exactly one SPF that includes a:${mailHost} and ip4:${expectedIp ?? "mail-server"}. Gmail blocks mail when an old SPF with -all is still published.`,
+      spfRecords,
+    };
+  }
+
+  const v = spfRecords[0]!.toLowerCase().replace(/\s+/g, " ");
+  const aOk = v.includes(`a:${mailHost}`);
+  const ipOk = expectedIp ? v.includes(`ip4:${expectedIp}`) : false;
+  if (!aOk && !ipOk) {
+    return {
+      ok: false,
+      detail: `SPF does not authorize Orbit (need a:${mailHost} and/or ip4:${expectedIp ?? "mail-server"}). Replace the old provider SPF.`,
+      spfRecords,
+    };
+  }
+  return { ok: true, detail: "SPF TXT verified (single record, Orbit authorized)", spfRecords };
 }
 
 function includesDkim(observed: string[], expected: string): boolean {
@@ -342,9 +366,10 @@ export const dnsVerificationService = {
         : false);
 
     const spfObserved = await lookupTxt(domain.name);
-    const spfOk = expectedSpf
-      ? includesSpf(spfObserved, expectedSpf.value)
-      : spfObserved.some((v) => v.toLowerCase().startsWith("v=spf1"));
+    const expectedSpfValue =
+      expectedSpf?.value ?? `v=spf1 mx a:${mailHost} ip4:${process.env.MAIL_SERVER_IPV4?.trim() || "200.97.170.235"} -all`;
+    const spfEval = evaluateSpf(spfObserved, expectedSpfValue);
+    const spfOk = spfEval.ok;
 
     const mailAHost = expectedMailA?.name ?? `mail.${domain.name}`;
     const mailAObserved = await lookupA(mailAHost);
@@ -412,9 +437,9 @@ export const dnsVerificationService = {
     const spf: CheckResult = {
       ok: spfOk,
       label: "SPF",
-      expected: expectedSpf?.value ?? `v=spf1 mx a:${mailHost} -all`,
-      observed: spfObserved.filter((v) => v.toLowerCase().includes("v=spf1")),
-      detail: spfOk ? "SPF TXT verified" : "SPF TXT missing or mismatch",
+      expected: expectedSpfValue,
+      observed: spfEval.spfRecords,
+      detail: spfEval.detail,
     };
     const mailA: CheckResult = {
       ok: mailAEffectiveOk,
