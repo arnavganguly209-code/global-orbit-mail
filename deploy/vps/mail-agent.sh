@@ -12,7 +12,8 @@
 set -euo pipefail
 
 COMMAND="${1:-}"
-PAYLOAD="${MAIL_AGENT_PAYLOAD:-{}}"
+# IMPORTANT: must quote default — bare ${VAR:-{}} appends a stray "}" in bash
+PAYLOAD="${MAIL_AGENT_PAYLOAD:-"{}"}"
 
 VMAIL_BASE="${VMAIL_BASE:-/var/mail/vhosts}"
 VMAIL_UID="${VMAIL_UID:-5000}"
