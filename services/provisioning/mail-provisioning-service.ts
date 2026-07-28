@@ -10,8 +10,79 @@ import {
   type AgentCommand,
 } from "@/services/provisioning/mail-engine";
 import { ensureLocalMaildir } from "@/services/provisioning/maildir";
-import { checkMailboxReadiness } from "@/services/provisioning/mailbox-readiness";
+import {
+  checkMailboxReadiness,
+  testPostfixVirtualMailbox,
+} from "@/services/provisioning/mailbox-readiness";
+import { mysqlVirtualUserExists } from "@/services/provisioning/mysql-mail-auth";
 import type { ProvisionJobKind } from "@prisma/client";
+
+/** Fail closed if Postfix/MariaDB does not contain the mailbox. */
+async function assertVirtualUserPresent(email: string, step: string) {
+  const row = await mysqlVirtualUserExists(email);
+  if (row.ok && row.exists) return;
+  // Fallback: postmap (works even when Node cannot open MariaDB credentials)
+  const map = await testPostfixVirtualMailbox(email);
+  if (map.ok) return;
+  if (!row.ok && !map.ok) {
+    throw new ProvisioningError(
+      [row.error, map.detail].filter(Boolean).join(" | ") ||
+        "Cannot verify virtual mailbox backend",
+      step,
+    );
+  }
+  throw new ProvisioningError(
+    `User unknown in virtual mailbox table (${email.toLowerCase()})`,
+    step,
+  );
+}
+
+async function assertVirtualUserAbsent(email: string, step: string) {
+  const row = await mysqlVirtualUserExists(email);
+  if (row.ok && !row.exists) {
+    const map = await testPostfixVirtualMailbox(email);
+    if (!map.ok) return; // postmap miss confirms absence
+    // postmap still hits — treat as present
+    throw new ProvisioningError(
+      `Postfix still resolves virtual mailbox after delete (${email.toLowerCase()})`,
+      step,
+    );
+  }
+  if (row.ok && row.exists) {
+    throw new ProvisioningError(
+      `virtual_users row still present after delete (${email.toLowerCase()})`,
+      step,
+    );
+  }
+  // MySQL unreachable — rely on postmap alone
+  const map = await testPostfixVirtualMailbox(email);
+  if (map.ok) {
+    throw new ProvisioningError(
+      `Postfix still resolves virtual mailbox after delete (${email.toLowerCase()})`,
+      step,
+    );
+  }
+}
+
+async function assertMailboxReady(input: {
+  email: string;
+  password?: string;
+  step: string;
+  allowWithoutPassword?: boolean;
+}) {
+  const readiness = await checkMailboxReadiness({
+    email: input.email,
+    password: input.password,
+    allowWithoutPassword: input.allowWithoutPassword,
+  });
+  if (!readiness.ok) {
+    throw new ProvisioningError(
+      readiness.errors.join(" | ") || "Mailbox readiness checks failed",
+      input.step,
+    );
+  }
+  return readiness;
+}
 
 export class ProvisioningError extends Error {
   constructor(
@@ -286,29 +357,24 @@ export const MailProvisioningService = {
         );
       }
 
-      // Live Dovecot/MariaDB quota (best-effort after auth is proved)
+      // Live Dovecot/MariaDB quota (required when quotaBytes > 0)
       if (input.quotaBytes > 0) {
-        await mailEngine
-          .runTracked({
-            kind: "MAILBOX_QUOTA",
-            command: "mailbox.quota",
-            mailboxId: input.mailboxId,
-            domainId: input.domainId,
-            payload: { email: input.email, quotaBytes: input.quotaBytes },
-          })
-          .catch(() => undefined);
+        await runOrThrow({
+          kind: "MAILBOX_QUOTA",
+          command: "mailbox.quota",
+          mailboxId: input.mailboxId,
+          domainId: input.domainId,
+          step: "mailbox.quota",
+          payload: { email: input.email, quotaBytes: input.quotaBytes },
+        });
       }
 
-      const readiness = await checkMailboxReadiness({
+      await assertVirtualUserPresent(input.email, "mailbox.mysql");
+      const readiness = await assertMailboxReady({
         email: input.email,
         password: input.password,
+        step: "mailbox.readiness",
       });
-      if (!readiness.ok) {
-        throw new ProvisioningError(
-          readiness.errors.join(" | ") || "Mailbox readiness checks failed",
-          "mailbox.readiness",
-        );
-      }
 
       await prisma.mailbox.update({
         where: { id: input.mailboxId },
@@ -337,6 +403,7 @@ export const MailProvisioningService = {
           quotaBytes: input.quotaBytes,
           maildir: maildir.home,
           readiness,
+          mailboxReady: true,
         },
       });
     } catch (error) {
@@ -427,27 +494,23 @@ export const MailProvisioningService = {
       }
 
       if (input.quotaBytes > 0) {
-        await mailEngine
-          .runTracked({
-            kind: "MAILBOX_QUOTA",
-            command: "mailbox.quota",
-            mailboxId: input.mailboxId,
-            domainId: input.domainId,
-            payload: { email: input.email, quotaBytes: input.quotaBytes },
-          })
-          .catch(() => undefined);
+        await runOrThrow({
+          kind: "MAILBOX_QUOTA",
+          command: "mailbox.quota",
+          mailboxId: input.mailboxId,
+          domainId: input.domainId,
+          step: "mailbox.quota",
+          payload: { email: input.email, quotaBytes: input.quotaBytes },
+        });
       }
 
-      const readiness = await checkMailboxReadiness({
+      await assertVirtualUserPresent(input.email, "mailbox.mysql");
+      const readiness = await assertMailboxReady({
         email: input.email,
         password: input.password,
+        step: "mailbox.readiness",
+        allowWithoutPassword: !input.password,
       });
-      if (!readiness.ok) {
-        throw new ProvisioningError(
-          readiness.errors.join(" | ") || "Mailbox readiness checks failed after restore",
-          "mailbox.readiness",
-        );
-      }
 
       const agentHash =
         typeof result.data?.mailPasswordHash === "string"
@@ -478,6 +541,7 @@ export const MailProvisioningService = {
           authTest: true,
           maildir: maildir.home,
           readiness,
+          mailboxReady: true,
         },
       });
     } catch (error) {
@@ -521,6 +585,44 @@ export const MailProvisioningService = {
       domainId: input.domainId,
       payload: { email: input.email },
     });
+    if (!result.ok) {
+      await writeAudit({
+        actorId: input.audit?.actorId,
+        ipAddress: input.audit?.ipAddress,
+        userAgent: input.audit?.userAgent,
+        action: "provision.mailbox.delete",
+        resource: "mailbox",
+        resourceId: input.mailboxId,
+        status: "FAILED",
+        oldValue: { email: input.email },
+        metadata: { error: result.stderr },
+      });
+      throw new ProvisioningError(
+        result.stderr || "Mailbox deprovision failed",
+        "mailbox.delete",
+      );
+    }
+
+    // Force Node MySQL delete if agent reported ok but row remains
+    await assertVirtualUserAbsent(input.email, "mailbox.delete.verify").catch(
+      async () => {
+        const retry = await mailEngine.syncSqlAuth(
+          {
+            command: "mailbox.delete",
+            payload: { email: input.email },
+          },
+          "delete-verify-retry",
+        );
+        if (!retry.ok) {
+          throw new ProvisioningError(
+            retry.stderr || "Failed to remove virtual_users row",
+            "mailbox.delete",
+          );
+        }
+        await assertVirtualUserAbsent(input.email, "mailbox.delete.verify");
+      },
+    );
+
     await writeAudit({
       actorId: input.audit?.actorId,
       ipAddress: input.audit?.ipAddress,
@@ -528,15 +630,9 @@ export const MailProvisioningService = {
       action: "provision.mailbox.delete",
       resource: "mailbox",
       resourceId: input.mailboxId,
-      status: result.ok ? "SUCCESS" : "FAILED",
-      oldValue: { email: input.email },
+      status: "SUCCESS",
+      oldValue: { email: input.email, mysqlRemoved: true },
     });
-    if (!result.ok) {
-      throw new ProvisioningError(
-        result.stderr || "Mailbox deprovision failed",
-        "mailbox.delete",
-      );
-    }
   },
 
   async setMailboxActive(input: {
@@ -609,6 +705,14 @@ export const MailProvisioningService = {
       );
     }
     ensureLocalMaildir(input.email);
+    await assertVirtualUserPresent(input.email, "mailbox.password.mysql");
+    if (input.password) {
+      await assertMailboxReady({
+        email: input.email,
+        password: input.password,
+        step: "mailbox.password.readiness",
+      });
+    }
     if (agentHash) {
       await prisma.mailbox.update({
         where: { id: input.mailboxId },
@@ -628,6 +732,7 @@ export const MailProvisioningService = {
         passwordChanged: true,
         authTest: result.data?.authTest === true,
         mysqlSynced: true,
+        mailboxReady: Boolean(input.password),
       },
     });
   },
@@ -647,6 +752,7 @@ export const MailProvisioningService = {
       step: "mailbox.quota",
       payload: { email: input.email, quotaBytes: input.quotaBytes },
     });
+    await assertVirtualUserPresent(input.email, "mailbox.quota.mysql");
     await writeAudit({
       actorId: input.audit?.actorId,
       ipAddress: input.audit?.ipAddress,
@@ -655,7 +761,7 @@ export const MailProvisioningService = {
       resource: "mailbox",
       resourceId: input.mailboxId,
       status: "SUCCESS",
-      newValue: { email: input.email, quotaBytes: input.quotaBytes },
+      newValue: { email: input.email, quotaBytes: input.quotaBytes, mysqlSynced: true },
     });
   },
 
