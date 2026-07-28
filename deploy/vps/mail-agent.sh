@@ -384,6 +384,30 @@ open(path, "w", encoding="utf-8").write(t if t.endswith("\n") else t + "\n")
   grep -qxF "localhost" "$td" 2>/dev/null || echo "localhost" >> "$td"
   grep -qxF "$domain" "$td" 2>/dev/null || echo "$domain" >> "$td"
 
+  # Postfix milters require inet:8891 — default Debian unix socket is not reachable from Postfix.
+  if [[ -f /etc/opendkim.conf ]]; then
+    if grep -qE '^Socket\s' /etc/opendkim.conf; then
+      sed -i 's|^Socket\s.*|Socket\t\tinet:8891@127.0.0.1|' /etc/opendkim.conf
+    else
+      echo 'Socket		inet:8891@127.0.0.1' >> /etc/opendkim.conf
+    fi
+    grep -qE '^KeyTable\s' /etc/opendkim.conf || echo 'KeyTable		/etc/opendkim/KeyTable' >> /etc/opendkim.conf
+    grep -qE '^SigningTable\s' /etc/opendkim.conf || echo 'SigningTable		refile:/etc/opendkim/SigningTable' >> /etc/opendkim.conf
+    grep -qE '^ExternalIgnoreList\s' /etc/opendkim.conf || echo 'ExternalIgnoreList	refile:/etc/opendkim/TrustedHosts' >> /etc/opendkim.conf
+    grep -qE '^InternalHosts\s' /etc/opendkim.conf || echo 'InternalHosts		refile:/etc/opendkim/TrustedHosts' >> /etc/opendkim.conf
+    grep -qE '^Mode\s' /etc/opendkim.conf || echo 'Mode			sv' >> /etc/opendkim.conf
+  fi
+  if [[ -f /etc/default/opendkim ]]; then
+    if grep -qE '^SOCKET=' /etc/default/opendkim; then
+      sed -i 's|^SOCKET=.*|SOCKET="inet:8891@127.0.0.1"|' /etc/default/opendkim
+    else
+      echo 'SOCKET="inet:8891@127.0.0.1"' >> /etc/default/opendkim
+    fi
+  fi
+
+  systemctl restart opendkim 2>/dev/null || service opendkim restart 2>/dev/null || true
+  sleep 1
+
   # Ensure Postfix milters point at OpenDKIM only when :8891 is live
   # (hung milter → Roundcube "Failed to reach the server!")
   if command -v postconf >/dev/null 2>&1; then
@@ -401,8 +425,6 @@ open(path, "w", encoding="utf-8").write(t if t.endswith("\n") else t + "\n")
       echo "[mail-agent] OpenDKIM :8891 not listening — not enabling milters" >&2
     fi
   fi
-
-  systemctl restart opendkim 2>/dev/null || service opendkim restart 2>/dev/null || true
 }
 
 # One-shot commercial platform limits (idempotent) — no manual harden needed per domain
