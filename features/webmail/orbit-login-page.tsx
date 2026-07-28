@@ -200,11 +200,11 @@ export function OrbitLoginPage() {
 
       <div
         className={cn(
-          "relative z-10 mx-auto grid h-dvh max-h-dvh w-full max-w-[1400px] gap-4 px-4 py-3 sm:px-6 lg:gap-8 lg:px-10 lg:py-5",
+          "relative z-10 mx-auto h-dvh max-h-dvh w-full max-w-[1400px] px-4 sm:px-6 lg:px-10",
           isCompact
-            ? "grid-rows-[auto_minmax(0,1fr)] overflow-y-auto overflow-x-hidden"
+            ? "flex flex-col gap-0 overflow-y-auto overflow-x-hidden pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]"
             : cn(
-                "items-center overflow-hidden",
+                "grid items-center gap-4 overflow-hidden py-3 lg:gap-8 lg:py-5",
                 splitTight
                   ? "grid-cols-[minmax(0,1fr)_minmax(300px,380px)]"
                   : "grid-cols-[minmax(0,1.15fr)_minmax(320px,420px)]",
@@ -217,32 +217,39 @@ export function OrbitLoginPage() {
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.35 }}
           className={cn(
-            "flex min-h-0 flex-col justify-center",
-            isCompact ? "pt-8 text-center" : "pr-2 lg:pr-6",
+            "flex min-h-0 flex-col",
+            isCompact
+              ? "relative z-20 shrink-0 items-center pb-3 pt-2 text-center"
+              : "justify-center pr-2 lg:pr-6",
           )}
         >
           <div className={cn("flex flex-col", isCompact ? "items-center" : "items-start")}>
             <Image
               src={logoSrc}
               alt="GLOBAL ORBIT PVT LTD"
-              width={isCompact ? 280 : 420}
-              height={isCompact ? 90 : 135}
+              width={isCompact ? 240 : 420}
+              height={isCompact ? 80 : 135}
               priority
               unoptimized={logoSrc.startsWith("data:")}
-              className="h-auto w-auto max-w-full object-contain drop-shadow-[0_10px_30px_rgba(0,0,0,0.55)]"
+              className={cn(
+                "h-auto w-auto max-w-full object-contain drop-shadow-[0_10px_30px_rgba(0,0,0,0.55)]",
+                isCompact && "relative z-20",
+              )}
               style={{
-                width: isCompact ? 280 : splitTight ? 320 : 420,
+                width: isCompact ? 220 : splitTight ? 320 : 420,
                 height: "auto",
               }}
             />
-            <p
-              className={cn(
-                "mt-3 text-[0.7rem] font-semibold uppercase tracking-[0.22em] sm:text-[0.78rem] sm:tracking-[0.26em]",
-                light ? "text-white drop-shadow" : "text-white/90",
-              )}
-            >
-              Business Email. Built for Professionals.
-            </p>
+            {!isCompact ? (
+              <p
+                className={cn(
+                  "mt-3 text-[0.7rem] font-semibold uppercase tracking-[0.22em] sm:text-[0.78rem] sm:tracking-[0.26em]",
+                  light ? "text-white drop-shadow" : "text-white/90",
+                )}
+              >
+                Business Email. Built for Professionals.
+              </p>
+            ) : null}
           </div>
 
           <div
@@ -309,16 +316,19 @@ export function OrbitLoginPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.05 }}
           className={cn(
-            "flex min-h-0 w-full flex-col justify-center",
-            isCompact ? "pb-[max(1rem,env(safe-area-inset-bottom))]" : "",
+            "flex min-h-0 w-full flex-col",
+            isCompact
+              ? "relative z-10 mt-1 shrink-0 justify-start pb-4"
+              : "justify-center",
           )}
         >
           <div
             className={cn(
               "w-full rounded-[22px] border p-5 shadow-[0_28px_70px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:p-6",
+              isCompact && "rounded-[24px] p-5",
               light
                 ? "border-white/55 bg-white/88 text-slate-900"
-                : "border-white/12 bg-[rgba(10,12,20,0.82)] text-white",
+                : "border-white/12 bg-[rgba(10,12,20,0.92)] text-white",
             )}
             style={{
               boxShadow: light
