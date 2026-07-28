@@ -87,10 +87,10 @@ export function getFriendlyDomainStatus(input: DomainOnboardingInput): FriendlyD
   if (ready) {
     const mailboxReady = (input.mailboxCount ?? 0) > 0 || mail === "ACTIVE";
     return {
-      label: "Ready",
+      label: mailboxReady ? "Verified" : "Ready for mail",
       description: mailboxReady
-        ? "Your domain is ready for professional email."
-        : "DNS looks good — create your first mailbox.",
+        ? "Your domain is verified and ready for professional email."
+        : "DNS verified — create your first mailbox to start sending and receiving.",
       tone: "success",
       stepIndex: mailboxReady ? 3 : 3,
       ready: true,

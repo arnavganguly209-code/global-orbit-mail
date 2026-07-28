@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import {
+  AlertTriangle,
   CheckCircle2,
   ChevronDown,
   Clock3,
@@ -218,6 +219,12 @@ export function DnsSetupWizard({
     waitingFor: auto.lastReport?.waitingFor,
   });
 
+  const proxyWarnings = auto.lastReport?.mailProxyWarnings ?? [];
+  const mailAMismatch =
+    auto.lastReport?.mailA &&
+    !auto.lastReport.mailA.ok &&
+    (auto.lastReport.mailA.detail || "").length > 0;
+
   async function copyOne(record: DnsWizardRecord) {
     try {
       await navigator.clipboard.writeText(formatSingleDnsRecordForClipboard(record));
@@ -294,7 +301,7 @@ export function DnsSetupWizard({
                 "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
             )}
           >
-            {localReady ? "✓ Ready" : friendly.label}
+            {localReady ? "✓ Ready for mail" : friendly.label}
           </span>
         </div>
 
@@ -304,6 +311,41 @@ export function DnsSetupWizard({
           />
         </div>
       </div>
+
+      {/* Never proxy mail through Cloudflare */}
+      <div className="rounded-2xl border border-red-500/35 bg-red-500/5 px-4 py-3">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-600" />
+          <div>
+            <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+              Cloudflare: keep mail DNS grey-cloud (DNS only)
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Never enable the orange cloud / proxy on MX, or on mail A/AAAA records
+              (for example <span className="font-mono">mail.{payload.domain}</span>).
+              Proxied mail hosts break SMTP delivery and are not valid for Global Orbit Mail.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {proxyWarnings.length > 0 || mailAMismatch ? (
+        <div className="space-y-2 rounded-2xl border border-amber-500/40 bg-amber-500/5 px-4 py-3">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+            Mail host DNS problem
+          </p>
+          {proxyWarnings.map((w) => (
+            <p key={w.message} className="text-xs leading-relaxed text-muted-foreground">
+              {w.message}
+            </p>
+          ))}
+          {!proxyWarnings.length && auto.lastReport?.mailA?.detail ? (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {auto.lastReport.mailA.detail}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Commercial DNS Summary */}
       {!localReady ? (
@@ -359,7 +401,7 @@ export function DnsSetupWizard({
       {localReady ? (
         <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5">
           <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-            ✓ Ready
+            ✓ Verified — Ready for mail
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             DNS looks good. Create your first mailbox to start sending and receiving email.

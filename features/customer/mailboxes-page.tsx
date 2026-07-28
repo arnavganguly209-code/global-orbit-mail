@@ -99,7 +99,7 @@ export function CustomerMailboxesPage() {
       return json.data;
     },
     onSuccess: () => {
-      toast.success("Mailbox created");
+      toast.success("Mailbox Ready");
       setOpen(false);
       setForm({ localPart: "", domainId: "", displayName: "", quotaMb: "2048", password: "" });
       qc.invalidateQueries({ queryKey: ["customer-mailboxes"] });

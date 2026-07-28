@@ -327,7 +327,7 @@ export function MailboxesAdminPage() {
       return json.data;
     },
     onSuccess: () => {
-      toast.success("Mailbox created");
+      toast.success("Mailbox Ready");
       setOpen(false);
       setForm({
         localPart: "",

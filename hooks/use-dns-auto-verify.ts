@@ -16,7 +16,15 @@ export type AutoVerifyReport = {
   waitingFor: string | null;
   mx?: { ok: boolean; label: string };
   spf?: { ok: boolean; label: string };
-  mailA?: { ok: boolean; label: string };
+  mailA?: { ok: boolean; label: string; detail?: string };
+  friendlyStatus?: string;
+  mailProxyWarnings?: {
+    severity: "error" | "warning";
+    host: string;
+    observed: string[];
+    expectedIp: string | null;
+    message: string;
+  }[];
 };
 
 type Options = {

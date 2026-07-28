@@ -22,6 +22,7 @@ import {
   DatabaseBackup,
   ArrowRightLeft,
   ShieldAlert,
+  HeartPulse,
   type LucideIcon,
 } from "lucide-react";
 
@@ -37,6 +38,7 @@ export const adminNav: AdminNavItem[] = [
   { title: "Customers", href: "/orbit/customers", icon: Building2 },
   { title: "Domains", href: "/orbit/domains", icon: Globe2 },
   { title: "Mailboxes", href: "/orbit/mailboxes", icon: Inbox },
+  { title: "Mail Health", href: "/orbit/mail-health", icon: HeartPulse },
   { title: "Users", href: "/orbit/users", icon: Users },
   { title: "DNS Manager", href: "/orbit/dns", icon: Network },
   { title: "Logs", href: "/orbit/logs", icon: ScrollText },

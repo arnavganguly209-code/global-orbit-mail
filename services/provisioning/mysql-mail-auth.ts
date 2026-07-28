@@ -9,14 +9,16 @@ const execFileAsync = promisify(execFile);
 /** Dovecot 2.3 variants: "user authenticated" or "auth succeeded". */
 function isDoveadmAuthSuccess(output: string): boolean {
   const text = output.replace(/\r/g, "\n");
-  // Fail closed if an explicit failure is the only signal and success never appears.
-  const succeeded =
-    /passdb:\s*user authenticated/i.test(text) ||
-    /passdb:[^\n]*\bauth succeeded\b/i.test(text) ||
-    /\bauth succeeded\b/i.test(text) ||
-    /\buser authenticated\b/i.test(text);
-  if (succeeded) return true;
-  return false;
+  if (/auth\s+failed|password\s+mismatch|unknown\s+user/i.test(text) && !/auth succeeded|user authenticated/i.test(text)) {
+    return false;
+  }
+  // Dovecot 2.3 variants — match loosely (email may sit between "passdb:" and "auth succeeded")
+  return (
+    /passdb:.*user authenticated/i.test(text) ||
+    /passdb:.*auth succeeded/i.test(text) ||
+    /auth succeeded/i.test(text) ||
+    /user authenticated/i.test(text)
+  );
 }
 
 export type MysqlMailAuthResult = {
@@ -215,11 +217,13 @@ export async function upsertMysqlVirtualDomain(domain: string): Promise<MysqlMai
 
 /**
  * Upsert Dovecot auth into MySQL/MariaDB mailserver.virtual_users (SHA512-CRYPT only).
+ * When quotaBytes is provided and a `quota` column exists, set it on the row.
  */
 export async function upsertMysqlVirtualUser(input: {
   email: string;
   passwordHash: string;
   domain?: string;
+  quotaBytes?: number | null;
 }): Promise<MysqlMailAuthResult> {
   const cfg = resolveMysqlConfig();
   if (!cfg) {
@@ -260,6 +264,7 @@ export async function upsertMysqlVirtualUser(input: {
           domain_id INT NOT NULL,
           email VARCHAR(255) NOT NULL,
           password VARCHAR(255) NOT NULL,
+          quota BIGINT NOT NULL DEFAULT 0,
           PRIMARY KEY (id),
           UNIQUE KEY email (email),
           KEY domain_id (domain_id)
@@ -277,24 +282,55 @@ export async function upsertMysqlVirtualUser(input: {
     }
 
     const domainId = cols.has("domain_id") ? await ensureDomainId(conn, domain) : null;
+    const quotaBytes =
+      typeof input.quotaBytes === "number" && input.quotaBytes >= 0
+        ? Math.floor(input.quotaBytes)
+        : null;
+    const setQuota = quotaBytes != null && cols.has("quota");
 
     if (cols.has("domain_id") && domainId != null) {
-      await conn.query(
-        `INSERT INTO virtual_users (email, password, domain_id)
-         VALUES (?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           password = VALUES(password),
-           domain_id = VALUES(domain_id)`,
-        [email, password, domainId],
-      );
+      if (setQuota) {
+        await conn.query(
+          `INSERT INTO virtual_users (email, password, domain_id, quota)
+           VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             password = VALUES(password),
+             domain_id = VALUES(domain_id),
+             quota = VALUES(quota)`,
+          [email, password, domainId, quotaBytes],
+        );
+      } else {
+        await conn.query(
+          `INSERT INTO virtual_users (email, password, domain_id)
+           VALUES (?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             password = VALUES(password),
+             domain_id = VALUES(domain_id)`,
+          [email, password, domainId],
+        );
+      }
     } else if (cols.has("domain")) {
       const hasActive = cols.has("active");
-      if (hasActive) {
+      if (hasActive && setQuota) {
+        await conn.query(
+          `INSERT INTO virtual_users (email, password, domain, active, quota)
+           VALUES (?, ?, ?, 1, ?)
+           ON DUPLICATE KEY UPDATE password = VALUES(password), active = 1, quota = VALUES(quota)`,
+          [email, password, domain, quotaBytes],
+        );
+      } else if (hasActive) {
         await conn.query(
           `INSERT INTO virtual_users (email, password, domain, active)
            VALUES (?, ?, ?, 1)
            ON DUPLICATE KEY UPDATE password = VALUES(password), active = 1`,
           [email, password, domain],
+        );
+      } else if (setQuota) {
+        await conn.query(
+          `INSERT INTO virtual_users (email, password, domain, quota)
+           VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE password = VALUES(password), quota = VALUES(quota)`,
+          [email, password, domain, quotaBytes],
         );
       } else {
         await conn.query(
@@ -304,6 +340,13 @@ export async function upsertMysqlVirtualUser(input: {
           [email, password, domain],
         );
       }
+    } else if (setQuota) {
+      await conn.query(
+        `INSERT INTO virtual_users (email, password, quota)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE password = VALUES(password), quota = VALUES(quota)`,
+        [email, password, quotaBytes],
+      );
     } else {
       await conn.query(
         `INSERT INTO virtual_users (email, password)
@@ -346,6 +389,127 @@ export async function upsertMysqlVirtualUser(input: {
       email,
       database: cfg.database,
       error: error instanceof Error ? error.message : "MySQL upsert failed",
+    };
+  } finally {
+    conn?.release();
+  }
+}
+
+/** Update virtual_users.quota for an existing mailbox (bytes). */
+export async function upsertMysqlQuota(input: {
+  email: string;
+  quotaBytes: number;
+}): Promise<MysqlMailAuthResult> {
+  const cfg = resolveMysqlConfig();
+  if (!cfg) {
+    return { ok: false, error: "MySQL mail auth not configured" };
+  }
+  const email = input.email.toLowerCase().trim();
+  const quotaBytes = Math.max(0, Math.floor(input.quotaBytes));
+  if (!email) return { ok: false, error: "email required" };
+
+  let conn: PoolConnection | null = null;
+  try {
+    conn = await getPool().getConnection();
+    if (!(await tableExists(conn, "virtual_users"))) {
+      return { ok: false, email, error: "virtual_users missing", database: cfg.database };
+    }
+    const cols = await columnNames(conn, "virtual_users");
+    if (!cols.has("quota")) {
+      return {
+        ok: true,
+        email,
+        database: cfg.database,
+        error: "quota column absent — skipped",
+      };
+    }
+    const [result] = await conn.query(
+      `UPDATE virtual_users SET quota = ? WHERE email = ?`,
+      [quotaBytes, email],
+    );
+    const affected = (result as { affectedRows?: number }).affectedRows ?? 0;
+    if (affected < 1) {
+      return {
+        ok: false,
+        email,
+        database: cfg.database,
+        error: "no virtual_users row to update quota",
+      };
+    }
+    return { ok: true, email, database: cfg.database };
+  } catch (error) {
+    return {
+      ok: false,
+      email,
+      database: cfg.database,
+      error: error instanceof Error ? error.message : "quota update failed",
+    };
+  } finally {
+    conn?.release();
+  }
+}
+
+/** True when email exists in virtual_users (optionally check quota column presence). */
+export async function mysqlVirtualUserExists(
+  email: string,
+): Promise<{ ok: boolean; exists: boolean; hasQuota: boolean; error?: string }> {
+  if (!isMysqlMailAuthConfigured()) {
+    return { ok: false, exists: false, hasQuota: false, error: "MySQL not configured" };
+  }
+  const normalized = email.toLowerCase().trim();
+  let conn: PoolConnection | null = null;
+  try {
+    conn = await getPool().getConnection();
+    if (!(await tableExists(conn, "virtual_users"))) {
+      return { ok: true, exists: false, hasQuota: false };
+    }
+    const cols = await columnNames(conn, "virtual_users");
+    const [rows] = await conn.query<RowDataPacket[]>(
+      cols.has("quota")
+        ? `SELECT email, quota FROM virtual_users WHERE email = ? LIMIT 1`
+        : `SELECT email FROM virtual_users WHERE email = ? LIMIT 1`,
+      [normalized],
+    );
+    return {
+      ok: true,
+      exists: Boolean(rows[0]?.email),
+      hasQuota: cols.has("quota") && rows[0] != null && rows[0].quota != null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      exists: false,
+      hasQuota: false,
+      error: error instanceof Error ? error.message : "lookup failed",
+    };
+  } finally {
+    conn?.release();
+  }
+}
+
+export async function mysqlVirtualDomainExists(
+  domain: string,
+): Promise<{ ok: boolean; exists: boolean; error?: string }> {
+  if (!isMysqlMailAuthConfigured()) {
+    return { ok: false, exists: false, error: "MySQL not configured" };
+  }
+  const name = domain.toLowerCase().trim();
+  let conn: PoolConnection | null = null;
+  try {
+    conn = await getPool().getConnection();
+    if (!(await tableExists(conn, "virtual_domains"))) {
+      return { ok: true, exists: false };
+    }
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT id FROM virtual_domains WHERE name = ? LIMIT 1`,
+      [name],
+    );
+    return { ok: true, exists: rows.length > 0 };
+  } catch (error) {
+    return {
+      ok: false,
+      exists: false,
+      error: error instanceof Error ? error.message : "lookup failed",
     };
   } finally {
     conn?.release();
@@ -410,11 +574,13 @@ export async function provisionDovecotAuth(input: {
   password: string;
   passwordHash: string;
   domain?: string;
+  quotaBytes?: number | null;
 }): Promise<MysqlMailAuthResult> {
   const upsert = await upsertMysqlVirtualUser({
     email: input.email,
     passwordHash: input.passwordHash,
     domain: input.domain,
+    quotaBytes: input.quotaBytes,
   });
   if (!upsert.ok) return upsert;
 

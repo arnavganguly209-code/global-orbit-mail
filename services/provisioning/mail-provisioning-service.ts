@@ -9,6 +9,8 @@ import {
   mailEngine,
   type AgentCommand,
 } from "@/services/provisioning/mail-engine";
+import { ensureLocalMaildir } from "@/services/provisioning/maildir";
+import { checkMailboxReadiness } from "@/services/provisioning/mailbox-readiness";
 import type { ProvisionJobKind } from "@prisma/client";
 
 export class ProvisioningError extends Error {
@@ -55,7 +57,8 @@ async function runOrThrow(input: {
 export const MailProvisioningService = {
   /**
    * After DB domain row + DNS exist, provision on mail stack.
-   * On failure: deprovision agent + soft-delete domain (rollback).
+   * On domain.create failure: optionally deprovision agent + soft-delete domain (rollback).
+   * DKIM sync is best-effort — never rolls back a successful domain.create.
    */
   async provisionDomain(input: {
     domainId: string;
@@ -64,7 +67,10 @@ export const MailProvisioningService = {
     dkimPublicKey: string;
     dkimPrivateKey: string;
     audit?: AuditCtx;
+    /** When false, domain.create failure does not soft-delete the Orbit domain (DNS verify path). Default true. */
+    softRollback?: boolean;
   }) {
+    const softRollback = input.softRollback !== false;
     try {
       // Idempotent platform harden (sizes/HELO/Roundcube) before first customer domain
       await mailEngine
@@ -88,11 +94,18 @@ export const MailProvisioningService = {
           dkimPrivateKey: input.dkimPrivateKey,
         },
       });
-      await runOrThrow({
+
+      // Domain is live on the mail stack — mark ACTIVE before DKIM (DKIM must not rollback).
+      await prisma.domain.update({
+        where: { id: input.domainId },
+        data: { mailStatus: "ACTIVE", provisionedAt: new Date() },
+      });
+
+      let opendkimSynced = false;
+      const dkimResult = await mailEngine.runTracked({
         kind: "DKIM_SYNC",
         command: "dkim.sync",
         domainId: input.domainId,
-        step: "dkim.sync",
         payload: {
           domain: input.domainName,
           selector: input.dkimSelector,
@@ -100,10 +113,25 @@ export const MailProvisioningService = {
           publicKey: input.dkimPublicKey,
         },
       });
-      await prisma.domain.update({
-        where: { id: input.domainId },
-        data: { mailStatus: "ACTIVE", provisionedAt: new Date() },
-      });
+      if (dkimResult.ok) {
+        opendkimSynced = true;
+      } else {
+        await writeAudit({
+          actorId: input.audit?.actorId,
+          ipAddress: input.audit?.ipAddress,
+          userAgent: input.audit?.userAgent,
+          action: "provision.domain.dkim_failed",
+          resource: "domain",
+          resourceId: input.domainId,
+          status: "PARTIAL",
+          metadata: {
+            domain: input.domainName,
+            error: dkimResult.stderr || "dkim.sync failed",
+            note: "Domain remains ACTIVE; DKIM can be retried",
+          },
+        });
+      }
+
       await writeAudit({
         actorId: input.audit?.actorId,
         ipAddress: input.audit?.ipAddress,
@@ -111,15 +139,16 @@ export const MailProvisioningService = {
         action: "provision.domain.success",
         resource: "domain",
         resourceId: input.domainId,
-        status: "SUCCESS",
+        status: opendkimSynced ? "SUCCESS" : "PARTIAL",
         newValue: {
           domain: input.domainName,
           mailStatus: "ACTIVE",
           dkimSelector: input.dkimSelector,
-          opendkimSynced: true,
+          opendkimSynced,
         },
       });
     } catch (error) {
+      // Only domain.create (or earlier) failures reach here.
       await mailEngine
         .runTracked({
           kind: "DOMAIN_DELETE",
@@ -129,20 +158,28 @@ export const MailProvisioningService = {
         })
         .catch(() => undefined);
 
-      await prisma.$transaction([
-        prisma.dnsRecord.updateMany({
-          where: { domainId: input.domainId, deletedAt: null },
-          data: { deletedAt: new Date() },
-        }),
-        prisma.domain.update({
+      if (softRollback) {
+        await prisma.$transaction([
+          prisma.dnsRecord.updateMany({
+            where: { domainId: input.domainId, deletedAt: null },
+            data: { deletedAt: new Date() },
+          }),
+          prisma.domain.update({
+            where: { id: input.domainId },
+            data: {
+              deletedAt: new Date(),
+              status: "FAILED",
+              mailStatus: "ERROR",
+              provisionedAt: null,
+            },
+          }),
+        ]);
+      } else {
+        await prisma.domain.update({
           where: { id: input.domainId },
-          data: {
-            deletedAt: new Date(),
-            status: "FAILED",
-            mailStatus: "ERROR",
-          },
-        }),
-      ]);
+          data: { mailStatus: "ERROR" },
+        });
+      }
 
       await writeAudit({
         actorId: input.audit?.actorId,
@@ -154,6 +191,7 @@ export const MailProvisioningService = {
         status: "FAILED",
         metadata: {
           error: error instanceof Error ? error.message : "unknown",
+          softRollback,
         },
       });
       throw error instanceof ProvisioningError
@@ -240,6 +278,14 @@ export const MailProvisioningService = {
         );
       }
 
+      const maildir = ensureLocalMaildir(input.email);
+      if (!maildir.ok) {
+        throw new ProvisioningError(
+          maildir.error || "Maildir create failed",
+          "mailbox.maildir",
+        );
+      }
+
       // Live Dovecot/MariaDB quota (best-effort after auth is proved)
       if (input.quotaBytes > 0) {
         await mailEngine
@@ -251,6 +297,17 @@ export const MailProvisioningService = {
             payload: { email: input.email, quotaBytes: input.quotaBytes },
           })
           .catch(() => undefined);
+      }
+
+      const readiness = await checkMailboxReadiness({
+        email: input.email,
+        password: input.password,
+      });
+      if (!readiness.ok) {
+        throw new ProvisioningError(
+          readiness.errors.join(" | ") || "Mailbox readiness checks failed",
+          "mailbox.readiness",
+        );
       }
 
       await prisma.mailbox.update({
@@ -278,6 +335,8 @@ export const MailProvisioningService = {
           authTest: result.data?.authTest === true,
           mysqlSynced: true,
           quotaBytes: input.quotaBytes,
+          maildir: maildir.home,
+          readiness,
         },
       });
     } catch (error) {
@@ -359,6 +418,37 @@ export const MailProvisioningService = {
         );
       }
 
+      const maildir = ensureLocalMaildir(input.email);
+      if (!maildir.ok) {
+        throw new ProvisioningError(
+          maildir.error || "Maildir create failed on restore",
+          "mailbox.maildir",
+        );
+      }
+
+      if (input.quotaBytes > 0) {
+        await mailEngine
+          .runTracked({
+            kind: "MAILBOX_QUOTA",
+            command: "mailbox.quota",
+            mailboxId: input.mailboxId,
+            domainId: input.domainId,
+            payload: { email: input.email, quotaBytes: input.quotaBytes },
+          })
+          .catch(() => undefined);
+      }
+
+      const readiness = await checkMailboxReadiness({
+        email: input.email,
+        password: input.password,
+      });
+      if (!readiness.ok) {
+        throw new ProvisioningError(
+          readiness.errors.join(" | ") || "Mailbox readiness checks failed after restore",
+          "mailbox.readiness",
+        );
+      }
+
       const agentHash =
         typeof result.data?.mailPasswordHash === "string"
           ? result.data.mailPasswordHash
@@ -382,7 +472,13 @@ export const MailProvisioningService = {
         resource: "mailbox",
         resourceId: input.mailboxId,
         status: "SUCCESS",
-        newValue: { email: input.email, status: "ACTIVE", authTest: true },
+        newValue: {
+          email: input.email,
+          status: "ACTIVE",
+          authTest: true,
+          maildir: maildir.home,
+          readiness,
+        },
       });
     } catch (error) {
       await prisma.mailbox.update({
@@ -512,6 +608,7 @@ export const MailProvisioningService = {
         "mailbox.password",
       );
     }
+    ensureLocalMaildir(input.email);
     if (agentHash) {
       await prisma.mailbox.update({
         where: { id: input.mailboxId },

@@ -126,6 +126,16 @@ export const domainRepository = {
       }
 
       // Restore soft-deleted domain
+      let dkimSelector = existing.dkimSelector;
+      let dkimPublicKey = existing.dkimPublicKey;
+      let dkimPrivateKey = existing.dkimPrivateKey;
+      if (!dkimSelector || !dkimPublicKey || !dkimPrivateKey) {
+        const dkim = generateDkimKeypair(dkimSelector || "orbit");
+        dkimSelector = dkim.selector;
+        dkimPublicKey = dkim.publicKey;
+        dkimPrivateKey = dkim.privateKeyPem;
+      }
+
       const restored = await prisma.domain.update({
         where: { id: existing.id },
         data: {
@@ -135,6 +145,10 @@ export const domainRepository = {
           dnsStatus: "PENDING",
           mailStatus: "DISABLED",
           sslStatus: "NONE",
+          provisionedAt: null,
+          dkimSelector,
+          dkimPublicKey,
+          dkimPrivateKey,
         },
         include: { _count: { select: { mailboxes: { where: { deletedAt: null } } } } },
       });
@@ -148,7 +162,26 @@ export const domainRepository = {
         newValue: { name: restored.name },
       });
 
-      return { domain: mapDomain(restored), created: false, restored: true };
+      // Soft-delete previously wiped MariaDB; re-provision mail stack for restored domain.
+      await MailProvisioningService.provisionDomain({
+        domainId: restored.id,
+        domainName: restored.name,
+        dkimSelector: dkimSelector!,
+        dkimPublicKey: dkimPublicKey!,
+        dkimPrivateKey: dkimPrivateKey!,
+        audit: { actorId: input.actorId },
+      });
+
+      const afterProvision = await prisma.domain.findFirst({
+        where: { id: restored.id, deletedAt: null },
+        include: { _count: { select: { mailboxes: { where: { deletedAt: null } } } } },
+      });
+
+      return {
+        domain: mapDomain(afterProvision ?? restored),
+        created: false,
+        restored: true,
+      };
     }
 
     try {

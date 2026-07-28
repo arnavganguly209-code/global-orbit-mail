@@ -11,10 +11,12 @@ import {
   deactivateMysqlVirtualUser,
   isMysqlMailAuthConfigured,
   provisionDovecotAuth,
+  upsertMysqlQuota,
   upsertMysqlVirtualAlias,
   upsertMysqlVirtualDomain,
   upsertMysqlVirtualUser,
 } from "@/services/provisioning/mysql-mail-auth";
+import { ensureLocalMaildir } from "@/services/provisioning/maildir";
 import type { ProvisionJobKind, ProvisionJobStatus } from "@prisma/client";
 
 const execFileAsync = promisify(execFile);
@@ -219,8 +221,20 @@ function parseAgentOutput(stdout: string, stderr: string): AgentResponse {
   if (!trimmed) {
     return { ok: false, stdout, stderr: stderr || "Empty agent response" };
   }
+
+  // Agent may print warnings before the JSON result — prefer the last JSON object line.
+  const lines = trimmed.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  let jsonCandidate = trimmed;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]!;
+    if (line.startsWith("{") && line.endsWith("}")) {
+      jsonCandidate = line;
+      break;
+    }
+  }
+
   try {
-    const parsed = JSON.parse(trimmed) as {
+    const parsed = JSON.parse(jsonCandidate) as {
       ok?: boolean;
       data?: Record<string, unknown>;
       error?: string;
@@ -332,13 +346,35 @@ async function syncSqlAuth(request: AgentRequest, reason: string): Promise<Agent
           },
         };
       }
-      case "mailbox.quota":
+      case "mailbox.quota": {
+        const email = String(request.payload.email ?? "").toLowerCase().trim();
+        const quotaBytes = Number(request.payload.quotaBytes ?? 0);
+        if (!email) throw new Error("email required");
+        if (!isMysqlMailAuthConfigured()) {
+          return {
+            ok: false,
+            stdout: "",
+            stderr: "MySQL mail auth not configured — cannot update quota",
+            data: { sqlSynced: false, mysqlSynced: false, mysqlDeferred: false, reason },
+          };
+        }
+        const quotaResult = await upsertMysqlQuota({ email, quotaBytes });
+        if (!quotaResult.ok) {
+          throw new Error(quotaResult.error ?? "quota update failed");
+        }
         return {
           ok: true,
-          stdout: `mysql:${request.command}:noop`,
+          stdout: `mysql:mailbox.quota`,
           stderr: "",
-          data: { sqlSynced: true, mysqlSynced: true, reason },
+          data: {
+            sqlSynced: true,
+            mysqlSynced: true,
+            reason,
+            quotaBytes,
+            database: quotaResult.database,
+          },
         };
+      }
 
       case "mailbox.create":
       case "mailbox.restore":
@@ -349,6 +385,9 @@ async function syncSqlAuth(request: AgentRequest, reason: string): Promise<Agent
           normalizeSha512Crypt(String(request.payload.mailPasswordHash ?? "")) ?? "";
         const domain = email.split("@")[1] ?? "";
         const home = vmailHome(email);
+        const quotaBytesRaw = Number(request.payload.quotaBytes ?? NaN);
+        const quotaBytes =
+          Number.isFinite(quotaBytesRaw) && quotaBytesRaw >= 0 ? quotaBytesRaw : null;
         if (!email || !domain) throw new Error("email required");
 
         if (plain) {
@@ -361,15 +400,17 @@ async function syncSqlAuth(request: AgentRequest, reason: string): Promise<Agent
         }
 
         // Agent may already have written MariaDB; Node sync is best-effort when configured.
+        // mysqlDeferred alone must NOT count as mysqlSynced success for mailbox.create.
         if (!isMysqlMailAuthConfigured()) {
           return {
-            ok: true,
-            stdout: `mysql:${request.command}:deferred-to-agent`,
-            stderr: "",
+            ok: false,
+            stdout: `mysql:${request.command}:not-configured`,
+            stderr:
+              "MySQL mail auth not configured (MAIL_MYSQL_* or dovecot-sql.conf.ext) — cannot sync virtual_users",
             data: {
               sqlSynced: false,
               mysqlSynced: false,
-              mysqlDeferred: true,
+              mysqlDeferred: false,
               authTest: false,
               reason,
               email,
@@ -386,19 +427,23 @@ async function syncSqlAuth(request: AgentRequest, reason: string): Promise<Agent
             password: plain,
             passwordHash: password,
             domain,
+            quotaBytes,
           });
           if (!proved.ok) {
             throw new Error(proved.error ?? "Dovecot auth provision failed");
           }
+          const md = ensureLocalMaildir(email);
           return {
             ok: true,
             stdout: proved.authOutput ?? `mysql:${request.command}:auth-ok`,
-            stderr: "",
+            stderr: md.ok ? "" : md.error ?? "",
             data: {
               sqlSynced: true,
               mysqlSynced: true,
               authTest: true,
               authOutput: proved.authOutput,
+              maildirOk: md.ok,
+              maildirHome: md.home,
               reason,
               email,
               home,
@@ -413,19 +458,23 @@ async function syncSqlAuth(request: AgentRequest, reason: string): Promise<Agent
           email,
           passwordHash: password,
           domain,
+          quotaBytes,
         });
         if (!mysqlResult.ok) {
           throw new Error(mysqlResult.error ?? "MySQL virtual_users upsert failed");
         }
 
+        const md = ensureLocalMaildir(email);
         return {
           ok: true,
           stdout: `mysql:${request.command}`,
-          stderr: "",
+          stderr: md.ok ? "" : md.error ?? "",
           data: {
             sqlSynced: true,
             mysqlSynced: true,
             authTest: false,
+            maildirOk: md.ok,
+            maildirHome: md.home,
             reason,
             email,
             home,
@@ -521,13 +570,15 @@ function mergeAuthResults(
 
   const authOk =
     Boolean(sqlResult.data?.authTest) || Boolean(agentResult.data?.authTest);
+  // Prefer SQL auth success when agent fails — but never treat mysqlDeferred alone as synced.
   const mysqlOk =
     Boolean(sqlResult.data?.mysqlSynced) || Boolean(agentResult.data?.mysqlSynced);
 
   // Prefer agent success when Node cannot reach MariaDB (agent runs on VPS).
+  // Soft-fail: mysqlDeferred=false path must not count as success without mysqlOk.
   const ok = needsAuthProof
     ? Boolean(authOk && mysqlOk)
-    : Boolean(mysqlOk || agentResult.ok || sqlResult.ok);
+    : Boolean(mysqlOk || agentResult.ok || (sqlResult.ok && sqlResult.data?.mysqlSynced));
 
   console.info("[mail-auth:merge]", {
     command: request.command,
@@ -574,7 +625,8 @@ async function runLocal(request: AgentRequest): Promise<AgentResponse> {
   };
 
   try {
-    const { stdout, stderr } = await execFileAsync(script, [request.command], {
+    // Always invoke via bash so missing/broken shebang never causes ENOENT-style failures.
+    const { stdout, stderr } = await execFileAsync("bash", [script, request.command], {
       timeout: 120_000,
       maxBuffer: 2 * 1024 * 1024,
       env: { ...process.env, MAIL_AGENT_PAYLOAD: JSON.stringify(agentPayload) },
@@ -593,7 +645,7 @@ async function runLocal(request: AgentRequest): Promise<AgentResponse> {
       agentResult = {
         ok: false,
         stdout: "",
-        stderr: `spawn ${script} ENOENT`,
+        stderr: `spawn bash/${script} ENOENT`,
       };
     } else {
       agentResult = {

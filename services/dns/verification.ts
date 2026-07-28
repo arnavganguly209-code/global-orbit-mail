@@ -4,7 +4,9 @@ import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import type { DnsRecordStatus, VerificationKind, VerificationState } from "@prisma/client";
 import { getMailHostname } from "@/lib/dns/records";
-import { isUsableIpv4 } from "@/lib/dns/mail-ip";
+import { isUsableIpv4, resolveMailServerIpv4 } from "@/lib/dns/mail-ip";
+import { MailProvisioningService } from "@/services/provisioning/mail-provisioning-service";
+import { generateDkimKeypair } from "@/lib/dns/dkim";
 
 export type CheckResult = {
   ok: boolean;
@@ -12,6 +14,14 @@ export type CheckResult = {
   expected: string;
   observed: string[];
   detail: string;
+};
+
+export type MailProxyWarning = {
+  severity: "error" | "warning";
+  host: string;
+  observed: string[];
+  expectedIp: string | null;
+  message: string;
 };
 
 export type DomainVerifyReport = {
@@ -30,6 +40,9 @@ export type DomainVerifyReport = {
   waitingFor: string | null;
   overall: "VERIFIED" | "PARTIAL" | "FAILED" | "PENDING";
   checkedAt: string;
+  /** Cloudflare proxy / wrong mail A target warnings */
+  mailProxyWarnings: MailProxyWarning[];
+  friendlyStatus: "Verified" | "Ready for mail" | "Checking" | "Needs attention";
 };
 
 function normalizeTxt(values: string[][]): string[] {
@@ -181,6 +194,63 @@ function toRecordStatus(ok: boolean, observed: string[]): DnsRecordStatus {
   return "MISMATCH";
 }
 
+/**
+ * Rough Cloudflare anycast / proxy detection for mail host A records.
+ * Proxied orange-cloud MX/A breaks SMTP — never treat these as valid mail endpoints.
+ */
+export function isLikelyCloudflareProxyIp(ip: string): boolean {
+  const parts = ip.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return false;
+  const [a, b] = parts as [number, number, number, number];
+  // Common Cloudflare published ranges (subset — enough to warn strongly)
+  if (a === 104 && b >= 16 && b <= 31) return true; // 104.16.0.0/12
+  if (a === 172 && b >= 64 && b <= 71) return true; // 172.64.0.0/13
+  if (a === 173 && b === 245) return true; // 173.245.48.0/20 approx
+  if (a === 103 && b >= 21 && b <= 22) return true;
+  if (a === 141 && b === 101) return true;
+  if (a === 188 && b === 114) return true;
+  if (a === 190 && b === 93) return true;
+  if (a === 197 && b === 234) return true;
+  if (a === 198 && b === 41) return true;
+  if (a === 162 && b === 158) return true;
+  if (a === 108 && b === 162) return true;
+  return false;
+}
+
+export function buildMailProxyWarnings(input: {
+  domain: string;
+  mailAHost: string;
+  observedIps: string[];
+  expectedIp: string | null;
+}): MailProxyWarning[] {
+  const warnings: MailProxyWarning[] = [];
+  const { observedIps, expectedIp, mailAHost, domain } = input;
+  if (observedIps.length === 0) return warnings;
+
+  const cfHits = observedIps.filter(isLikelyCloudflareProxyIp);
+  if (cfHits.length > 0) {
+    warnings.push({
+      severity: "error",
+      host: mailAHost,
+      observed: observedIps,
+      expectedIp,
+      message: `Cloudflare proxy detected on ${mailAHost} (${cfHits.join(", ")}). Never orange-cloud / proxy MX or mail A/AAAA — set DNS-only (grey cloud).`,
+    });
+  }
+
+  if (expectedIp && isUsableIpv4(expectedIp) && !observedIps.includes(expectedIp)) {
+    warnings.push({
+      severity: "error",
+      host: mailAHost,
+      observed: observedIps,
+      expectedIp,
+      message: `mail.${domain} does not resolve to the actual mail server (expected ${expectedIp}, got ${observedIps.join(", ")}). Proxied or wrong A records break inbound mail.`,
+    });
+  }
+
+  return warnings;
+}
+
 export const dnsVerificationService = {
   async verifyDomain(domainId: string, actorId?: string | null): Promise<DomainVerifyReport> {
     const domain = await prisma.domain.findFirst({
@@ -225,10 +295,26 @@ export const dnsVerificationService = {
 
     const mailAHost = expectedMailA?.name ?? `mail.${domain.name}`;
     const mailAObserved = await lookupA(mailAHost);
-    const expectedIp = (expectedMailA?.value ?? "").trim();
+    let expectedIp = (expectedMailA?.value ?? "").trim();
+    if (!isUsableIpv4(expectedIp)) {
+      try {
+        expectedIp = await resolveMailServerIpv4();
+      } catch {
+        expectedIp = process.env.MAIL_SERVER_IPV4?.trim() ?? "";
+      }
+    }
     const mailAOk =
       (isUsableIpv4(expectedIp) && mailAObserved.includes(expectedIp)) ||
       (!expectedIp && mailAObserved.some((ip) => isUsableIpv4(ip)));
+
+    const mailProxyWarnings = buildMailProxyWarnings({
+      domain: domain.name,
+      mailAHost,
+      observedIps: mailAObserved,
+      expectedIp: isUsableIpv4(expectedIp) ? expectedIp : null,
+    });
+    // Proxied / wrong mail A is never "ok" for mail delivery UX
+    const mailAEffectiveOk = mailAOk && mailProxyWarnings.length === 0;
 
     const dkimHost =
       expectedDkim?.name ?? `${domain.dkimSelector || "orbit"}._domainkey.${domain.name}`;
@@ -259,13 +345,14 @@ export const dnsVerificationService = {
       detail: spfOk ? "SPF TXT verified" : "SPF TXT missing or mismatch",
     };
     const mailA: CheckResult = {
-      ok: mailAOk,
+      ok: mailAEffectiveOk,
       label: "A (mail)",
       expected: expectedIp || "production mail IPv4",
       observed: mailAObserved,
-      detail: mailAOk
+      detail: mailAEffectiveOk
         ? `mail.${domain.name} resolves to the mail server`
-        : `A record for mail.${domain.name} missing or incorrect`,
+        : mailProxyWarnings[0]?.message ??
+          `A record for mail.${domain.name} missing or incorrect`,
     };
     const dkim: CheckResult = {
       ok: dkimOk,
@@ -287,7 +374,7 @@ export const dnsVerificationService = {
       if (record.type === "MX") status = toRecordStatus(mxOk, mxObserved);
       if (record.type === "SPF") status = toRecordStatus(spfOk, spfObserved);
       if (record.type === "A" && record.name.startsWith("mail.")) {
-        status = toRecordStatus(mailAOk, mailAObserved);
+        status = toRecordStatus(mailAEffectiveOk, mailAObserved);
       }
       if (record.type === "DKIM") status = toRecordStatus(dkimOk, dkimObserved);
       if (record.type === "DMARC") status = toRecordStatus(dmarcOk, dmarcObserved);
@@ -371,6 +458,55 @@ export const dnsVerificationService = {
       },
     });
 
+    // When DNS is ready, ensure the mail stack is provisioned (restore/partial paths may skip this).
+    if (ready) {
+      const needsProvision =
+        !domain.provisionedAt ||
+        domain.mailStatus === "DISABLED" ||
+        domain.mailStatus === "ERROR";
+      if (needsProvision) {
+        let selector = domain.dkimSelector;
+        let publicKey = domain.dkimPublicKey;
+        let privateKey = domain.dkimPrivateKey;
+        if (!selector || !publicKey || !privateKey) {
+          const dkim = generateDkimKeypair(selector || "orbit");
+          selector = dkim.selector;
+          publicKey = dkim.publicKey;
+          privateKey = dkim.privateKeyPem;
+          await prisma.domain.update({
+            where: { id: domain.id },
+            data: {
+              dkimSelector: selector,
+              dkimPublicKey: publicKey,
+              dkimPrivateKey: privateKey,
+            },
+          });
+        }
+        try {
+          await MailProvisioningService.provisionDomain({
+            domainId: domain.id,
+            domainName: domain.name,
+            dkimSelector: selector,
+            dkimPublicKey: publicKey,
+            dkimPrivateKey: privateKey,
+            audit: { actorId },
+            softRollback: false,
+          });
+        } catch (error) {
+          await writeAudit({
+            actorId,
+            action: "dns.verify.provision_failed",
+            resource: "domain",
+            resourceId: domain.id,
+            status: "FAILED",
+            metadata: {
+              error: error instanceof Error ? error.message : "unknown",
+            },
+          });
+        }
+      }
+    }
+
     await writeAudit({
       actorId,
       action: "dns.verify",
@@ -386,8 +522,17 @@ export const dnsVerificationService = {
         dkim: dkim.ok,
         dmarc: dmarc.ok,
         ssl: ssl.ok,
+        mailProxyWarnings: mailProxyWarnings.length,
       },
     });
+
+    const friendlyStatus: DomainVerifyReport["friendlyStatus"] = ready
+      ? "Verified"
+      : overall === "FAILED"
+        ? "Needs attention"
+        : overall === "PARTIAL"
+          ? "Checking"
+          : "Checking";
 
     return {
       domainId: domain.id,
@@ -404,6 +549,8 @@ export const dnsVerificationService = {
       waitingFor,
       overall,
       checkedAt: new Date().toISOString(),
+      mailProxyWarnings,
+      friendlyStatus: ready ? "Ready for mail" : friendlyStatus,
     };
   },
 };
