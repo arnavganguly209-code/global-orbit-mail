@@ -681,13 +681,9 @@ export function OrbitMailApp({
     }
   }
 
-  const recentRecipients = React.useMemo(
-    () =>
-      mergeRecipientLists(
-        me?.email ? loadRememberedRecipients(me.email) : [],
-        contactsQuery.data?.recent,
-      ),
-    [me?.email, contactsQuery.data?.recent],
+  const recentRecipients = mergeRecipientLists(
+    me?.email ? loadRememberedRecipients(me.email) : [],
+    contactsQuery.data?.recent,
   );
   const sidebarWidth =
     layout === "desktop" ? "w-[300px]" : layout === "laptop" ? "w-[260px]" : "w-[min(340px,88vw)]";
