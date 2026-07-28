@@ -46,6 +46,14 @@ fi
 npm ci --legacy-peer-deps
 npm run build
 
+# Keep VPS mail-agent in sync with repo (Postfix/Dovecot provisioning)
+mkdir -p /opt/global-orbit/bin
+if [[ -f deploy/vps/mail-agent.sh ]]; then
+  sed -i 's/\r$//' deploy/vps/mail-agent.sh || true
+  install -m 755 deploy/vps/mail-agent.sh /opt/global-orbit/bin/mail-agent.sh
+  echo "Installed /opt/global-orbit/bin/mail-agent.sh"
+fi
+
 mkdir -p public/brand
 if [[ -f roundcube/skins/orbit/images/logo.png ]]; then
   cp -f roundcube/skins/orbit/images/logo.png public/brand/logo.png
