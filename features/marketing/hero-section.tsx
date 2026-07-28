@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -51,22 +50,24 @@ const heroStats = [
 
 export function HeroSection() {
   return (
-    <section className="relative isolate overflow-hidden bg-[#05070a]">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_70%_45%,rgba(30,95,161,0.28),transparent_55%),radial-gradient(ellipse_at_20%_20%,rgba(212,175,55,0.12),transparent_45%)]"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-24 top-16 h-[34rem] w-[34rem] rounded-full bg-[radial-gradient(circle,rgba(30,95,161,0.35),transparent_70%)] blur-3xl"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute bottom-0 left-1/4 h-72 w-72 rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.16),transparent_70%)] blur-3xl"
-      />
+    <section className="relative isolate min-h-[min(920px,calc(100dvh-7.5rem))] overflow-hidden bg-[#05070a]">
+      {/* Orbit world + product art — full bleed right, no box */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <Image
+          src="/brand/hero-orbit-visual.png"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover object-[70%_45%] opacity-95 sm:object-[65%_42%] lg:object-[58%_40%]"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#05070a] via-[#05070a]/88 to-[#05070a]/15 sm:via-[#05070a]/78 sm:to-transparent lg:from-[#05070a] lg:via-[#05070a]/70 lg:to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#05070a] via-transparent to-[#05070a]/40" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_72%_48%,rgba(30,95,161,0.18),transparent_52%)]" />
+      </div>
 
-      <Container className="relative z-10 pb-10 pt-10 sm:pb-14 sm:pt-14 lg:pt-16">
-        <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-8 xl:gap-12">
+      <Container className="relative z-10 flex min-h-[min(920px,calc(100dvh-7.5rem))] flex-col justify-center pb-10 pt-12 sm:pb-12 sm:pt-14">
+        <div className="grid items-center gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
@@ -77,7 +78,7 @@ export function HeroSection() {
               {brand.product} • {brand.tagline.toUpperCase()}
             </p>
 
-            <h1 className="font-display text-[2.35rem] font-semibold leading-[1.08] tracking-tight text-white sm:text-5xl md:text-[3.35rem] lg:text-[3.6rem]">
+            <h1 className="font-display text-[2.35rem] font-semibold leading-[1.08] tracking-tight text-white sm:text-5xl md:text-[3.35rem] lg:text-[3.55rem]">
               Enterprise Email Hosting Built For Modern{" "}
               <span className="bg-gradient-to-r from-[#f6e7a8] via-[#e0bc4a] to-[#c9971a] bg-clip-text text-transparent">
                 Businesses
@@ -94,7 +95,7 @@ export function HeroSection() {
                 const Icon = item.icon;
                 return (
                   <div key={item.title} className="min-w-0">
-                    <div className="mb-2 flex size-9 items-center justify-center rounded-lg border border-[#d4af37]/35 bg-[#d4af37]/10">
+                    <div className="mb-2 flex size-9 items-center justify-center rounded-lg border border-[#d4af37]/35 bg-[#d4af37]/10 backdrop-blur-sm">
                       <Icon className="size-4 text-[#d4af37]" />
                     </div>
                     <p className="text-[13px] font-semibold leading-snug text-[#f0d78c]">
@@ -116,7 +117,7 @@ export function HeroSection() {
               </Link>
               <Link
                 href={routes.sections.pricing}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-[#d4af37]/55 bg-transparent px-7 text-base font-semibold text-white transition hover:bg-[#d4af37]/10"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-[#d4af37]/55 bg-black/20 px-7 text-base font-semibold text-white backdrop-blur-sm transition hover:bg-[#d4af37]/10"
               >
                 View Pricing
                 <ArrowDown className="size-4 text-[#d4af37]" />
@@ -124,32 +125,15 @@ export function HeroSection() {
             </div>
           </motion.div>
 
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.12, duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-            className="relative mx-auto w-full max-w-xl lg:max-w-none"
-          >
-            <div className="pointer-events-none absolute -inset-6 rounded-[2rem] bg-[radial-gradient(circle_at_center,rgba(30,95,161,0.35),transparent_65%)] blur-2xl" />
-            <div className="relative aspect-[4/3] overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#0a0d14]/60 shadow-[0_30px_80px_rgba(0,0,0,0.55)] sm:aspect-[5/4] lg:aspect-square lg:min-h-[26rem]">
-              <Image
-                src="/brand/hero-mockup.png"
-                alt="Enterprise email hosting — secure global mail infrastructure"
-                fill
-                priority
-                sizes="(max-width: 1024px) 90vw, 42vw"
-                className="scale-[1.55] object-cover object-[88%_42%]"
-              />
-              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#05070a]/50 via-transparent to-transparent" />
-            </div>
-          </motion.div>
+          {/* Keeps right composition space — art lives in the background, not a card */}
+          <div className="pointer-events-none relative hidden min-h-[20rem] lg:block" aria-hidden />
         </div>
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.28, duration: 0.7 }}
-          className="mt-12 rounded-2xl border border-white/10 bg-[#0b0e14]/75 px-4 py-5 backdrop-blur-md sm:mt-14 sm:px-6"
+          className="mt-12 rounded-2xl border border-white/10 bg-[#0b0e14]/70 px-4 py-5 backdrop-blur-md sm:mt-14 sm:px-6"
         >
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4 md:gap-0">
             {heroStats.map((stat, index) => {
@@ -157,11 +141,7 @@ export function HeroSection() {
               return (
                 <div
                   key={stat.label}
-                  className={
-                    index > 0
-                      ? "md:border-l md:border-white/10 md:px-6"
-                      : "md:px-2"
-                  }
+                  className={index > 0 ? "md:border-l md:border-white/10 md:px-6" : "md:px-2"}
                 >
                   <div className="flex items-start gap-3">
                     <Icon className="mt-1 size-4 shrink-0 text-[#d4af37]" />

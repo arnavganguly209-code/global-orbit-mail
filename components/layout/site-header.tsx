@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ChevronDown, Mail, Menu, UserRound, X } from "lucide-react";
+import { ChevronDown, Mail, Menu, Shield, UserRound, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { BrandLogo } from "@/components/shared/brand-logo";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ export function SiteHeader() {
         scrolled && "shadow-[0_12px_40px_rgba(0,0,0,0.45)]",
       )}
     >
-      <Container className="relative flex h-[4.75rem] items-center justify-between gap-3 pb-3 lg:h-[5.5rem]">
+      <Container className="flex h-[5.25rem] items-center justify-between gap-3 lg:h-[5.75rem]">
         <BrandLogo priority width={220} className="w-[150px] sm:w-[190px] lg:w-[220px]" />
 
         <nav className="hidden items-center gap-0.5 xl:flex" aria-label="Primary">
@@ -59,7 +59,7 @@ export function SiteHeader() {
             Mail Login
           </a>
 
-          <div className="relative hidden sm:block">
+          <div className="hidden flex-col items-center sm:flex">
             <Button
               asChild
               className="h-10 rounded-full border-0 bg-gradient-to-r from-[#f6e7a8] via-[#e0bc4a] to-[#c9971a] px-5 font-bold text-[#1a1200] shadow-[0_8px_22px_rgba(212,175,55,0.28)] hover:brightness-105"
@@ -70,10 +70,11 @@ export function SiteHeader() {
               </Link>
             </Button>
             <Link
-              href={routes.signin}
-              className="absolute left-0 right-0 top-[calc(100%+2px)] text-center text-[11px] font-medium text-zinc-400 transition hover:text-[#f0d78c]"
+              href={routes.orbitLogin}
+              className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold tracking-[0.06em] text-[#d4af37] transition hover:text-[#f0d78c]"
             >
-              Sign In
+              <Shield className="size-3" />
+              Admin Login
             </Link>
           </div>
 
@@ -120,17 +121,28 @@ export function SiteHeader() {
                   <Mail className="size-4 text-[#d4af37]" />
                   Mail Login
                 </a>
-                <Button asChild className="h-11 rounded-full border-0 bg-gradient-to-r from-[#f6e7a8] to-[#c9971a] font-bold text-[#1a1200]">
+                <Button
+                  asChild
+                  className="h-11 rounded-full border-0 bg-gradient-to-r from-[#f6e7a8] to-[#c9971a] font-bold text-[#1a1200]"
+                >
                   <Link href={routes.signup} onClick={() => setOpen(false)}>
                     Sign Up
                   </Link>
                 </Button>
                 <Link
+                  href={routes.orbitLogin}
+                  onClick={() => setOpen(false)}
+                  className="inline-flex items-center justify-center gap-1.5 py-2 text-sm font-semibold text-[#d4af37] hover:text-[#f0d78c]"
+                >
+                  <Shield className="size-3.5" />
+                  Admin Login
+                </Link>
+                <Link
                   href={routes.signin}
                   onClick={() => setOpen(false)}
                   className="py-1 text-center text-sm font-medium text-zinc-400 hover:text-[#f0d78c]"
                 >
-                  Sign In
+                  Customer Login
                 </Link>
               </div>
             </Container>
