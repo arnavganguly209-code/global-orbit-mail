@@ -76,7 +76,6 @@ export function OrbitLoginPage() {
   const [emailError, setEmailError] = React.useState<string | null>(null);
   const [passwordError, setPasswordError] = React.useState<string | null>(null);
   const [logoSrc, setLogoSrc] = React.useState("/brand/logo.png");
-  const brandMark = "/brand/icon-192.png";
 
   React.useEffect(() => {
     // Default dark for this premium surface; user can still toggle light.
@@ -203,7 +202,7 @@ export function OrbitLoginPage() {
         className={cn(
           "relative z-10 mx-auto grid h-dvh max-h-dvh w-full max-w-[1400px] gap-4 px-4 py-3 sm:px-6 lg:gap-8 lg:px-10 lg:py-5",
           isCompact
-            ? "grid-cols-1 overflow-y-auto overflow-x-hidden"
+            ? "grid-rows-[auto_minmax(0,1fr)] overflow-y-auto overflow-x-hidden"
             : cn(
                 "items-center overflow-hidden",
                 splitTight
@@ -212,27 +211,27 @@ export function OrbitLoginPage() {
               ),
         )}
       >
-        {/* LEFT — brand / features (desktop). Mobile uses a compact app header above the card. */}
+        {/* LEFT — brand / features (matches mockup) */}
         <motion.section
           initial={{ opacity: 0, x: -12 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.35 }}
           className={cn(
             "flex min-h-0 flex-col justify-center",
-            isCompact ? "hidden" : "pr-2 lg:pr-6",
+            isCompact ? "pt-8 text-center" : "pr-2 lg:pr-6",
           )}
         >
-          <div className="flex flex-col items-start">
+          <div className={cn("flex flex-col", isCompact ? "items-center" : "items-start")}>
             <Image
               src={logoSrc}
               alt="GLOBAL ORBIT PVT LTD"
-              width={420}
-              height={420}
+              width={isCompact ? 280 : 420}
+              height={isCompact ? 90 : 135}
               priority
               unoptimized={logoSrc.startsWith("data:")}
               className="h-auto w-auto max-w-full object-contain drop-shadow-[0_10px_30px_rgba(0,0,0,0.55)]"
               style={{
-                width: splitTight ? 200 : 260,
+                width: isCompact ? 280 : splitTight ? 320 : 420,
                 height: "auto",
               }}
             />
@@ -246,7 +245,12 @@ export function OrbitLoginPage() {
             </p>
           </div>
 
-          <div className="mt-5 grid grid-cols-4 gap-3 sm:mt-6 sm:gap-4">
+          <div
+            className={cn(
+              "mt-5 grid gap-3 sm:mt-6 sm:gap-4",
+              isCompact ? "grid-cols-2 text-left" : "grid-cols-4",
+            )}
+          >
             {FEATURES.map(({ title, body, Icon }) => (
               <div key={title} className="min-w-0">
                 <Icon
@@ -266,7 +270,12 @@ export function OrbitLoginPage() {
             ))}
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2.5 sm:mt-5 sm:gap-3">
+          <div
+            className={cn(
+              "mt-4 grid gap-2.5 sm:mt-5 sm:gap-3",
+              isCompact ? "grid-cols-1" : "grid-cols-2",
+            )}
+          >
             {TRUST.map(({ title, body, Icon }) => (
               <div
                 key={title}
@@ -286,45 +295,27 @@ export function OrbitLoginPage() {
             ))}
           </div>
 
-          <p className="mt-5 flex items-center gap-2 text-[0.68rem] text-white/50">
-            <Shield className="size-3.5 text-[#d4af37]/80" />
-            © 2025 Global Orbit Pvt Ltd. All rights reserved.
-          </p>
+          {!isCompact ? (
+            <p className="mt-5 flex items-center gap-2 text-[0.68rem] text-white/50">
+              <Shield className="size-3.5 text-[#d4af37]/80" />
+              © 2025 Global Orbit Pvt Ltd. All rights reserved.
+            </p>
+          ) : null}
         </motion.section>
 
-        {/* RIGHT — login card (full-screen app sheet on mobile) */}
+        {/* RIGHT — login card */}
         <motion.section
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.05 }}
           className={cn(
             "flex min-h-0 w-full flex-col justify-center",
-            isCompact ? "pb-[max(1rem,env(safe-area-inset-bottom))] pt-2" : "",
+            isCompact ? "pb-[max(1rem,env(safe-area-inset-bottom))]" : "",
           )}
         >
-          {isCompact ? (
-            <div className="mb-5 flex flex-col items-center text-center">
-              <Image
-                src={brandMark}
-                alt="Global Orbit Mail"
-                width={88}
-                height={88}
-                priority
-                className="size-[5.5rem] rounded-[1.35rem] object-cover shadow-[0_12px_40px_rgba(0,0,0,0.55)] ring-1 ring-[#d4af37]/45"
-                unoptimized
-              />
-              <p className="mt-3 text-[0.68rem] font-bold uppercase tracking-[0.28em] text-[#e0bc4a]">
-                Global Orbit Mail
-              </p>
-              <p className="mt-1 max-w-[16rem] text-[0.78rem] text-white/70">
-                Business email — opens like an app on your phone.
-              </p>
-            </div>
-          ) : null}
           <div
             className={cn(
               "w-full rounded-[22px] border p-5 shadow-[0_28px_70px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:p-6",
-              isCompact && "rounded-[28px] p-6",
               light
                 ? "border-white/55 bg-white/88 text-slate-900"
                 : "border-white/12 bg-[rgba(10,12,20,0.82)] text-white",
@@ -336,20 +327,17 @@ export function OrbitLoginPage() {
             }}
           >
             <div className="mb-4 text-center sm:mb-5">
-              {!isCompact ? (
-                <span
-                  className={cn(
-                    "mx-auto mb-3 inline-flex size-11 items-center justify-center overflow-hidden rounded-full border",
-                    light
-                      ? "border-[#d4af37]/55 bg-[#d4af37]/12 text-[#b8860b]"
-                      : "border-[#d4af37]/55 bg-[#d4af37]/12 text-[#e0bc4a]",
-                  )}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={brandMark} alt="" className="size-full object-cover" />
-                </span>
-              ) : null}
-              <h1 className="text-[1.2rem] font-bold tracking-tight sm:text-[1.35rem]">
+              <span
+                className={cn(
+                  "mx-auto mb-3 inline-flex size-11 items-center justify-center rounded-full border",
+                  light
+                    ? "border-[#d4af37]/55 bg-[#d4af37]/12 text-[#b8860b]"
+                    : "border-[#d4af37]/55 bg-[#d4af37]/12 text-[#e0bc4a]",
+                )}
+              >
+                <Mail className="size-5" strokeWidth={1.7} />
+              </span>
+              <h1 className="text-[1.15rem] font-bold tracking-tight sm:text-[1.35rem]">
                 Welcome to{" "}
                 <span className={light ? "text-[#b8860b]" : "text-[#e0bc4a]"}>Global Orbit</span>{" "}
                 Mail

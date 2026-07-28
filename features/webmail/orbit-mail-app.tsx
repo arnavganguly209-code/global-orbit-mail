@@ -702,12 +702,12 @@ export function OrbitMailApp({
 
   function CompanyLogo({ className }: { className?: string }) {
     return (
-      <span className={cn("orbit-brand-logo-frame inline-flex shrink-0 items-center overflow-hidden rounded-2xl ring-1 ring-[#d4af37]/30", light && "shadow-sm")}>
+      <span className={cn("orbit-brand-logo-frame inline-flex max-w-full items-center", light && "shadow-sm")}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={companyLogo}
           alt="GLOBAL ORBIT PVT LTD"
-          className={cn("orbit-brand-logo object-cover", className)}
+          className={cn("orbit-brand-logo object-contain", className)}
         />
       </span>
     );
@@ -815,7 +815,7 @@ export function OrbitMailApp({
   const topBar = (
     <header
       className={cn(
-        "flex h-[3.75rem] shrink-0 items-center gap-2.5 border-b px-3 sm:h-[4.75rem] sm:gap-3 sm:px-4",
+        "flex h-[4.75rem] shrink-0 items-center gap-3 border-b px-3 sm:h-[6.75rem] sm:px-4",
         light ? "border-slate-200 bg-white" : "border-white/[0.07] bg-[#0b0b11]/95 backdrop-blur-xl",
       )}
     >
@@ -833,7 +833,7 @@ export function OrbitMailApp({
         </button>
       ) : (
         <div className={cn("flex shrink-0 items-center", sidebarWidth)}>
-          <CompanyLogo className="size-11 sm:size-14" />
+          <CompanyLogo className="h-[4.25rem] max-h-[5rem] w-auto max-w-[calc(100%-0.5rem)] sm:h-[7rem] sm:max-h-[8rem] sm:max-w-[calc(100%-0.25rem)]" />
         </div>
       )}
 
@@ -843,16 +843,11 @@ export function OrbitMailApp({
           <img
             src={companyLogo}
             alt=""
-            className="size-9 shrink-0 rounded-xl object-cover ring-1 ring-[#d4af37]/35"
+            className="h-9 w-auto max-w-[140px] object-contain"
           />
-          <div className="min-w-0">
-            <p className={cn("truncate text-sm font-semibold", light ? "text-slate-900" : "text-white")}>
-              Orbit Mail
-            </p>
-            <p className={cn("truncate text-[0.65rem]", light ? "text-slate-500" : "text-zinc-500")}>
-              {me?.email || "Business email"}
-            </p>
-          </div>
+          <p className={cn("truncate text-[0.65rem]", light ? "text-slate-500" : "text-zinc-500")}>
+            {me?.email || "Business email"}
+          </p>
         </div>
       ) : null}
 
@@ -1735,12 +1730,8 @@ export function OrbitMailApp({
               <img
                 src={companyLogo}
                 alt="GLOBAL ORBIT"
-                className="size-10 rounded-xl object-cover ring-1 ring-[#d4af37]/35"
+                className="h-12 w-auto max-w-[200px] object-contain"
               />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-white">Orbit Mail</p>
-                <p className="truncate text-[0.65rem] text-zinc-500">Folders</p>
-              </div>
             </div>
             <button type="button" onClick={() => setPane("list")} className="rounded-lg p-2 hover:bg-white/5">
               <X className="size-4" />

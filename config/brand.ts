@@ -22,7 +22,7 @@ export const brand = {
     logoWordmark: "/brand/logo.png",
     favicon: "/brand/icon-192.png",
     appleTouchIcon: "/brand/apple-touch-icon.png",
-    ogImage: "/brand/logo-orbit-globe.png",
+    ogImage: "/brand/logo.png",
   },
   logoWidth: 240,
 } as const;
