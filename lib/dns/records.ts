@@ -30,12 +30,13 @@ export type DnsRecordPurpose =
   | "autoconfig"
   | "imap"
   | "pop"
-  | "smtp";
+  | "smtp"
+  | "caa";
 
 export type DnsRecordBlueprint = {
   type: DnsRecordType;
   /** Provider publish type shown in UI / clipboard. */
-  publishType: "A" | "AAAA" | "MX" | "TXT" | "CNAME" | "SRV";
+  publishType: "A" | "AAAA" | "MX" | "TXT" | "CNAME" | "SRV" | "CAA";
   /** Absolute FQDN used for verification / storage (never includes www). */
   name: string;
   /** Host field for DNS panels: @, mail, _dmarc, etc. */
@@ -46,6 +47,8 @@ export type DnsRecordBlueprint = {
   ttl: number;
   purpose: DnsRecordPurpose;
   label: string;
+  /** Cloudflare / CDN: must stay DNS-only (grey cloud). */
+  proxyDnsOnly?: boolean;
 };
 
 function sharedMailHost() {
@@ -110,6 +113,7 @@ export function buildDnsRecordsForDomain(
       ttl: 3600,
       purpose: "mail_a",
       label: "A (mail)",
+      proxyDnsOnly: true,
     },
     {
       type: "MX",
@@ -122,6 +126,7 @@ export function buildDnsRecordsForDomain(
       ttl: 3600,
       purpose: "mx",
       label: "MX",
+      proxyDnsOnly: true,
     },
     {
       type: "SPF",
@@ -170,6 +175,7 @@ export function buildDnsRecordsForDomain(
       ttl: 3600,
       purpose: "autodiscover",
       label: "Autodiscover",
+      proxyDnsOnly: true,
     },
     {
       type: "CNAME",
@@ -182,6 +188,19 @@ export function buildDnsRecordsForDomain(
       ttl: 3600,
       purpose: "autoconfig",
       label: "Autoconfig",
+      proxyDnsOnly: true,
+    },
+    {
+      type: "TXT",
+      publishType: "CAA",
+      name: apex,
+      host: "@",
+      value: `0 issue "letsencrypt.org"`,
+      priority: null,
+      status: "PENDING",
+      ttl: 3600,
+      purpose: "caa",
+      label: "CAA (optional)",
     },
     {
       type: "TXT",
@@ -261,6 +280,8 @@ export type DnsInstructionRecord = {
   label: string;
   alreadyPublished?: boolean;
   tier?: "required" | "advanced";
+  /** Cloudflare: grey-cloud / DNS only — never orange-proxy */
+  proxyDnsOnly?: boolean;
 };
 
 export type SpfMergeRecommendation = {
@@ -269,15 +290,22 @@ export type SpfMergeRecommendation = {
   message: string;
 };
 
-export const REQUIRED_DNS_PURPOSES = ["mx", "spf", "dkim"] as const;
-export const ADVANCED_DNS_PURPOSES = [
+/** Production required — customer must publish these for Ready for Mail. */
+export const REQUIRED_DNS_PURPOSES = [
+  "mail_a",
+  "mx",
+  "spf",
+  "dkim",
   "dmarc",
   "autodiscover",
   "autoconfig",
+] as const;
+
+export const ADVANCED_DNS_PURPOSES = [
+  "caa",
   "imap",
   "pop",
   "smtp",
-  "mail_a",
   "mail_aaaa",
   "verification",
 ] as const;
@@ -369,8 +397,8 @@ export function toDnsInstructionJson(
     };
   });
 
-  // Enforce commercial ordering: MX → SPF → DKIM
-  const requiredOrder = ["mx", "spf", "dkim"] as const;
+  // Production ordering: A → MX → SPF → DKIM → DMARC → Autodiscover → Autoconfig
+  const requiredOrder = REQUIRED_DNS_PURPOSES;
   const required = requiredOrder
     .map((purpose) => formatted.find((r) => r.purpose === purpose))
     .filter((r): r is (typeof formatted)[number] => Boolean(r));
@@ -384,20 +412,22 @@ export function toDnsInstructionJson(
 
   const websiteSafe = options?.website?.websiteSafe !== false;
   const hasWebsite = Boolean(options?.website?.hasWebsite);
+  const mailHost = sharedMailHost();
 
   return {
     domain: apex,
     generatedAt: new Date().toISOString(),
-    mailHostname: sharedMailHost(),
+    mailHostname: mailHost,
+    mailServerIpv4: byPurpose("mail_a")[0]?.value ?? null,
     title: "Connect your domain",
     notice:
-      "Add only 3 required mail records. Leave website DNS (www, root A/CNAME, CDN, Cloudflare proxy) unchanged.",
+      "Copy these production DNS records exactly. Keep Cloudflare proxy OFF (DNS only / grey cloud) on mail A and MX. Do not change www or root website DNS.",
     summary: {
       requiredRecords: required.length,
-      estimatedSetupTime: "Under 2 minutes",
+      estimatedSetupTime: "Under 5 minutes",
       websiteSafe: websiteSafe ? "YES" : "REVIEW",
       hasWebsite,
-      style: "google-workspace",
+      style: "production-ready",
     },
     website: options?.website ?? {
       websiteSafe: true,
@@ -411,12 +441,13 @@ export function toDnsInstructionJson(
         "One-click DNS for Hostinger, Cloudflare, GoDaddy, and Namecheap is coming soon. Use Copy Required DNS today.",
     },
     wizard: {
-      style: "google-workspace",
+      style: "production-ready",
       requiredCount: required.length,
       advancedCount: advanced.length,
       verificationEnabled: Boolean(options?.verificationEnabled),
-      estimatedSetupTime: "Under 2 minutes",
+      estimatedSetupTime: "Under 5 minutes",
       websiteSafe: websiteSafe ? "YES" : "REVIEW",
+      cloudflareDnsOnly: true,
     },
     required,
     advanced,
@@ -431,21 +462,23 @@ export function toDnsInstructionJson(
       dmarc: byPurpose("dmarc"),
       autodiscover: byPurpose("autodiscover"),
       autoconfig: byPurpose("autoconfig"),
+      caa: byPurpose("caa"),
       imap: byPurpose("imap"),
       pop: byPurpose("pop"),
       smtp: byPurpose("smtp"),
     },
     flat: formatted,
     instructions: {
-      a: "Optional: A record Host mail → mail server IPv4 (not required when MX points to shared mail host).",
-      aaaa: "Optional AAAA for Host mail when IPv6 is enabled.",
-      mx: "Create MX on Host @ with priority 10 → shared mail host.",
-      spf: "Publish SPF TXT on Host @ (merge if one already exists).",
+      a: `Required: A Host mail → ${byPurpose("mail_a")[0]?.value ?? "MAIL_SERVER_IPV4"} (Cloudflare: DNS only / grey cloud).`,
+      aaaa: "Optional AAAA for Host mail when IPv6 is enabled on the mail server.",
+      mx: `Required: MX Host @ priority 10 → ${mailHost}. (never point MX at mail.${apex})`,
+      spf: "Required: publish ONE SPF TXT on Host @ (merge if one already exists — never add a second SPF).",
       verification: "Optional ownership TXT used only when domain verification is enabled.",
-      dkim: "Publish DKIM TXT on Host orbit._domainkey (required for Gmail/Outlook).",
-      dmarc: "Optional DMARC TXT on Host _dmarc (recommended after go-live).",
-      autodiscover: "Optional CNAME Host autodiscover → webmail (Outlook).",
-      autoconfig: "Optional CNAME Host autoconfig → webmail (Thunderbird).",
+      dkim: "Required: DKIM TXT on Host orbit._domainkey (Gmail/Outlook delivery).",
+      dmarc: "Required: DMARC TXT on Host _dmarc (production quarantine policy).",
+      autodiscover: `Required: CNAME Host autodiscover → ${sharedWebmailHost()}. (Outlook)`,
+      autoconfig: `Required: CNAME Host autoconfig → ${sharedAutoconfigHost()}. (Thunderbird)`,
+      caa: "Optional CAA on Host @ allowing Let's Encrypt.",
       imap: "Optional SRV Host _imap._tcp for IMAP 993.",
       pop: "Optional SRV Host _pop3._tcp for POP3 995.",
       smtp: "Optional SRV Host _submission._tcp for SMTP 587.",
@@ -466,6 +499,7 @@ function formatRecord(
     purpose?: string;
     label?: string;
     alreadyPublished?: boolean;
+    proxyDnsOnly?: boolean;
   },
   apex: string,
 ): DnsInstructionRecord {
@@ -475,6 +509,13 @@ function formatRecord(
     (["SPF", "DKIM", "DMARC"].includes(record.type.toUpperCase()) ? "TXT" : record.type);
   const fqdn = normalizeRecordFqdn(record.name, apex);
   const host = record.host ?? toRelativeHost(fqdn, apex);
+  const proxyDnsOnly =
+    record.proxyDnsOnly === true ||
+    purpose === "mail_a" ||
+    purpose === "mail_aaaa" ||
+    purpose === "mx" ||
+    purpose === "autodiscover" ||
+    purpose === "autoconfig";
 
   return {
     type: record.type,
@@ -488,6 +529,7 @@ function formatRecord(
     purpose,
     label: record.label ?? labelForPurpose(purpose),
     alreadyPublished: Boolean(record.alreadyPublished),
+    proxyDnsOnly,
   };
 }
 
@@ -547,6 +589,8 @@ function labelForPurpose(purpose: string) {
       return "Autodiscover";
     case "autoconfig":
       return "Autoconfig";
+    case "caa":
+      return "CAA";
     case "imap":
       return "IMAP (SRV)";
     case "pop":

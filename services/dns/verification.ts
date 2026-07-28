@@ -32,8 +32,10 @@ export type DomainVerifyReport = {
   mailA: CheckResult;
   dkim: CheckResult;
   dmarc: CheckResult;
+  smtp: CheckResult;
+  imap: CheckResult;
   ssl: CheckResult;
-  /** True when required mail DNS (MX + SPF + DKIM) is valid — Workspace-class */
+  /** True when production DNS + mail stack are ready */
   ready: boolean;
   requiredPassed: number;
   requiredTotal: number;
@@ -42,7 +44,12 @@ export type DomainVerifyReport = {
   checkedAt: string;
   /** Cloudflare proxy / wrong mail A target warnings */
   mailProxyWarnings: MailProxyWarning[];
-  friendlyStatus: "Verified" | "Ready for mail" | "Checking" | "Needs attention";
+  friendlyStatus:
+    | "Waiting"
+    | "Checking..."
+    | "Verified"
+    | "Ready for Mail"
+    | "Needs attention";
 };
 
 function normalizeTxt(values: string[][]): string[] {
@@ -107,6 +114,26 @@ async function lookupA(host: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+async function tcpOpen(host: string, port: number, timeoutMs = 5000): Promise<boolean> {
+  const { createConnection } = await import("node:net");
+  return new Promise((resolve) => {
+    const socket = createConnection({ host, port });
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve(false);
+    }, timeoutMs);
+    socket.on("connect", () => {
+      clearTimeout(timer);
+      socket.end();
+      resolve(true);
+    });
+    socket.on("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
 }
 
 async function checkSsl(hostname: string): Promise<CheckResult> {
@@ -383,14 +410,38 @@ export const dnsVerificationService = {
       }
     }
 
-    const requiredChecks = [mx, spf, dkim];
+    const requiredChecks = [mailA, mx, spf, dkim, dmarc];
     const requiredPassed = requiredChecks.filter((c) => c.ok).length;
     const requiredTotal = requiredChecks.length;
-    const ready = requiredPassed === requiredTotal;
-    const waitingFor =
-      requiredChecks.find((c) => !c.ok)?.label ?? null;
 
-    // overall reflects required readiness (MX + SPF + DKIM). mail A / DMARC are advanced.
+    const smtpPortOpen = await tcpOpen(mailHost, 25);
+    const imapPortOpen = await tcpOpen(mailHost, 143);
+    const smtp: CheckResult = {
+      ok: smtpPortOpen,
+      label: "SMTP",
+      expected: `${mailHost}:25`,
+      observed: smtpPortOpen ? ["open"] : [],
+      detail: smtpPortOpen
+        ? "SMTP reachable on mail host"
+        : "SMTP not reachable on mail host",
+    };
+    const imap: CheckResult = {
+      ok: imapPortOpen,
+      label: "IMAP",
+      expected: `${mailHost}:143`,
+      observed: imapPortOpen ? ["open"] : [],
+      detail: imapPortOpen
+        ? "IMAP reachable on mail host"
+        : "IMAP not reachable on mail host",
+    };
+
+    const ready =
+      requiredPassed === requiredTotal && smtp.ok && imap.ok;
+    const waitingFor =
+      requiredChecks.find((c) => !c.ok)?.label ??
+      (!smtp.ok ? "SMTP" : !imap.ok ? "IMAP" : null);
+
+    // overall reflects production readiness (A + MX + SPF + DKIM + DMARC + SMTP/IMAP)
     let overall: DomainVerifyReport["overall"] = "PENDING";
     if (ready) overall = "VERIFIED";
     else if (requiredPassed === 0) overall = "FAILED";
@@ -521,18 +572,20 @@ export const dnsVerificationService = {
         mailA: mailA.ok,
         dkim: dkim.ok,
         dmarc: dmarc.ok,
+        smtp: smtp.ok,
+        imap: imap.ok,
         ssl: ssl.ok,
         mailProxyWarnings: mailProxyWarnings.length,
       },
     });
 
     const friendlyStatus: DomainVerifyReport["friendlyStatus"] = ready
-      ? "Verified"
+      ? "Ready for Mail"
       : overall === "FAILED"
         ? "Needs attention"
-        : overall === "PARTIAL"
-          ? "Checking"
-          : "Checking";
+        : requiredPassed === 0
+          ? "Waiting"
+          : "Checking...";
 
     return {
       domainId: domain.id,
@@ -542,6 +595,8 @@ export const dnsVerificationService = {
       mailA,
       dkim,
       dmarc,
+      smtp,
+      imap,
       ssl,
       ready,
       requiredPassed,
@@ -550,7 +605,7 @@ export const dnsVerificationService = {
       overall,
       checkedAt: new Date().toISOString(),
       mailProxyWarnings,
-      friendlyStatus: ready ? "Ready for mail" : friendlyStatus,
+      friendlyStatus,
     };
   },
 };

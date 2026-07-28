@@ -8,7 +8,7 @@ import {
 } from "@/lib/dns/records";
 import { getConfiguredMailHostname } from "@/lib/dns/mail-host";
 import { generateDkimKeypair } from "@/lib/dns/dkim";
-import { resolveMailServerIpv4, resolveMailServerIpv6 } from "@/lib/dns/mail-ip";
+import { resolveMailServerIpv4, resolveMailServerIpv6, isUsableIpv4 } from "@/lib/dns/mail-ip";
 import { detectWebsiteDns } from "@/lib/dns/website-detect";
 import { promises as dns } from "node:dns";
 import { createHash } from "node:crypto";
@@ -19,7 +19,14 @@ function toDbRecord(
   domainId: string,
   record: ReturnType<typeof buildDnsRecordsForDomain>[number],
 ) {
-  const { purpose: _p, label: _l, publishType: _pt, host: _h, ...rest } = record;
+  const {
+    purpose: _p,
+    label: _l,
+    publishType: _pt,
+    host: _h,
+    proxyDnsOnly: _proxy,
+    ...rest
+  } = record;
   return { domainId, ...rest };
 }
 
@@ -153,8 +160,9 @@ async function markAlreadyPublished(
 
 /**
  * Apex mail DNS instructions for the setup wizard.
- * Required (Workspace-class): MX + SPF + DKIM only.
- * Advanced: DMARC, Autodiscover, Autoconfig, SRV, optional mail A/AAAA, verification.
+ * Required (production): mail A + MX + SPF + DKIM + DMARC + Autodiscover + Autoconfig.
+ * Advanced: CAA, SRV, optional AAAA, verification.
+ * Always re-syncs DB rows from the live blueprint so customers never see stale/wrong DNS.
  * Never suggests replacing www / root website DNS.
  */
 export async function getDomainDnsPayload(domainId: string) {
@@ -214,20 +222,40 @@ export async function getDomainDnsPayload(domainId: string) {
     mailIpv6,
   });
 
-  const hasWwwPollution = domain.dnsRecords.some(
-    (r) => r.name.includes(".www.") || r.name.startsWith("www.") || r.value === "0.0.0.0",
-  );
-  if (domain.dnsRecords.length === 0 || hasWwwPollution) {
-    if (hasWwwPollution) {
-      await prisma.dnsRecord.updateMany({
-        where: { domainId: domain.id, deletedAt: null },
-        data: { deletedAt: new Date() },
-      });
-    }
-    await prisma.dnsRecord.createMany({
-      data: generated.map((record) => toDbRecord(domain.id, record)),
-    });
+  const { validateDnsBlueprints } = await import("@/lib/dns/validate-blueprint");
+  const validation = validateDnsBlueprints(apex, generated, {
+    mailIpv4,
+    mailHost: getConfiguredMailHostname(),
+  });
+  if (!validation.ok) {
+    throw new Error(
+      `Orbit refused to show invalid DNS: ${validation.errors.join("; ")}`,
+    );
   }
+
+  // Live check: shared MX target must resolve before we show it to customers
+  try {
+    const mxTarget = getConfiguredMailHostname();
+    const addrs = await dns.resolve4(mxTarget);
+    if (!addrs.some((ip) => isUsableIpv4(ip))) {
+      throw new Error(`MX target ${mxTarget} has no usable A record`);
+    }
+  } catch (error) {
+    throw new Error(
+      `Orbit refused to show DNS — MX target unreachable: ${
+        error instanceof Error ? error.message : "resolve failed"
+      }`,
+    );
+  }
+
+  // Always replace stored DNS with the live production blueprint (fixes stale/wrong rows)
+  await prisma.dnsRecord.updateMany({
+    where: { domainId: domain.id, deletedAt: null },
+    data: { deletedAt: new Date() },
+  });
+  await prisma.dnsRecord.createMany({
+    data: generated.map((record) => toDbRecord(domain.id, record)),
+  });
 
   const annotated = await markAlreadyPublished(apex, generated);
   const mailHost = getConfiguredMailHostname();
@@ -244,6 +272,7 @@ export async function getDomainDnsPayload(domainId: string) {
     return {
       ...record,
       alreadyPublished: alreadyOk || record.alreadyPublished,
+      // Never invent a second SPF — show the single merged recommended value
       value: alreadyOk ? record.value : spfMerge.recommended,
     };
   });
@@ -261,6 +290,7 @@ export async function getDomainDnsPayload(domainId: string) {
     purpose: string;
     label: string;
     alreadyPublished: boolean;
+    proxyDnsOnly?: boolean;
   }> = withSpfFlags.map((r) => ({
     type: r.type,
     publishType: r.publishType,
@@ -273,6 +303,7 @@ export async function getDomainDnsPayload(domainId: string) {
     purpose: r.purpose,
     label: r.label,
     alreadyPublished: Boolean(r.alreadyPublished),
+    proxyDnsOnly: r.proxyDnsOnly,
   }));
 
   if (verificationEnabled) {

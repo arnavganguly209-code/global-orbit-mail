@@ -87,12 +87,12 @@ export function getFriendlyDomainStatus(input: DomainOnboardingInput): FriendlyD
   if (ready) {
     const mailboxReady = (input.mailboxCount ?? 0) > 0 || mail === "ACTIVE";
     return {
-      label: mailboxReady ? "Verified" : "Ready for mail",
+      label: mailboxReady ? "Ready for Mail" : "Verified",
       description: mailboxReady
         ? "Your domain is verified and ready for professional email."
         : "DNS verified — create your first mailbox to start sending and receiving.",
       tone: "success",
-      stepIndex: mailboxReady ? 3 : 3,
+      stepIndex: 3,
       ready: true,
       technical,
     };
@@ -100,12 +100,12 @@ export function getFriendlyDomainStatus(input: DomainOnboardingInput): FriendlyD
 
   if (input.dnsCheckStarted || status === "VERIFYING" || dns === "PARTIAL") {
     const passed = input.requiredPassed;
-    const total = input.requiredTotal ?? 3;
+    const total = input.requiredTotal ?? 5;
     if (typeof passed === "number" && passed > 0 && passed < total) {
       return {
-        label: `${passed} of ${total} required records detected`,
+        label: "Checking...",
         description: input.waitingFor
-          ? `Waiting for ${input.waitingFor}`
+          ? `Waiting for ${input.waitingFor}. DNS is propagating — no action required.`
           : "DNS is propagating. We'll continue checking automatically.",
         tone: "warning",
         stepIndex: 2,
@@ -115,8 +115,8 @@ export function getFriendlyDomainStatus(input: DomainOnboardingInput): FriendlyD
     }
     if (input.waitingFor) {
       return {
-        label: `Waiting for ${input.waitingFor}`,
-        description: "DNS is propagating. This usually takes a few minutes. No action required.",
+        label: "Waiting",
+        description: `Waiting for ${input.waitingFor}. This usually takes a few minutes. No action required.`,
         tone: "warning",
         stepIndex: 2,
         ready: false,
@@ -124,7 +124,7 @@ export function getFriendlyDomainStatus(input: DomainOnboardingInput): FriendlyD
       };
     }
     return {
-      label: "Checking DNS...",
+      label: "Checking...",
       description:
         "DNS is propagating. This usually takes a few minutes. We'll continue checking automatically. No action required.",
       tone: "warning",

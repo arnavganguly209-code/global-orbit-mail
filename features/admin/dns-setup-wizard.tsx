@@ -46,6 +46,7 @@ export type DnsWizardRecord = {
   label: string;
   alreadyPublished?: boolean;
   tier?: "required" | "advanced";
+  proxyDnsOnly?: boolean;
 };
 
 export type DnsWizardPayload = {
@@ -87,7 +88,15 @@ export type DnsWizardPayload = {
   };
 };
 
-const REQUIRED_PURPOSES = ["mx", "spf", "dkim"] as const;
+const REQUIRED_PURPOSES = [
+  "mail_a",
+  "mx",
+  "spf",
+  "dkim",
+  "dmarc",
+  "autodiscover",
+  "autoconfig",
+] as const;
 
 function DnsRecordCard({
   record,
@@ -113,6 +122,11 @@ function DnsRecordCard({
               <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-600">
                 <CheckCircle2 className="size-3" />
                 Detected
+              </span>
+            ) : null}
+            {record.proxyDnsOnly ? (
+              <span className="inline-flex items-center rounded-md border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-red-700 dark:text-red-400">
+                DNS only · no proxy
               </span>
             ) : null}
           </div>
@@ -287,7 +301,7 @@ export function DnsSetupWizard({
             <p className="mt-1 text-sm text-muted-foreground">
               {localReady
                 ? "Your domain is ready for professional email."
-                : "Add 3 required mail records — the same flow as Google Workspace and Zoho Mail."}
+                : "Copy the production DNS records below — Orbit verifies them automatically."}
             </p>
           </div>
           <span
@@ -358,7 +372,7 @@ export function DnsSetupWizard({
             <p className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
               {requiredCount}
             </p>
-            <p className="text-[11px] text-muted-foreground">MX · SPF · DKIM</p>
+            <p className="text-[11px] text-muted-foreground">A · MX · SPF · DKIM · DMARC · Auto</p>
           </div>
           <div className="rounded-xl bg-muted/30 px-3 py-3">
             <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">

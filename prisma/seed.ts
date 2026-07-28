@@ -280,7 +280,7 @@ async function main() {
       ? process.env.MAIL_SERVER_IPV4.trim()
       : "1.1.1.1"; // seed-only fallback for local DB seed without live resolve
     const records = buildDnsRecordsForDomain(domain.name, { mailIpv4 }).map(
-      ({ purpose: _p, label: _l, publishType: _pt, host: _h, ...r }) => ({
+      ({ purpose: _p, label: _l, publishType: _pt, host: _h, proxyDnsOnly: _proxy, ...r }) => ({
         ...r,
         domainId: domain!.id,
         status: "VERIFIED" as const,
