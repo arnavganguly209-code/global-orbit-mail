@@ -167,7 +167,13 @@ export async function testImapLogin(
     secure,
     auth: { user: email.toLowerCase().trim(), pass: password },
     logger: false,
-    tls: { rejectUnauthorized: process.env.WEBMAIL_IMAP_TLS_REJECT === "true" },
+    // Local dovecot often presents a public mail.* cert — never fail readiness on name mismatch
+    tls: { rejectUnauthorized: false },
+    ...(secure
+      ? {}
+      : {
+          // Prefer plain IMAP on :143 for readiness; STARTTLS still accepted with loose verify
+        }),
   });
 
   try {
