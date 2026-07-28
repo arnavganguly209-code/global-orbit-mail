@@ -12,7 +12,7 @@ export const passwordService = {
         throw new Error("mailboxId is required when apply=true");
       }
       const mailbox = await mailboxRepository.resetPassword(input.mailboxId, password, actorId);
-      if (!mailbox) throw new Error("Mailbox not found");
+      if (!mailbox) throw new Error("Mailbox does not exist");
       return {
         generated: true,
         applied: true,

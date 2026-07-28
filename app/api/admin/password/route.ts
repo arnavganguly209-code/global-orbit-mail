@@ -28,7 +28,7 @@ export async function POST(request: Request) {
             ? 403
             : message.includes("Too many")
               ? 429
-              : message === "Mailbox not found"
+              : message === "Mailbox does not exist" || message === "Mailbox not found"
                 ? 404
                 : 400;
     return fail(message, status);

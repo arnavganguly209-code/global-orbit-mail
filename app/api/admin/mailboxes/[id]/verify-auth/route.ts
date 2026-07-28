@@ -33,7 +33,7 @@ export async function POST(request: Request, { params }: Params) {
       where: { id, deletedAt: null },
       include: { domain: true, quota: true },
     });
-    if (!mailbox) return fail("Mailbox not found", 404);
+    if (!mailbox) return fail("Mailbox does not exist", 404);
 
     const email = `${mailbox.localPart}@${mailbox.domain.name}`.toLowerCase();
     const mailPasswordHash = await hashSha512Crypt(password);

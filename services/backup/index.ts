@@ -95,7 +95,7 @@ async function buildMailboxSnapshot(mailboxId: string) {
       forwarders: { where: { deletedAt: null } },
     },
   });
-  if (!mailbox) throw new Error("Mailbox not found");
+  if (!mailbox) throw new Error("Mailbox does not exist");
   return { exportedAt: new Date().toISOString(), mailbox };
 }
 

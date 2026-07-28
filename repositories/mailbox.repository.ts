@@ -4,8 +4,82 @@ import { mapMailbox } from "@/repositories/mappers";
 import { hashMailboxPassword } from "@/services/provisioning/password";
 import { mailEngine } from "@/services/provisioning/mail-engine";
 import { MailProvisioningService } from "@/services/provisioning/mail-provisioning-service";
+import {
+  isMysqlMailAuthConfigured,
+  mysqlVirtualUserExists,
+} from "@/services/provisioning/mysql-mail-auth";
 import type { AdminMailbox, PaginatedResult } from "@/types";
 import type { MailboxStatus, Prisma } from "@prisma/client";
+
+const MAILBOX_ABSENT = "Mailbox does not exist";
+
+/**
+ * Soft-delete Orbit rows that claim ACTIVE but have no virtual_users entry.
+ * Never creates mailboxes — only removes invented / orphan control-plane rows.
+ */
+async function reconcileAbsentActiveMailboxes(organizationId?: string) {
+  if (!isMysqlMailAuthConfigured()) return;
+
+  const candidates = await prisma.mailbox.findMany({
+    where: {
+      deletedAt: null,
+      status: "ACTIVE",
+      ...(organizationId ? { organizationId } : {}),
+    },
+    include: { domain: { select: { name: true } } },
+    take: 500,
+    orderBy: { createdAt: "asc" },
+  });
+
+  for (const row of candidates) {
+    const email = `${row.localPart}@${row.domain.name}`.toLowerCase();
+    const check = await mysqlVirtualUserExists(email);
+    if (!check.ok || check.exists) continue;
+
+    await prisma.mailbox.update({
+      where: { id: row.id },
+      data: { deletedAt: new Date(), status: "DISABLED", provisionedAt: null },
+    });
+    await writeAudit({
+      action: "mailbox.reconcile_absent",
+      resource: "mailbox",
+      resourceId: row.id,
+      status: "SUCCESS",
+      oldValue: { email, status: row.status },
+      metadata: {
+        reason: MAILBOX_ABSENT,
+        detail: "Removed Orbit mailbox missing from mail server virtual_users",
+      },
+    });
+  }
+}
+
+async function assertActiveMailboxOnMailServer(input: {
+  id: string;
+  localPart: string;
+  domainName: string;
+  status: MailboxStatus;
+}): Promise<boolean> {
+  if (input.status !== "ACTIVE" || !isMysqlMailAuthConfigured()) return true;
+  const email = `${input.localPart}@${input.domainName}`.toLowerCase();
+  const check = await mysqlVirtualUserExists(email);
+  if (!check.ok) return true; // don't hide on lookup failure
+  if (check.exists) return true;
+
+  await prisma.mailbox.update({
+    where: { id: input.id },
+    data: { deletedAt: new Date(), status: "DISABLED", provisionedAt: null },
+  });
+  await writeAudit({
+    action: "mailbox.reconcile_absent",
+    resource: "mailbox",
+    resourceId: input.id,
+    status: "SUCCESS",
+    oldValue: { email, status: input.status },
+    metadata: { reason: MAILBOX_ABSENT },
+  });
+  return false;
+}
 
 const mailboxInclude = {
   domain: { select: { name: true, logoDataUrl: true, companyName: true } },
@@ -25,6 +99,9 @@ export const mailboxRepository = {
     search?: string;
     organizationId?: string;
   }): Promise<PaginatedResult<AdminMailbox>> {
+    // Drop Orbit-only orphans that are missing from the real mail server DB.
+    await reconcileAbsentActiveMailboxes(params.organizationId);
+
     const where: Prisma.MailboxWhereInput = {
       deletedAt: null,
       ...(params.organizationId ? { organizationId: params.organizationId } : {}),
@@ -64,7 +141,17 @@ export const mailboxRepository = {
       where: { id, deletedAt: null },
       include: mailboxInclude,
     });
-    return mailbox ? mapMailbox(mailbox) : null;
+    if (!mailbox) return null;
+
+    const present = await assertActiveMailboxOnMailServer({
+      id: mailbox.id,
+      localPart: mailbox.localPart,
+      domainName: mailbox.domain.name,
+      status: mailbox.status,
+    });
+    if (!present) return null;
+
+    return mapMailbox(mailbox);
   },
 
   async create(input: {
@@ -226,6 +313,14 @@ export const mailboxRepository = {
     });
     if (!existing) return null;
 
+    const stillPresent = await assertActiveMailboxOnMailServer({
+      id: existing.id,
+      localPart: existing.localPart,
+      domainName: existing.domain.name,
+      status: existing.status,
+    });
+    if (!stillPresent) return null;
+
     const email = `${existing.localPart}@${existing.domain.name}`;
 
     const mailbox = await prisma.mailbox.update({
@@ -320,6 +415,14 @@ export const mailboxRepository = {
     });
     if (!existing) return null;
 
+    const stillPresent = await assertActiveMailboxOnMailServer({
+      id: existing.id,
+      localPart: existing.localPart,
+      domainName: existing.domain.name,
+      status: existing.status,
+    });
+    if (!stillPresent) return null;
+
     const email = `${existing.localPart}@${existing.domain.name}`;
     const active = status === "ACTIVE";
 
@@ -351,6 +454,14 @@ export const mailboxRepository = {
       include: { domain: true },
     });
     if (!existing) return null;
+
+    const stillPresent = await assertActiveMailboxOnMailServer({
+      id: existing.id,
+      localPart: existing.localPart,
+      domainName: existing.domain.name,
+      status: existing.status,
+    });
+    if (!stillPresent) return null;
 
     const { passwordHash, mailPasswordHash } = await hashMailboxPassword(password);
     const email = `${existing.localPart}@${existing.domain.name}`;

@@ -38,7 +38,7 @@ async function resolveTargetMailbox(targetEmail: string) {
     include: { domain: true },
   });
 
-  if (!mb) throw new Error("Target mailbox not found");
+  if (!mb) throw new Error("Mailbox does not exist");
   if (mb.status !== "ACTIVE") throw new Error("Target mailbox is not active");
   return `${mb.localPart}@${mb.domain.name}`;
 }

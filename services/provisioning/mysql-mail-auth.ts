@@ -449,6 +449,41 @@ export async function upsertMysqlQuota(input: {
   }
 }
 
+/** List virtual_users emails for a domain (never invents / creates rows). */
+export async function listMysqlVirtualEmailsForDomain(
+  domain: string,
+): Promise<{ ok: boolean; emails: string[]; error?: string }> {
+  if (!isMysqlMailAuthConfigured()) {
+    return { ok: false, emails: [], error: "MySQL not configured" };
+  }
+  const name = domain.toLowerCase().trim();
+  let conn: PoolConnection | null = null;
+  try {
+    conn = await getPool().getConnection();
+    if (!(await tableExists(conn, "virtual_users"))) {
+      return { ok: true, emails: [] };
+    }
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT email FROM virtual_users WHERE email LIKE ? ORDER BY email ASC`,
+      [`%@${name}`],
+    );
+    return {
+      ok: true,
+      emails: rows
+        .map((r) => String(r.email ?? "").toLowerCase().trim())
+        .filter(Boolean),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      emails: [],
+      error: error instanceof Error ? error.message : "list failed",
+    };
+  } finally {
+    conn?.release();
+  }
+}
+
 /** True when email exists in virtual_users (optionally check quota column presence). */
 export async function mysqlVirtualUserExists(
   email: string,

@@ -51,19 +51,19 @@ export const mailboxService = {
       },
       actorId,
     );
-    if (!updated) throw new Error("Mailbox not found");
+    if (!updated) throw new Error("Mailbox does not exist");
     return updated;
   },
 
   async suspend(id: string, actorId?: string | null) {
     const updated = await mailboxRepository.setStatus(id, "SUSPENDED", actorId);
-    if (!updated) throw new Error("Mailbox not found");
+    if (!updated) throw new Error("Mailbox does not exist");
     return updated;
   },
 
   async activate(id: string, actorId?: string | null) {
     const updated = await mailboxRepository.setStatus(id, "ACTIVE", actorId);
-    if (!updated) throw new Error("Mailbox not found");
+    if (!updated) throw new Error("Mailbox does not exist");
     return updated;
   },
 
@@ -74,7 +74,7 @@ export const mailboxService = {
       ? generateSecurePassword(input.length ?? 20)
       : (input.password as string);
     const mailbox = await mailboxRepository.resetPassword(id, password, actorId);
-    if (!mailbox) throw new Error("Mailbox not found");
+    if (!mailbox) throw new Error("Mailbox does not exist");
     const reveal = input.reveal !== false;
     return {
       id: mailbox.id,
@@ -87,7 +87,7 @@ export const mailboxService = {
 
   async remove(id: string, actorId?: string | null) {
     const ok = await mailboxRepository.softDelete(id, actorId);
-    if (!ok) throw new Error("Mailbox not found");
+    if (!ok) throw new Error("Mailbox does not exist");
     return true;
   },
 
@@ -98,7 +98,7 @@ export const mailboxService = {
   async addAlias(mailboxId: string, body: unknown, actorId?: string | null) {
     const input = aliasCreateSchema.parse(body);
     const alias = await mailboxRepository.addAlias(mailboxId, input.address, actorId);
-    if (!alias) throw new Error("Mailbox not found");
+    if (!alias) throw new Error("Mailbox does not exist");
     return alias;
   },
 
@@ -120,7 +120,7 @@ export const mailboxService = {
       input.keepCopy,
       actorId,
     );
-    if (!forwarder) throw new Error("Mailbox not found");
+    if (!forwarder) throw new Error("Mailbox does not exist");
     return forwarder;
   },
 

@@ -26,7 +26,7 @@ export async function GET(request: Request, { params }: Params) {
       where: { id },
       include: { domain: true },
     });
-    if (!mailbox) return fail("Mailbox not found", 404);
+    if (!mailbox) return fail("Mailbox does not exist", 404);
 
     const email = `${mailbox.localPart}@${mailbox.domain.name}`.toLowerCase();
     const hash = normalizeSha512Crypt(mailbox.mailPasswordHash);
@@ -171,7 +171,7 @@ export async function POST(request: Request, { params }: Params) {
       where: { id, deletedAt: null },
       include: { domain: true },
     });
-    if (!mailbox) return fail("Mailbox not found", 404);
+    if (!mailbox) return fail("Mailbox does not exist", 404);
     const email = `${mailbox.localPart}@${mailbox.domain.name}`.toLowerCase();
     const auth = await doveadmAuthTest(email, password);
     console.info("[mail-auth:diagnose:doveadm]", {
