@@ -15,8 +15,10 @@ import {
   getConfiguredMailHostname,
   getConfiguredWebmailHostname,
 } from "@/lib/dns/mail-host";
+import { buildBimiDnsValue, buildBimiLogoUrl } from "@/lib/bimi";
 
 export { normalizeApexDomain, isValidApexDomain, domainLookupVariants };
+export { buildBimiDnsValue, buildBimiLogoUrl, getPublicAppOrigin } from "@/lib/bimi";
 
 export type DnsRecordPurpose =
   | "mail_a"
@@ -26,6 +28,7 @@ export type DnsRecordPurpose =
   | "verification"
   | "dkim"
   | "dmarc"
+  | "bimi"
   | "autodiscover"
   | "autoconfig"
   | "imap"
@@ -144,6 +147,9 @@ export function buildDnsRecordsForDomain(
   const dmarcValue = buildDmarcValue({
     reportingEmail: options.dmarcReportingEmail,
   });
+  const bimiValue = buildBimiDnsValue({
+    logoUrl: buildBimiLogoUrl(apex),
+  });
 
   const records: DnsRecordBlueprint[] = [
     {
@@ -207,6 +213,18 @@ export function buildDnsRecordsForDomain(
       ttl: 3600,
       purpose: "dmarc",
       label: "DMARC",
+    },
+    {
+      type: "TXT",
+      publishType: "TXT",
+      name: `default._bimi.${apex}`,
+      host: "default._bimi",
+      value: bimiValue,
+      priority: null,
+      status: "PENDING",
+      ttl: 3600,
+      purpose: "bimi",
+      label: "BIMI (Gmail profile logo)",
     },
     {
       type: "CNAME",
@@ -346,6 +364,7 @@ export const REQUIRED_DNS_PURPOSES = [
 ] as const;
 
 export const ADVANCED_DNS_PURPOSES = [
+  "bimi",
   "caa",
   "imap",
   "pop",
@@ -504,6 +523,7 @@ export function toDnsInstructionJson(
       verification: byPurpose("verification"),
       dkim: byPurpose("dkim"),
       dmarc: byPurpose("dmarc"),
+      bimi: byPurpose("bimi"),
       autodiscover: byPurpose("autodiscover"),
       autoconfig: byPurpose("autoconfig"),
       caa: byPurpose("caa"),
@@ -520,6 +540,7 @@ export function toDnsInstructionJson(
       verification: "Optional ownership TXT used only when domain verification is enabled.",
       dkim: "Required: DKIM TXT on Host orbit._domainkey (Gmail/Outlook delivery).",
       dmarc: "Required: DMARC TXT on Host _dmarc (production quarantine policy).",
+      bimi: "Optional: BIMI TXT on Host default._bimi for Gmail's round sender logo. Requires SVG Tiny PS at the logo URL plus a paid Verified Mark Certificate (VMC) before Gmail shows the circle.",
       autodiscover: `Required: CNAME Host autodiscover → ${sharedWebmailHost()}. (Outlook)`,
       autoconfig: `Required: CNAME Host autoconfig → ${sharedAutoconfigHost()}. (Thunderbird)`,
       caa: "Optional CAA on Host @ allowing Let's Encrypt.",
@@ -605,6 +626,7 @@ function inferPurpose(record: { type: string; name: string; value: string }): st
   if (type === "DKIM" || name.includes("._domainkey.")) return "dkim";
   if (record.value.startsWith("orbit-domain-verification=")) return "verification";
   if (type === "DMARC" || name.startsWith("_dmarc.")) return "dmarc";
+  if (name.includes("._bimi.") || record.value.startsWith("v=BIMI1")) return "bimi";
   if (name.startsWith("autodiscover.")) return "autodiscover";
   if (name.startsWith("autoconfig.")) return "autoconfig";
   if (name.startsWith("_imap.")) return "imap";
@@ -629,6 +651,8 @@ function labelForPurpose(purpose: string) {
       return "DKIM";
     case "dmarc":
       return "DMARC";
+    case "bimi":
+      return "BIMI (Gmail profile logo)";
     case "autodiscover":
       return "Autodiscover";
     case "autoconfig":

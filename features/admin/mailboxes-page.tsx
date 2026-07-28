@@ -1008,12 +1008,12 @@ export function MailboxesAdminPage() {
 
               <section className="space-y-3 rounded-xl border border-border/60 p-4">
                 <div>
-                  <h3 className="text-sm font-medium">Company logo (email)</h3>
+                  <h3 className="text-sm font-medium">Company logo (Orbit webmail)</h3>
                   <p className="text-xs text-muted-foreground">
-                    This logo is attached as a professional signature footer when this mailbox
-                    sends mail (every Orbit mailbox with a logo). Gmail&apos;s round blue profile
-                    icon next to the sender name is controlled by Google (BIMI + Verified Mark
-                    Certificate) — Orbit cannot set that circle from an upload alone.
+                    Shown in Orbit webmail (avatar / branding). It is not inserted into outbound
+                    mail bodies. Gmail&apos;s blue round profile icon next to the sender name is
+                    controlled only by Google BIMI + a paid Verified Mark Certificate — Orbit
+                    cannot set that circle from an upload alone.
                   </p>
                 </div>
                 <div className="flex items-center gap-4">

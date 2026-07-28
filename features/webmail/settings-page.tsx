@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import { ArrowLeft, Camera, LogOut, Sparkles } from "lucide-react";
+import { ArrowLeft, Camera, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { initials, webmailApi, type Me, type MeBranding } from "@/features/webmail/lib/api";
 import { webmailRoutes } from "@/config/webmail-routes";
@@ -45,26 +45,10 @@ function brandingToForm(b: MeBranding | null | undefined, name: string): Profile
   };
 }
 
-function buildPreviewHtml(profile: ProfileForm, logo: string | null, email: string) {
-  if (profile.signatureHtml.trim()) {
-    const custom = profile.signatureHtml.trim();
-    if (logo && !/<img[\s>]/i.test(custom)) {
-      return `${`<img src="${logo}" alt="" style="max-height:56px;margin-bottom:10px;display:block" />`}${custom}`;
-    }
-    return custom;
-  }
+function buildPreviewHtml(profile: ProfileForm) {
+  if (profile.signatureHtml.trim()) return profile.signatureHtml.trim();
   if (profile.signatureText.trim()) {
-    return [
-      logo
-        ? `<img src="${logo}" alt="" style="max-height:56px;margin-bottom:10px;display:block" />`
-        : "",
-      `<div style="white-space:pre-wrap">${profile.signatureText}</div>`,
-    ]
-      .filter(Boolean)
-      .join("");
-  }
-  if (logo) {
-    return `<img src="${logo}" alt="" style="max-height:56px;display:block" />`;
+    return `<div style="white-space:pre-wrap">${profile.signatureText}</div>`;
   }
   return "";
 }
@@ -76,7 +60,6 @@ export function WebmailSettingsPage() {
   const [prefs, setPrefs] = React.useState<Prefs>({ theme: "dark", signature: "" });
   const [profile, setProfile] = React.useState<ProfileForm>(brandingToForm(null, ""));
   const [email, setEmail] = React.useState("");
-  const [domainLogo, setDomainLogo] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -92,7 +75,6 @@ export function WebmailSettingsPage() {
         if (cancelled) return;
         setEmail(me.email);
         setProfile(brandingToForm(me.branding, me.name));
-        setDomainLogo(me.branding?.domainLogoDataUrl || null);
         setPrefs(settings);
         setTheme(settings.theme);
       } catch (e) {
@@ -134,7 +116,6 @@ export function WebmailSettingsPage() {
         }),
       ]);
       setProfile(brandingToForm(branding, branding.displayName));
-      setDomainLogo(branding.domainLogoDataUrl || null);
       setTheme(prefs.theme);
       toast.success("Profile saved");
     } catch (e) {
@@ -166,13 +147,6 @@ export function WebmailSettingsPage() {
       setProfile((p) => ({ ...p, avatarUrl: result }));
     };
     reader.readAsDataURL(file);
-  }
-
-  function applyBrandedSignature() {
-    const logo = profile.avatarUrl || domainLogo;
-    const html = buildPreviewHtml({ ...profile, signatureHtml: "", signatureText: "" }, logo, email);
-    setProfile((p) => ({ ...p, signatureHtml: html || "" }));
-    toast.success(html ? "Company logo signature applied — save to keep" : "Upload a company logo first");
   }
 
   function field(
@@ -219,8 +193,7 @@ export function WebmailSettingsPage() {
     );
   }
 
-  const previewLogo = profile.avatarUrl || domainLogo;
-  const preview = buildPreviewHtml(profile, previewLogo, email);
+  const preview = buildPreviewHtml(profile);
 
   return (
     <div
@@ -265,7 +238,7 @@ export function WebmailSettingsPage() {
               type="button"
               onClick={() => fileRef.current?.click()}
               className="group relative flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-[#d4af37]/40 to-[#1e5fa1]/40 text-xl font-bold"
-              title="Upload company logo (shown in sent mail)"
+              title="Upload company logo (Orbit webmail)"
             >
               {profile.avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -290,7 +263,8 @@ export function WebmailSettingsPage() {
                 {email}
               </p>
               <p className={cn("mt-2 text-xs", light ? "text-slate-500" : "text-zinc-500")}>
-                Upload your company logo above — recipients will see it in emails you send.
+                Logo is for Orbit webmail. Gmail&apos;s round sender icon needs BIMI + a paid VMC
+                (managed in /orbit DNS) — it is not set by this upload.
               </p>
             </div>
           </div>
@@ -319,16 +293,10 @@ export function WebmailSettingsPage() {
           <h2 className="mb-3 mt-2 text-xs font-bold uppercase tracking-[0.14em] text-[#d4af37]">
             Email signature
           </h2>
-          <div className="mb-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={applyBrandedSignature}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[#d4af37]/40 bg-[#d4af37]/10 px-3 py-1.5 text-xs font-semibold text-[#f0d78c] hover:bg-[#d4af37]/20"
-            >
-              <Sparkles className="size-3.5" />
-              Apply company logo signature
-            </button>
-          </div>
+          <p className={cn("mb-4 text-xs", light ? "text-slate-500" : "text-zinc-500")}>
+            Optional text/HTML signature only. Company logos are not auto-inserted into outbound
+            mail (keeps messages clean). Gmail profile logos require BIMI + VMC.
+          </p>
           {field("signatureText", "Signature (plain text)", { multiline: true, rows: 3 })}
           {field("signatureHtml", "Signature (HTML)", { multiline: true, rows: 6 })}
 

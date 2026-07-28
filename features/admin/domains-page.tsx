@@ -588,8 +588,8 @@ export function DomainsAdminPage() {
           <DialogHeader>
             <DialogTitle>Domain branding</DialogTitle>
             <DialogDescription>
-              Company identity for {brandDomain?.name}. Logo appears on mailbox signatures and
-              webmail.
+              Company identity for {brandDomain?.name}. Logo is for Orbit webmail branding.
+              Gmail&apos;s round sender icon needs BIMI + a paid VMC (see checklist below).
             </DialogDescription>
           </DialogHeader>
           {brandDomain ? (
@@ -634,12 +634,28 @@ export function DomainsAdminPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Company logo (sent in emails)</Label>
+                <Label>Company logo (webmail + BIMI)</Label>
                 <p className="text-xs text-muted-foreground">
-                  Saved to every mailbox on this domain for outbound signatures. Gmail&apos;s round
-                  sender profile icon still needs BIMI + a Verified Mark Certificate (Google
-                  policy) — that is separate from Orbit logo upload.
+                  Used in Orbit webmail UI and synced to every mailbox on this domain. This upload
+                  does <span className="font-medium text-foreground">not</span> change Gmail&apos;s
+                  blue round sender icon by itself.
                 </p>
+                <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground space-y-1.5">
+                  <p className="font-medium text-foreground">Gmail profile logo (BIMI) checklist</p>
+                  <ol className="list-decimal space-y-1 pl-4">
+                    <li>DMARC on this domain must be <code className="text-[11px]">p=quarantine</code> or <code className="text-[11px]">p=reject</code>.</li>
+                    <li>Upload a BIMI-ready <strong>SVG Tiny PS</strong> logo here (PNG/JPEG cannot fill Gmail&apos;s circle).</li>
+                    <li>Publish the optional BIMI TXT on Host <code className="text-[11px]">default._bimi</code> (shown in DNS).</li>
+                    <li>Buy a Verified Mark Certificate (VMC) from DigiCert/Entrust and add its URL as BIMI <code className="text-[11px]">a=</code>.</li>
+                    <li>Wait for Gmail to cache BIMI (can take days). Until then the blue silhouette stays.</li>
+                  </ol>
+                  <p>
+                    Public SVG URL after SVG upload:{" "}
+                    <code className="break-all text-[11px]">
+                      https://globalorbitmail.cloud/api/public/bimi/{brandDomain.name}
+                    </code>
+                  </p>
+                </div>
                 <input
                   ref={logoInputRef}
                   type="file"
