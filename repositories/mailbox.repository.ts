@@ -205,6 +205,7 @@ export const mailboxRepository = {
             passwordHash,
             mailPasswordHash,
             provisionedAt: null,
+            avatarUrl: deletedExisting.avatarUrl || domain.logoDataUrl || null,
           },
         });
         await tx.mailboxQuota.upsert({
@@ -225,6 +226,8 @@ export const mailboxRepository = {
           domainId: domain.id,
           organizationId: domain.organizationId,
           displayName: input.displayName ?? null,
+          // Inherit domain company logo so every new mailbox sends branded signatures.
+          avatarUrl: domain.logoDataUrl ?? null,
           status: "PENDING",
           passwordHash,
           mailPasswordHash,

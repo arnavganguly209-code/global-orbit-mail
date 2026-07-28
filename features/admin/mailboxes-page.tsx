@@ -1010,9 +1010,10 @@ export function MailboxesAdminPage() {
                 <div>
                   <h3 className="text-sm font-medium">Company logo (email)</h3>
                   <p className="text-xs text-muted-foreground">
-                    This logo is embedded at the top of every email this mailbox sends (Gmail body).
-                    It does not replace Gmail&apos;s round sender icon — that requires BIMI + a verified mark
-                    certificate. Also set Domain branding logo as a fallback for all mailboxes.
+                    This logo is attached as a professional signature footer when this mailbox
+                    sends mail (every Orbit mailbox with a logo). Gmail&apos;s round blue profile
+                    icon next to the sender name is controlled by Google (BIMI + Verified Mark
+                    Certificate) — Orbit cannot set that circle from an upload alone.
                   </p>
                 </div>
                 <div className="flex items-center gap-4">

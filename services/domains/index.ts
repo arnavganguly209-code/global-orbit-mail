@@ -106,6 +106,16 @@ export const domainService = {
     );
     if (!updated) throw new Error("Domain not found");
 
+    // Domain company logo applies to every mailbox on this domain for outbound mail branding.
+    if (input.logoDataUrl !== undefined) {
+      const logo =
+        input.logoDataUrl === "" || input.logoDataUrl === null ? null : input.logoDataUrl;
+      await prisma.mailbox.updateMany({
+        where: { domainId: id, deletedAt: null },
+        data: { avatarUrl: logo },
+      });
+    }
+
     // Suspend/activate all mailboxes when domain status flips
     if (input.status === "SUSPENDED" || input.mailStatus === "SUSPENDED") {
       await suspendDomainMailboxes(id, actorId);

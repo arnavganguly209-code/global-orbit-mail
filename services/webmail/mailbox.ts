@@ -589,8 +589,8 @@ export async function sendAndStore(
   const {
     getMailboxBrandingByEmail,
     buildOutgoingSignatureHtml,
-    resolveSignatureLogo,
     buildBrandLogoHtml,
+    resolveSignatureLogo,
   } = await import("./branding");
   const branding = await getMailboxBrandingByEmail(creds.email);
   const fromName = branding?.displayName || creds.email.split("@")[0] || creds.email;
@@ -603,7 +603,7 @@ export async function sendAndStore(
   const logoDataUrl = branding ? resolveSignatureLogo(branding) : null;
   let logoCidSrc: string | null = null;
 
-  // Always prepare CID logo so Gmail (and others) can render it — data: URLs are stripped.
+  // Always prepare CID logo so clients can render it — data: URLs are stripped by Gmail.
   if (logoDataUrl?.startsWith("data:")) {
     const parsed = parseDataUrl(logoDataUrl);
     if (parsed) {
@@ -621,40 +621,55 @@ export async function sendAndStore(
     logoCidSrc = logoDataUrl;
   }
 
-  if (!input.skipSignature && branding) {
-    const sigHtml = buildOutgoingSignatureHtml(branding, {
-      logoSrc: logoCidSrc,
-      includeLogo: false, // logo is prepended once below so it sits at the top of the message
-    });
+  // Professional signature footer (logo + optional custom text) — not a floating header image.
+  // Always ensure Orbit/domain logo is present for every branded mailbox, even when the
+  // compose editor already inserted a text signature (skipSignature).
+  if (branding) {
     const sigText = branding.signatureText?.trim() || "";
-    if (sigHtml) {
-      if (html?.trim()) {
-        html = `${html}<br/>${sigHtml}`;
+    const alreadyHasSig = /data-orbit-sig\s*=/.test(html || "");
+    const hasBrandLogo =
+      /data-orbit-brand-logo\s*=/.test(html || "") ||
+      /cid:orbit-brand-logo@/i.test(html || "");
+
+    if (!input.skipSignature && !alreadyHasSig) {
+      const sigHtml = buildOutgoingSignatureHtml(branding, {
+        logoSrc: logoCidSrc,
+        includeLogo: true,
+      });
+      if (sigHtml) {
+        if (html?.trim()) {
+          html = `${html}<br/>${sigHtml}`;
+        } else if (text?.trim()) {
+          html = `<div style="white-space:pre-wrap;font-family:system-ui,sans-serif">${escapeForHtml(text)}</div>${sigHtml}`;
+          text = sigText ? `${text}\n\n--\n${sigText}` : text;
+        } else {
+          html = sigHtml;
+          text = sigText;
+        }
+      }
+    } else if (logoCidSrc && !hasBrandLogo) {
+      const logoBlock = buildBrandLogoHtml(logoCidSrc);
+      if (html?.trim() && alreadyHasSig) {
+        const injected = html.replace(
+          /(<div[^>]*\bdata-orbit-sig\s*=\s*["']?1["']?[^>]*>)/i,
+          `$1${logoBlock}`,
+        );
+        html =
+          injected !== html
+            ? injected
+            : `${html}<br/><div data-orbit-sig="1" style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e5e5">${logoBlock}</div>`;
+      } else if (html?.trim()) {
+        html = `${html}<br/><div data-orbit-sig="1" style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e5e5">${logoBlock}</div>`;
       } else if (text?.trim()) {
-        html = `<div style="white-space:pre-wrap;font-family:system-ui,sans-serif">${escapeForHtml(text)}</div>${sigHtml}`;
-        text = sigText ? `${text}\n\n--\n${sigText}` : text;
+        html = `<div style="white-space:pre-wrap;font-family:system-ui,sans-serif">${escapeForHtml(text)}</div><div data-orbit-sig="1" style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e5e5">${logoBlock}</div>`;
       } else {
-        html = sigHtml;
-        text = sigText;
+        html = `<div data-orbit-sig="1" style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e5e5">${logoBlock}</div>`;
       }
     }
   }
 
-  // Ensure HTML exists when we have body text (needed for inline logo).
   if (!html?.trim() && text?.trim()) {
     html = `<div style="white-space:pre-wrap;font-family:system-ui,sans-serif">${escapeForHtml(text)}</div>`;
-  }
-
-  // Always put company logo at the TOP of HTML mail (even if client skipped signature).
-  if (logoCidSrc && html?.trim()) {
-    const alreadyBranded =
-      /data-orbit-brand-logo\s*=/.test(html) ||
-      /cid:orbit-brand-logo@globalorbit/i.test(html);
-    if (!alreadyBranded) {
-      html = `${buildBrandLogoHtml(logoCidSrc)}${html}`;
-    }
-  } else if (logoCidSrc && !html?.trim()) {
-    html = buildBrandLogoHtml(logoCidSrc);
   }
 
   // Convert any remaining data:image URLs in HTML to inline CID parts.

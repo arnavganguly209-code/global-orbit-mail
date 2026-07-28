@@ -126,7 +126,7 @@ export function resolveSignatureLogo(branding: WebmailBranding): string | null {
 }
 
 export function buildBrandLogoHtml(logoSrc: string): string {
-  return `<div data-orbit-brand-logo="1" style="margin:0 0 16px 0;padding:0"><img src="${logoSrc}" alt="" width="160" height="auto" style="max-height:72px;max-width:200px;width:auto;height:auto;display:block;border:0;outline:none;text-decoration:none" /></div>`;
+  return `<div data-orbit-brand-logo="1" style="margin:0 0 8px 0;padding:0"><img src="${logoSrc}" alt="" width="120" style="max-height:48px;max-width:160px;width:auto;height:auto;display:block;border:0" /></div>`;
 }
 
 /** Build HTML signature block with optional company logo for outgoing mail. */
@@ -141,17 +141,17 @@ export function buildOutgoingSignatureHtml(
   if (branding.signatureHtml?.trim()) {
     const custom = branding.signatureHtml.trim();
     if (logo && !/<img[\s>]/i.test(custom) && !/data-orbit-brand-logo/i.test(custom)) {
-      return `<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5;font-family:system-ui,sans-serif;font-size:13px;color:#333">${logo}${custom}</div>`;
+      return `<div data-orbit-sig="1" style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e5e5;font-family:system-ui,sans-serif;font-size:13px;color:#333">${logo}${custom}</div>`;
     }
-    return custom;
+    return `<div data-orbit-sig="1">${custom}</div>`;
   }
 
   if (branding.signatureText?.trim()) {
-    return `<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5;font-family:system-ui,sans-serif;font-size:13px;line-height:1.45;color:#333">${logo}<div style="white-space:pre-wrap;color:#666">${escapeHtml(branding.signatureText.trim())}</div></div>`;
+    return `<div data-orbit-sig="1" style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e5e5;font-family:system-ui,sans-serif;font-size:13px;line-height:1.45;color:#333">${logo}<div style="white-space:pre-wrap;color:#666">${escapeHtml(branding.signatureText.trim())}</div></div>`;
   }
 
   if (logo) {
-    return `<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5">${logo}</div>`;
+    return `<div data-orbit-sig="1" style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e5e5">${logo}</div>`;
   }
   return "";
 }

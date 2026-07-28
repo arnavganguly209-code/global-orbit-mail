@@ -618,8 +618,10 @@ export function ComposeWindow({
     let usedSig = false;
 
     if (initial.mode === "new" && !initial.body.trim() && !initial.html?.trim()) {
+      // Do not inject logo into the compose editor — server adds a professional
+      // signature footer on send. Keep the editor clean for the message body.
       const sig = buildSignatureBlock(signatureHtml, signatureText, {
-        logo: signatureLogo,
+        logo: null,
       });
       if (sig) {
         body = sig.text;
@@ -650,7 +652,6 @@ export function ComposeWindow({
     initial,
     signatureHtml,
     signatureText,
-    signatureLogo,
     editor,
   ]);
 

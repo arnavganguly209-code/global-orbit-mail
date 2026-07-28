@@ -636,8 +636,9 @@ export function DomainsAdminPage() {
               <div className="space-y-2">
                 <Label>Company logo (sent in emails)</Label>
                 <p className="text-xs text-muted-foreground">
-                  Fallback logo for every mailbox on this domain. Embedded in outbound mail. Gmail&apos;s
-                  round profile icon is separate (BIMI).
+                  Saved to every mailbox on this domain for outbound signatures. Gmail&apos;s round
+                  sender profile icon still needs BIMI + a Verified Mark Certificate (Google
+                  policy) — that is separate from Orbit logo upload.
                 </p>
                 <input
                   ref={logoInputRef}
