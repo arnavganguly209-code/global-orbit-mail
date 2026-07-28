@@ -484,11 +484,13 @@
 
 .orbit-mail-shell[data-theme="light"] {
   --orbit-ink: #0f172a;
-  --orbit-muted: #475569;
+  --orbit-muted: #334155;
   --orbit-panel: #ffffff;
-  --orbit-panel-2: #f8fafc;
-  --orbit-line: rgba(15, 23, 42, 0.1);
-  background-color: #eef1f6;
+  --orbit-panel-2: #f1f5f9;
+  --orbit-line: rgba(15, 23, 42, 0.12);
+  --orbit-gold: #b45309;
+  --orbit-gold-soft: #92400e;
+  background-color: #e8ecf2;
   color: var(--orbit-ink);
 }
 
@@ -498,15 +500,65 @@
   color: #0f172a !important;
 }
 
-.orbit-mail-shell[data-theme="light"] .text-zinc-400,
+.orbit-mail-shell[data-theme="light"] .text-zinc-400 {
+  color: #475569 !important;
+}
+
 .orbit-mail-shell[data-theme="light"] .text-zinc-500,
 .orbit-mail-shell[data-theme="light"] .text-zinc-600 {
-  color: #475569 !important;
+  color: #334155 !important;
+}
+
+/* Pale gold reads poorly on white — map to deep amber in light mode */
+.orbit-mail-shell[data-theme="light"] .text-\[\#f0d78c\],
+.orbit-mail-shell[data-theme="light"] .text-\[\#d4af37\] {
+  color: #92400e !important;
+}
+
+.orbit-mail-shell[data-theme="light"] .text-\[\#d4af37\]\/85 {
+  color: #b45309 !important;
+}
+
+.orbit-mail-shell[data-theme="light"] .hover\:text-\[\#f0d78c\]:hover {
+  color: #92400e !important;
+}
+
+.orbit-mail-shell[data-theme="light"] .hover\:bg-white\/5:hover {
+  background-color: rgb(241 245 249) !important;
+}
+
+.orbit-mail-shell[data-theme="light"] .border-white\/8,
+.orbit-mail-shell[data-theme="light"] .border-white\/10,
+.orbit-mail-shell[data-theme="light"] .border-white\/\[0\.07\] {
+  border-color: rgb(226 232 240) !important;
 }
 
 .orbit-mail-shell[data-theme="light"] .orbit-mail-body,
 .orbit-mail-shell[data-theme="light"] .orbit-mail-body * {
   color: #0f172a;
+}
+
+.orbit-mail-shell[data-theme="light"] .orbit-empty-state__title {
+  color: #0f172a;
+}
+
+.orbit-mail-shell[data-theme="light"] .orbit-empty-state__hint {
+  color: #475569;
+}
+
+.orbit-mail-shell[data-theme="light"] .orbit-empty-state__icon {
+  border-color: rgba(180, 83, 9, 0.35);
+  background: linear-gradient(145deg, rgba(251, 191, 36, 0.2), rgba(255, 255, 255, 0.9));
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+/* Gold logo sits on black plate so it stays readable on white chrome */
+.orbit-mail-shell[data-theme="light"] .orbit-brand-logo-frame {
+  background: #050508;
+  border-radius: 0.85rem;
+  padding: 0.4rem 0.65rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 8px 20px rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(15, 23, 42, 0.12);
 }
 
 .orbit-mail-shell[data-theme="dark"] .orbit-mail-body {
@@ -557,14 +609,14 @@
 .orbit-brand-logo {
   height: auto;
   width: auto;
-  max-height: 5.25rem;
+  max-height: 7.75rem;
   object-fit: contain;
   object-position: left center;
 }
 
 @media (min-width: 1280px) {
   .orbit-brand-logo {
-    max-height: 5.5rem;
+    max-height: 8.25rem;
   }
 }
 

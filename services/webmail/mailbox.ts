@@ -586,34 +586,58 @@ export async function sendAndStore(
   creds: WebmailCredentials,
   input: SendMailInput & { saveSent?: boolean; skipSignature?: boolean },
 ) {
-  const { getMailboxBrandingByEmail, buildOutgoingSignatureHtml } = await import("./branding");
+  const { getMailboxBrandingByEmail, buildOutgoingSignatureHtml, resolveSignatureLogo } = await import(
+    "./branding"
+  );
   const branding = await getMailboxBrandingByEmail(creds.email);
   const fromName = branding?.displayName || creds.email.split("@")[0] || creds.email;
   const from = `"${fromName.replace(/"/g, "")}" <${creds.email}>`;
 
   let text = input.text;
   let html = input.html;
+  const attachments = [...(input.attachments || [])];
+
   if (!input.skipSignature && branding) {
-    const sigHtml = buildOutgoingSignatureHtml(branding);
-    const sigText =
-      branding.signatureText?.trim() ||
-      [branding.displayName, branding.jobTitle, branding.company || branding.domainCompanyName, branding.email]
-        .filter(Boolean)
-        .join("\n");
-    if (html?.trim()) {
-      html = `${html}<br/>${sigHtml}`;
-    } else if (text?.trim()) {
-      html = `<div style="white-space:pre-wrap;font-family:system-ui,sans-serif">${escapeForHtml(text)}</div>${sigHtml}`;
-      text = `${text}\n\n--\n${sigText}`;
-    } else {
-      html = sigHtml;
-      text = sigText;
+    const logoDataUrl = resolveSignatureLogo(branding);
+    let logoSrc: string | null = logoDataUrl;
+    if (logoDataUrl?.startsWith("data:")) {
+      const parsed = parseDataUrl(logoDataUrl);
+      if (parsed) {
+        const cid = "orbit-brand-logo@globalorbit";
+        attachments.push({
+          filename: `company-logo.${extFromMime(parsed.contentType)}`,
+          content: parsed.buffer,
+          contentType: parsed.contentType,
+          cid,
+          contentDisposition: "inline",
+        });
+        logoSrc = `cid:${cid}`;
+      }
     }
+    const sigHtml = buildOutgoingSignatureHtml(branding, { logoSrc });
+    const sigText = branding.signatureText?.trim() || "";
+    if (sigHtml) {
+      if (html?.trim()) {
+        html = `${html}<br/>${sigHtml}`;
+      } else if (text?.trim()) {
+        html = `<div style="white-space:pre-wrap;font-family:system-ui,sans-serif">${escapeForHtml(text)}</div>${sigHtml}`;
+        text = sigText ? `${text}\n\n--\n${sigText}` : text;
+      } else {
+        html = sigHtml;
+        text = sigText;
+      }
+    }
+  }
+
+  // Convert any remaining data:image URLs in HTML to inline CID parts (Gmail etc. strip data URLs).
+  if (html?.includes("data:image")) {
+    const converted = embedDataImagesAsCid(html, attachments);
+    html = converted.html;
   }
 
   const result = await sendMail(
     creds,
-    { ...input, text, html },
+    { ...input, text, html, attachments },
     { from },
   );
   let sentSaved = false;
@@ -650,6 +674,51 @@ function escapeForHtml(s: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function parseDataUrl(dataUrl: string): { contentType: string; buffer: Buffer } | null {
+  const match = /^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,(.+)$/i.exec(dataUrl.trim());
+  if (!match) return null;
+  try {
+    return {
+      contentType: match[1] || "application/octet-stream",
+      buffer: Buffer.from(match[2], "base64"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extFromMime(mime: string) {
+  const map: Record<string, string> = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/svg+xml": "svg",
+  };
+  return map[mime.toLowerCase()] || "bin";
+}
+
+type OutgoingAttachment = NonNullable<SendMailInput["attachments"]>[number];
+
+function embedDataImagesAsCid(html: string, attachments: OutgoingAttachment[]) {
+  let index = 0;
+  const next = html.replace(/src=(["'])(data:image\/[^"']+)\1/gi, (_full, quote: string, dataUrl: string) => {
+    const parsed = parseDataUrl(dataUrl);
+    if (!parsed) return `src=${quote}${dataUrl}${quote}`;
+    const cid = `orbit-inline-${index++}@globalorbit`;
+    attachments.push({
+      filename: `inline-${index}.${extFromMime(parsed.contentType)}`,
+      content: parsed.buffer,
+      contentType: parsed.contentType,
+      cid,
+      contentDisposition: "inline",
+    });
+    return `src=${quote}cid:${cid}${quote}`;
+  });
+  return { html: next };
 }
 
 export async function saveDraft(creds: WebmailCredentials, input: SendMailInput) {
@@ -847,7 +916,7 @@ export async function listRecentRecipients(creds: WebmailCredentials, limit = 40
           const status = await client.status(path, { messages: true });
           const exists = status.messages || 0;
           if (exists === 0) return;
-          const start = Math.max(1, exists - 40);
+          const start = Math.max(1, exists - 120);
           for await (const msg of client.fetch(`${start}:*`, { envelope: true })) {
             for (const field of [msg.envelope?.to, msg.envelope?.cc, msg.envelope?.from] as const) {
               for (const a of field || []) {

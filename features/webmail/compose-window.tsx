@@ -41,6 +41,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { webmailApi } from "@/features/webmail/lib/api";
+import { rememberRecipients } from "@/features/webmail/lib/recipient-memory";
 
 export type ComposeAttachment = {
   id: string;
@@ -174,15 +175,10 @@ function buildSignatureBlock(
   signatureText?: string | null,
   opts?: {
     logo?: string | null;
-    displayName?: string | null;
-    companyName?: string | null;
-    phone?: string | null;
-    website?: string | null;
-    email?: string | null;
   },
 ) {
   const logo = opts?.logo?.trim()
-    ? `<img src="${opts.logo}" alt="" style="max-height:48px;max-width:180px;display:block;margin-bottom:10px" />`
+    ? `<img src="${opts.logo}" alt="" style="max-height:56px;max-width:200px;display:block;margin-bottom:10px" />`
     : "";
 
   if (signatureHtml?.trim()) {
@@ -196,32 +192,20 @@ function buildSignatureBlock(
     return { html: `<br/><div data-orbit-sig="1">${custom}</div>`, text: "" };
   }
 
-  if (signatureText?.trim() || logo || opts?.displayName) {
-    const lines: string[] = [];
-    if (logo) lines.push(logo);
-    if (opts?.displayName) lines.push(`<strong>${escapeHtml(opts.displayName)}</strong>`);
-    if (opts?.companyName) lines.push(`<div style="font-weight:600">${escapeHtml(opts.companyName)}</div>`);
-    if (opts?.phone) lines.push(`<div>${escapeHtml(opts.phone)}</div>`);
-    if (opts?.website) {
-      const href = opts.website.startsWith("http") ? opts.website : `https://${opts.website}`;
-      lines.push(`<div><a href="${escapeHtml(href)}" style="color:#8a6d1a">${escapeHtml(opts.website)}</a></div>`);
-    }
-    if (opts?.email) {
-      lines.push(`<div><a href="mailto:${escapeHtml(opts.email)}" style="color:#8a6d1a">${escapeHtml(opts.email)}</a></div>`);
-    }
-    if (signatureText?.trim()) {
-      lines.push(
-        `<div style="margin-top:8px;white-space:pre-wrap">${escapeHtml(signatureText.trim())}</div>`,
-      );
-    }
-    const text = signatureText?.trim()
-      ? `\n\n--\n${signatureText.trim()}`
-      : opts?.displayName
-        ? `\n\n--\n${opts.displayName}`
-        : "";
+  if (signatureText?.trim()) {
+    const text = `\n\n--\n${signatureText.trim()}`;
+    const body = `<div style="margin-top:8px;white-space:pre-wrap">${escapeHtml(signatureText.trim())}</div>`;
     return {
-      html: `<br/><div data-orbit-sig="1" style="margin-top:8px;padding-top:10px;border-top:1px solid #333">${lines.join("")}</div>`,
+      html: `<br/><div data-orbit-sig="1" style="margin-top:8px;padding-top:10px;border-top:1px solid #333">${logo}${body}</div>`,
       text,
+    };
+  }
+
+  // Logo-only signature (uploaded company logo) — never auto-insert display name / email.
+  if (logo) {
+    return {
+      html: `<br/><div data-orbit-sig="1" style="margin-top:8px;padding-top:10px;border-top:1px solid #333">${logo}</div>`,
+      text: "",
     };
   }
   return null;
@@ -549,10 +533,6 @@ export function ComposeWindow({
   signatureHtml,
   signatureText,
   signatureLogo,
-  displayName,
-  companyName,
-  phone,
-  website,
   senderEmail,
   onClose,
   onSent,
@@ -564,10 +544,6 @@ export function ComposeWindow({
   signatureHtml?: string | null;
   signatureText?: string | null;
   signatureLogo?: string | null;
-  displayName?: string | null;
-  companyName?: string | null;
-  phone?: string | null;
-  website?: string | null;
   senderEmail?: string | null;
   onClose: () => void;
   onSent: () => void;
@@ -579,6 +555,8 @@ export function ComposeWindow({
   const [draftSaving, setDraftSaving] = React.useState(false);
   const [draftSavedAt, setDraftSavedAt] = React.useState<number | null>(null);
   const [toFocus, setToFocus] = React.useState(false);
+  const [ccFocus, setCcFocus] = React.useState(false);
+  const [bccFocus, setBccFocus] = React.useState(false);
   const [clientSignature, setClientSignature] = React.useState(false);
   const [pos, setPos] = React.useState({ x: 0, y: 0 });
   const [size, setSize] = React.useState({ w: 672, h: 640 });
@@ -642,11 +620,6 @@ export function ComposeWindow({
     if (initial.mode === "new" && !initial.body.trim() && !initial.html?.trim()) {
       const sig = buildSignatureBlock(signatureHtml, signatureText, {
         logo: signatureLogo,
-        displayName,
-        companyName,
-        phone,
-        website,
-        email: senderEmail,
       });
       if (sig) {
         body = sig.text;
@@ -678,11 +651,6 @@ export function ComposeWindow({
     signatureHtml,
     signatureText,
     signatureLogo,
-    displayName,
-    companyName,
-    phone,
-    website,
-    senderEmail,
     editor,
   ]);
 
@@ -712,10 +680,41 @@ export function ComposeWindow({
   }, [open]);
 
   const suggestions = React.useMemo(() => {
-    const q = compose.to.split(",").pop()?.trim().toLowerCase() || "";
-    if (!q || q.length < 1) return [];
-    return recentRecipients.filter((e) => e.includes(q)).slice(0, 6);
+    const q = compose.to.split(/[,;]/).pop()?.trim().toLowerCase() || "";
+    if (!q) return [];
+    const ranked = recentRecipients
+      .filter((e) => e.includes(q))
+      .sort((a, b) => {
+        const as = a.startsWith(q) ? 0 : 1;
+        const bs = b.startsWith(q) ? 0 : 1;
+        return as - bs || a.localeCompare(b);
+      });
+    return ranked.slice(0, 8);
   }, [compose.to, recentRecipients]);
+
+  const ccSuggestions = React.useMemo(() => {
+    const q = compose.cc.split(/[,;]/).pop()?.trim().toLowerCase() || "";
+    if (!q) return [];
+    return recentRecipients.filter((e) => e.includes(q)).slice(0, 8);
+  }, [compose.cc, recentRecipients]);
+
+  const bccSuggestions = React.useMemo(() => {
+    const q = compose.bcc.split(/[,;]/).pop()?.trim().toLowerCase() || "";
+    if (!q) return [];
+    return recentRecipients.filter((e) => e.includes(q)).slice(0, 8);
+  }, [compose.bcc, recentRecipients]);
+
+  function applyRecipientSuggestion(field: "to" | "cc" | "bcc", email: string) {
+    setCompose((c) => {
+      const parts = c[field]
+        .split(/[,;]/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      if (parts.length === 0) return { ...c, [field]: `${email}, ` };
+      parts[parts.length - 1] = email;
+      return { ...c, [field]: `${parts.join(", ")}, ` };
+    });
+  }
 
   function insertLink() {
     if (!editor) return;
@@ -875,6 +874,9 @@ export function ComposeWindow({
         id: toastId,
         duration: 5000,
       });
+      if (senderEmail) {
+        rememberRecipients(senderEmail, [c.to, c.cc, c.bcc].filter(Boolean));
+      }
       onSent();
       onClose();
     } catch (e) {
@@ -1068,7 +1070,7 @@ export function ComposeWindow({
               onChange={(e) => setCompose((c) => ({ ...c, to: e.target.value }))}
               onFocus={() => setToFocus(true)}
               onBlur={() => window.setTimeout(() => setToFocus(false), 150)}
-              list="orbit-recipients"
+              autoComplete="off"
               placeholder="name@domain.com, …"
               className="h-9 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 text-sm outline-none focus:border-[#d4af37]/60"
             />
@@ -1087,9 +1089,8 @@ export function ComposeWindow({
                     className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-white/5"
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      const parts = compose.to.split(",").map((p) => p.trim()).filter(Boolean);
-                      parts[parts.length - 1] = s;
-                      setCompose((c) => ({ ...c, to: parts.join(", ") }));
+                      applyRecipientSuggestion("to", s);
+                      setToFocus(false);
                     }}
                   >
                     {s}
@@ -1099,23 +1100,65 @@ export function ComposeWindow({
             ) : null}
           </div>
           {showCc ? (
-            <div className="flex items-center gap-2">
+            <div className="relative flex items-center gap-2">
               <span className="w-10 shrink-0 text-xs text-zinc-500">Cc</span>
               <input
                 value={compose.cc}
                 onChange={(e) => setCompose((c) => ({ ...c, cc: e.target.value }))}
+                onFocus={() => setCcFocus(true)}
+                onBlur={() => window.setTimeout(() => setCcFocus(false), 150)}
+                autoComplete="off"
                 className="h-9 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 text-sm outline-none focus:border-[#d4af37]/60"
               />
+              {ccFocus && ccSuggestions.length > 0 ? (
+                <div className="absolute left-10 right-0 top-10 z-10 overflow-hidden rounded-lg border border-white/10 bg-[#12121a] shadow-xl">
+                  {ccSuggestions.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-white/5"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applyRecipientSuggestion("cc", s);
+                        setCcFocus(false);
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
           {showBcc ? (
-            <div className="flex items-center gap-2">
+            <div className="relative flex items-center gap-2">
               <span className="w-10 shrink-0 text-xs text-zinc-500">Bcc</span>
               <input
                 value={compose.bcc}
                 onChange={(e) => setCompose((c) => ({ ...c, bcc: e.target.value }))}
+                onFocus={() => setBccFocus(true)}
+                onBlur={() => window.setTimeout(() => setBccFocus(false), 150)}
+                autoComplete="off"
                 className="h-9 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 text-sm outline-none focus:border-[#d4af37]/60"
               />
+              {bccFocus && bccSuggestions.length > 0 ? (
+                <div className="absolute left-10 right-0 top-10 z-10 overflow-hidden rounded-lg border border-white/10 bg-[#12121a] shadow-xl">
+                  {bccSuggestions.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-white/5"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applyRecipientSuggestion("bcc", s);
+                        setBccFocus(false);
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
           <div className="flex items-center gap-2">
@@ -1126,11 +1169,6 @@ export function ComposeWindow({
               className="h-9 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 text-sm outline-none focus:border-[#d4af37]/60"
             />
           </div>
-          <datalist id="orbit-recipients">
-            {recentRecipients.map((e) => (
-              <option key={e} value={e} />
-            ))}
-          </datalist>
         </div>
 
         <ComposeToolbar

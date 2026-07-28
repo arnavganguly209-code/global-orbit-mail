@@ -49,27 +49,24 @@ function buildPreviewHtml(profile: ProfileForm, logo: string | null, email: stri
   if (profile.signatureHtml.trim()) {
     const custom = profile.signatureHtml.trim();
     if (logo && !/<img[\s>]/i.test(custom)) {
-      return `${`<img src="${logo}" alt="" style="max-height:48px;margin-bottom:10px;display:block" />`}${custom}`;
+      return `${`<img src="${logo}" alt="" style="max-height:56px;margin-bottom:10px;display:block" />`}${custom}`;
     }
     return custom;
   }
-  const parts = [
-    logo
-      ? `<img src="${logo}" alt="" style="max-height:48px;margin-bottom:10px;display:block" />`
-      : "",
-    `<strong>${profile.displayName || "Your name"}</strong>`,
-    profile.jobTitle ? `<div>${profile.jobTitle}</div>` : "",
-    profile.company ? `<div style="font-weight:600">${profile.company}</div>` : "",
-    profile.phone ? `<div>${profile.phone}</div>` : "",
-    profile.website
-      ? `<div><a href="${profile.website}" style="color:#8a6d1a">${profile.website}</a></div>`
-      : "",
-    `<div><a href="mailto:${email}" style="color:#8a6d1a">${email}</a></div>`,
-    profile.signatureText
-      ? `<div style="margin-top:8px;white-space:pre-wrap">${profile.signatureText}</div>`
-      : "",
-  ];
-  return parts.filter(Boolean).join("");
+  if (profile.signatureText.trim()) {
+    return [
+      logo
+        ? `<img src="${logo}" alt="" style="max-height:56px;margin-bottom:10px;display:block" />`
+        : "",
+      `<div style="white-space:pre-wrap">${profile.signatureText}</div>`,
+    ]
+      .filter(Boolean)
+      .join("");
+  }
+  if (logo) {
+    return `<img src="${logo}" alt="" style="max-height:56px;display:block" />`;
+  }
+  return "";
 }
 
 export function WebmailSettingsPage() {
@@ -159,8 +156,8 @@ export function WebmailSettingsPage() {
       toast.error("Photo must be an image");
       return;
     }
-    if (file.size > 512_000) {
-      toast.error("Photo must be under 512KB");
+    if (file.size > 1_000_000) {
+      toast.error("Logo must be under 1MB");
       return;
     }
     const reader = new FileReader();
@@ -172,13 +169,10 @@ export function WebmailSettingsPage() {
   }
 
   function applyBrandedSignature() {
-    const html = buildPreviewHtml(
-      { ...profile, signatureHtml: "" },
-      domainLogo,
-      email,
-    );
-    setProfile((p) => ({ ...p, signatureHtml: html }));
-    toast.success("Professional signature applied — save to keep");
+    const logo = profile.avatarUrl || domainLogo;
+    const html = buildPreviewHtml({ ...profile, signatureHtml: "", signatureText: "" }, logo, email);
+    setProfile((p) => ({ ...p, signatureHtml: html || "" }));
+    toast.success(html ? "Company logo signature applied — save to keep" : "Upload a company logo first");
   }
 
   function field(
@@ -225,7 +219,8 @@ export function WebmailSettingsPage() {
     );
   }
 
-  const preview = buildPreviewHtml(profile, domainLogo, email);
+  const previewLogo = profile.avatarUrl || domainLogo;
+  const preview = buildPreviewHtml(profile, previewLogo, email);
 
   return (
     <div
@@ -270,7 +265,7 @@ export function WebmailSettingsPage() {
               type="button"
               onClick={() => fileRef.current?.click()}
               className="group relative flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-[#d4af37]/40 to-[#1e5fa1]/40 text-xl font-bold"
-              title="Upload photo"
+              title="Upload company logo (shown in sent mail)"
             >
               {profile.avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -294,10 +289,9 @@ export function WebmailSettingsPage() {
               <p className={cn("mt-1 truncate text-sm", light ? "text-slate-500" : "text-zinc-500")}>
                 {email}
               </p>
-              {domainLogo ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={domainLogo} alt="Company logo" className="mt-3 h-8 w-auto object-contain" />
-              ) : null}
+              <p className={cn("mt-2 text-xs", light ? "text-slate-500" : "text-zinc-500")}>
+                Upload your company logo above — recipients will see it in emails you send.
+              </p>
             </div>
           </div>
         </div>
@@ -332,7 +326,7 @@ export function WebmailSettingsPage() {
               className="inline-flex items-center gap-1.5 rounded-full border border-[#d4af37]/40 bg-[#d4af37]/10 px-3 py-1.5 text-xs font-semibold text-[#f0d78c] hover:bg-[#d4af37]/20"
             >
               <Sparkles className="size-3.5" />
-              Apply professional branding
+              Apply company logo signature
             </button>
           </div>
           {field("signatureText", "Signature (plain text)", { multiline: true, rows: 3 })}

@@ -23,6 +23,8 @@ export type SendMailInput = {
     filename: string;
     content: Buffer | string;
     contentType?: string;
+    cid?: string;
+    contentDisposition?: "attachment" | "inline";
   }>;
 };
 
