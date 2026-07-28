@@ -5,7 +5,7 @@
 import { brand } from "@/config/brand";
 
 export const external = {
-  webmail: `https://${brand.portals.user}`,
+  webmail: `https://${brand.portals.user}/`,
   admin: `https://${brand.siteHost}/orbit`,
   company: brand.companyUrl,
 } as const;
