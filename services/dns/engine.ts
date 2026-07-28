@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import {
   buildDnsRecordsForDomain,
+  buildSpfValue,
   normalizeApexDomain,
   recommendSpfMerge,
   toDnsInstructionJson,
@@ -10,6 +11,7 @@ import { getConfiguredMailHostname } from "@/lib/dns/mail-host";
 import { generateDkimKeypair } from "@/lib/dns/dkim";
 import { resolveMailServerIpv4, resolveMailServerIpv6, isUsableIpv4 } from "@/lib/dns/mail-ip";
 import { detectWebsiteDns } from "@/lib/dns/website-detect";
+import { resolveDmarcReportingEmail } from "@/lib/dns/dmarc-reporting";
 import { promises as dns } from "node:dns";
 import { createHash } from "node:crypto";
 
@@ -50,10 +52,12 @@ export async function provisionDnsForDomain(
   const apex = normalizeApexDomain(domainName);
   const mailIpv4 = await resolveMailServerIpv4();
   const mailIpv6 = await resolveMailServerIpv6();
+  const dmarcReportingEmail = await resolveDmarcReportingEmail(domainId, apex);
   const records = buildDnsRecordsForDomain(apex, {
     ...options,
     mailIpv4,
     mailIpv6,
+    dmarcReportingEmail,
   });
 
   await prisma.dnsRecord.createMany({
@@ -106,13 +110,13 @@ export async function provisionDnsForDomain(
   });
 }
 
-async function detectExistingSpf(apex: string): Promise<string | null> {
+async function detectExistingSpfRecords(apex: string): Promise<string[]> {
   try {
     const txts = await dns.resolveTxt(apex);
     const flat = txts.map((parts) => parts.join(""));
-    return flat.find((txt) => /^v=spf1\b/i.test(txt)) ?? null;
+    return flat.filter((txt) => /^v=spf1\b/i.test(txt));
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -215,11 +219,13 @@ export async function getDomainDnsPayload(domainId: string) {
 
   const mailIpv4 = await resolveMailServerIpv4();
   const mailIpv6 = await resolveMailServerIpv6();
+  const dmarcReportingEmail = await resolveDmarcReportingEmail(domain.id, apex);
   const generated = buildDnsRecordsForDomain(apex, {
     dkimSelector,
     dkimDnsValue,
     mailIpv4,
     mailIpv6,
+    dmarcReportingEmail,
   });
 
   const { validateDnsBlueprints } = await import("@/lib/dns/validate-blueprint");
@@ -261,10 +267,19 @@ export async function getDomainDnsPayload(domainId: string) {
   const mailHost = getConfiguredMailHostname();
   const website = await detectWebsiteDns(apex, mailHost);
 
-  const existingSpf = await detectExistingSpf(apex);
-  const spfMerge: SpfMergeRecommendation | null = existingSpf
-    ? recommendSpfMerge(existingSpf, mailHost, mailIpv4)
-    : null;
+  const existingSpfs = await detectExistingSpfRecords(apex);
+  const orbitSpf = buildSpfValue(mailHost, mailIpv4);
+  let spfMerge: SpfMergeRecommendation | null = null;
+  if (existingSpfs.length > 1) {
+    spfMerge = {
+      existing: existingSpfs.join("  ||  "),
+      recommended: orbitSpf,
+      message:
+        "Multiple SPF TXT records found. Delete them all and publish exactly this one Orbit SPF — Gmail rejects mail when an old SPF with -all remains.",
+    };
+  } else if (existingSpfs.length === 1) {
+    spfMerge = recommendSpfMerge(existingSpfs[0]!, mailHost, mailIpv4);
+  }
 
   const withSpfFlags = annotated.map((record) => {
     if (record.purpose !== "spf" || !spfMerge) return record;
@@ -272,7 +287,7 @@ export async function getDomainDnsPayload(domainId: string) {
     return {
       ...record,
       alreadyPublished: alreadyOk || record.alreadyPublished,
-      // Never invent a second SPF — show the single merged recommended value
+      // Always show the single final SPF customers must publish
       value: alreadyOk ? record.value : spfMerge.recommended,
     };
   });

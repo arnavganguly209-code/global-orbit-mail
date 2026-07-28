@@ -63,6 +63,41 @@ function sharedAutoconfigHost() {
   return getConfiguredAutoconfigHostname();
 }
 
+/** SPF from the active outbound mail server only — never hardcoded IPs/hosts. */
+export function buildSpfValue(mailHost: string, mailIpv4: string): string {
+  const host = normalizeApexDomain(mailHost);
+  const ip = mailIpv4.trim();
+  if (!host || !host.includes(".")) {
+    throw new Error("SPF requires active outbound mail hostname");
+  }
+  if (!ip || ip === "0.0.0.0" || ip === "127.0.0.1") {
+    throw new Error("SPF requires active outbound mail server IPv4");
+  }
+  return `v=spf1 mx a:${host} ip4:${ip} -all`;
+}
+
+/**
+ * Production DMARC. Only include rua/ruf when a real reporting mailbox exists.
+ * Never point reports at mailboxes that do not exist.
+ */
+export function buildDmarcValue(options?: {
+  policy?: "none" | "quarantine" | "reject";
+  /** Full email like postmaster@example.com — omit rua/ruf when null/undefined */
+  reportingEmail?: string | null;
+}): string {
+  const policy = options?.policy ?? "quarantine";
+  const parts = [`v=DMARC1`, `p=${policy}`];
+  const reporting = (options?.reportingEmail ?? "").trim().toLowerCase();
+  if (reporting) {
+    if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(reporting)) {
+      throw new Error(`Invalid DMARC reporting mailbox: ${reporting}`);
+    }
+    parts.push(`rua=mailto:${reporting}`, `ruf=mailto:${reporting}`);
+  }
+  parts.push("fo=1", "adkim=r", "aspf=r");
+  return parts.join("; ");
+}
+
 /**
  * Build ONLY additional mail DNS records for the apex zone.
  * Never emits www / website records. Never uses placeholder IPs.
@@ -77,6 +112,11 @@ export function buildDnsRecordsForDomain(
     /** Required production IPv4 — never 0.0.0.0 */
     mailIpv4: string;
     mailIpv6?: string | null;
+    /**
+     * Existing mailbox for DMARC aggregate/forensic reports.
+     * If omitted/null, rua/ruf are not generated.
+     */
+    dmarcReportingEmail?: string | null;
   },
 ): DnsRecordBlueprint[] {
   const apex = normalizeApexDomain(domainName);
@@ -100,6 +140,10 @@ export function buildDnsRecordsForDomain(
     options.dkimDnsValue ??
     "v=DKIM1; k=rsa; p=PENDING_GENERATE_ON_DOMAIN_CREATE";
   const mailIpv6 = (options.mailIpv6 ?? "").trim();
+  const spfValue = buildSpfValue(mailHost, mailIpv4);
+  const dmarcValue = buildDmarcValue({
+    reportingEmail: options.dmarcReportingEmail,
+  });
 
   const records: DnsRecordBlueprint[] = [
     {
@@ -133,7 +177,7 @@ export function buildDnsRecordsForDomain(
       publishType: "TXT",
       name: apex,
       host: "@",
-      value: `v=spf1 mx a:${mailHost} ip4:${mailIpv4} -all`,
+      value: spfValue,
       priority: null,
       status: "PENDING",
       ttl: 3600,
@@ -157,7 +201,7 @@ export function buildDnsRecordsForDomain(
       publishType: "TXT",
       name: `_dmarc.${apex}`,
       host: "_dmarc",
-      value: `v=DMARC1; p=quarantine; rua=mailto:dmarc@${apex}; ruf=mailto:dmarc@${apex}; fo=1; adkim=r; aspf=r`,
+      value: dmarcValue,
       priority: null,
       status: "PENDING",
       ttl: 3600,
@@ -353,7 +397,7 @@ export function recommendSpfMerge(
     existing,
     recommended: recommended.replace(/\s+/g, " ").trim(),
     message:
-      "An SPF TXT already exists on @. Do not replace it — merge the recommended value so website and other services keep working.",
+      "Publish exactly ONE SPF TXT with this value. Delete every other SPF at your DNS host — multiple SPF records cause Gmail 550 5.7.26.",
   };
 }
 

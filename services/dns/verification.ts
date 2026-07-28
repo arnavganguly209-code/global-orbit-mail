@@ -50,8 +50,8 @@ export type DomainVerifyReport = {
   friendlyStatus:
     | "Waiting"
     | "Checking..."
-    | "Verified"
-    | "Ready for Mail"
+    | "DNS Verified ✅"
+    | "Mail Ready ✅"
     | "Needs attention";
 };
 
@@ -365,22 +365,20 @@ export const dnsVerificationService = {
           )
         : false);
 
-    const spfObserved = await lookupTxt(domain.name);
-    const expectedSpfValue =
-      expectedSpf?.value ?? `v=spf1 mx a:${mailHost} ip4:${process.env.MAIL_SERVER_IPV4?.trim() || "200.97.170.235"} -all`;
-    const spfEval = evaluateSpf(spfObserved, expectedSpfValue);
-    const spfOk = spfEval.ok;
-
     const mailAHost = expectedMailA?.name ?? `mail.${domain.name}`;
     const mailAObserved = await lookupA(mailAHost);
     let expectedIp = (expectedMailA?.value ?? "").trim();
     if (!isUsableIpv4(expectedIp)) {
-      try {
-        expectedIp = await resolveMailServerIpv4();
-      } catch {
-        expectedIp = process.env.MAIL_SERVER_IPV4?.trim() ?? "";
-      }
+      expectedIp = await resolveMailServerIpv4();
     }
+
+    const spfObserved = await lookupTxt(domain.name);
+    const { buildSpfValue, buildDmarcValue } = await import("@/lib/dns/records");
+    const expectedSpfValue =
+      expectedSpf?.value ?? buildSpfValue(mailHost, expectedIp);
+    const spfEval = evaluateSpf(spfObserved, expectedSpfValue);
+    const spfOk = spfEval.ok;
+
     const mailAOk =
       (isUsableIpv4(expectedIp) && mailAObserved.includes(expectedIp)) ||
       (!expectedIp && mailAObserved.some((ip) => isUsableIpv4(ip)));
@@ -461,7 +459,7 @@ export const dnsVerificationService = {
     const dmarc: CheckResult = {
       ok: dmarcOk,
       label: "DMARC",
-      expected: expectedDmarc?.value ?? `v=DMARC1; p=quarantine; rua=mailto:dmarc@${domain.name}`,
+      expected: expectedDmarc?.value ?? buildDmarcValue(),
       observed: dmarcObserved,
       detail: dmarcOk ? "DMARC TXT verified" : "DMARC TXT missing",
     };
@@ -675,8 +673,8 @@ export const dnsVerificationService = {
 
     const friendlyStatus: DomainVerifyReport["friendlyStatus"] = ready
       ? smtp.ok && imap.ok
-        ? "Ready for Mail"
-        : "Verified"
+        ? "Mail Ready ✅"
+        : "DNS Verified ✅"
       : overall === "FAILED"
         ? "Needs attention"
         : requiredPassed === 0

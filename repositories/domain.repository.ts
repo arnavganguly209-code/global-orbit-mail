@@ -248,7 +248,18 @@ export const domainRepository = {
         dkimDnsValue: dkim.dnsValue,
         mailIpv4,
         mailIpv6,
+        // No mailboxes exist yet — never invent dmarc@ for rua/ruf
+        dmarcReportingEmail: null,
       });
+
+      const { validateDnsBlueprints } = await import("@/lib/dns/validate-blueprint");
+      const validation = validateDnsBlueprints(created.name, records, {
+        mailIpv4,
+        mailHost: getConfiguredMailHostname(),
+      });
+      if (!validation.ok) {
+        throw new Error(`Invalid DNS blueprint: ${validation.errors.join("; ")}`);
+      }
 
       await tx.dnsRecord.createMany({
         data: records.map(

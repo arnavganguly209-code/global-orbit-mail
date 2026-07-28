@@ -315,7 +315,7 @@ export function DnsSetupWizard({
                 "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
             )}
           >
-            {localReady ? "✓ Ready for mail" : friendly.label}
+            {localReady ? "Mail Ready ✅" : friendly.label}
           </span>
         </div>
 
@@ -415,7 +415,7 @@ export function DnsSetupWizard({
       {localReady ? (
         <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5">
           <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-            ✓ Verified — Ready for mail
+            DNS Verified ✅ · Mail Ready ✅
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             DNS looks good. Create your first mailbox to start sending and receiving email.

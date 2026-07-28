@@ -9,6 +9,8 @@ import {
   ADVANCED_DNS_PURPOSES,
   REQUIRED_DNS_PURPOSES,
   buildDnsRecordsForDomain,
+  buildDmarcValue,
+  buildSpfValue,
   getMailHostname,
   normalizeApexDomain,
   recommendSpfMerge,
@@ -92,6 +94,11 @@ function main() {
     assert(mailA?.proxyDnsOnly === true, "mail A must be DNS-only");
     assert(mx?.proxyDnsOnly === true, "MX must be DNS-only");
     assert(Boolean(dmarc?.value.includes("v=DMARC1")), "DMARC missing");
+    assert(Boolean(dmarc?.value.includes("p=quarantine")), "DMARC policy missing");
+    assert(
+      !dmarc?.value.includes("rua=") && !dmarc?.value.includes("ruf="),
+      "DMARC must omit rua/ruf when no reporting mailbox",
+    );
     assert(!records.some((r) => r.value.includes("mail.globalorbitmail.com")), ".com mail host leaked");
 
     assert(!records.some((r) => r.host === "www"), `www host leaked for ${input}`);
@@ -157,6 +164,26 @@ function main() {
     mailHost: "mail.globalorbitmail.cloud",
   });
   assert(!badCheck.ok, "must reject MX that is not shared Orbit host");
+
+  const spfBuilt = buildSpfValue(mailHost, mailIpv4);
+  assert(spfBuilt.includes(`a:${mailHost}`), "SPF must use active mail host");
+  assert(spfBuilt.includes(`ip4:${mailIpv4}`), "SPF must use active mail IPv4");
+
+  const dmarcBare = buildDmarcValue();
+  assert(!dmarcBare.includes("rua="), "bare DMARC must omit rua");
+  const dmarcWith = buildDmarcValue({ reportingEmail: "postmaster@example.com" });
+  assert(dmarcWith.includes("rua=mailto:postmaster@example.com"), "DMARC rua missing");
+  assert(dmarcWith.includes("ruf=mailto:postmaster@example.com"), "DMARC ruf missing");
+
+  const withReport = buildDnsRecordsForDomain("example.com", {
+    mailIpv4,
+    dkimDnsValue: "v=DKIM1; k=rsa; p=TESTPUBLICKEYTESTPUBLICKEYTESTPUBLICKEY12",
+    dmarcReportingEmail: "postmaster@example.com",
+  });
+  assert(
+    withReport.find((r) => r.purpose === "dmarc")?.value.includes("rua=mailto:postmaster@example.com"),
+    "generated DMARC should use existing reporting mailbox",
+  );
 
   console.log("\nAll DNS generation tests passed.");
 }

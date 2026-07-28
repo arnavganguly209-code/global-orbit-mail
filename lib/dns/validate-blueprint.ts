@@ -36,6 +36,11 @@ function isValidDmarc(value: string): boolean {
   const v = value.trim();
   if (!/^v=DMARC1\b/i.test(v)) return false;
   if (!/\bp=(none|quarantine|reject)\b/i.test(v)) return false;
+  // rua/ruf optional — only valid when present as mailto:
+  const rua = /\brua=([^;\s]+)/i.exec(v)?.[1];
+  const ruf = /\bruf=([^;\s]+)/i.exec(v)?.[1];
+  if (rua && !/^mailto:/i.test(rua)) return false;
+  if (ruf && !/^mailto:/i.test(ruf)) return false;
   return true;
 }
 
