@@ -229,7 +229,7 @@ export function DnsSetupWizard({
     ready: localReady,
     dnsCheckStarted: dnsSubmitted || auto.checking,
     requiredPassed: auto.lastReport?.requiredPassed,
-    requiredTotal: auto.lastReport?.requiredTotal ?? 3,
+    requiredTotal: auto.lastReport?.requiredTotal ?? 7,
     waitingFor: auto.lastReport?.waitingFor,
   });
 
@@ -494,7 +494,7 @@ export function DnsSetupWizard({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold tracking-tight">Required DNS</h3>
-              <span className="text-[11px] text-muted-foreground">MX · SPF · DKIM only</span>
+              <span className="text-[11px] text-muted-foreground">A · MX · SPF · DKIM · DMARC · Auto</span>
             </div>
             <div className="space-y-3">
               {required.map((record) => (

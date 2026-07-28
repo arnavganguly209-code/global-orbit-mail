@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import type { DnsRecordStatus, VerificationKind, VerificationState } from "@prisma/client";
 import { getMailHostname } from "@/lib/dns/records";
+import { getConfiguredWebmailHostname } from "@/lib/dns/mail-host";
 import { isUsableIpv4, resolveMailServerIpv4 } from "@/lib/dns/mail-ip";
 import { MailProvisioningService } from "@/services/provisioning/mail-provisioning-service";
 import { generateDkimKeypair } from "@/lib/dns/dkim";
@@ -32,10 +33,12 @@ export type DomainVerifyReport = {
   mailA: CheckResult;
   dkim: CheckResult;
   dmarc: CheckResult;
+  autodiscover: CheckResult;
+  autoconfig: CheckResult;
   smtp: CheckResult;
   imap: CheckResult;
   ssl: CheckResult;
-  /** True when production DNS + mail stack are ready */
+  /** True when 100% required customer DNS is live */
   ready: boolean;
   requiredPassed: number;
   requiredTotal: number;
@@ -56,17 +59,17 @@ function normalizeTxt(values: string[][]): string[] {
   return values.map((parts) => parts.join("")).map((v) => v.replace(/^"|"$/g, "").trim());
 }
 
+/** SPF must authorize Orbit (a:mailHost and/or ip4:mailServer) — old GoDaddy/etc SPF alone fails. */
 function includesSpf(observed: string[], expected: string): boolean {
-  const want = expected.toLowerCase();
+  const mailHost = getMailHostname().toLowerCase().replace(/\.$/, "");
+  const expectedIp = /ip4:([0-9.]+)/i.exec(expected)?.[1] ?? null;
   return observed.some((o) => {
-    const v = o.toLowerCase();
-    return v.includes("v=spf1") && (v.includes(want) || want.includes(v) || softSpfMatch(v, want));
+    const v = o.toLowerCase().replace(/\s+/g, " ");
+    if (!v.includes("v=spf1")) return false;
+    const aOk = v.includes(`a:${mailHost}`);
+    const ipOk = expectedIp ? v.includes(`ip4:${expectedIp}`) : false;
+    return aOk || ipOk;
   });
-}
-
-function softSpfMatch(observed: string, expected: string): boolean {
-  const host = getMailHostname().toLowerCase();
-  return observed.includes("v=spf1") && expected.includes("v=spf1") && observed.includes(host);
 }
 
 function includesDkim(observed: string[], expected: string): boolean {
@@ -111,6 +114,15 @@ async function lookupTxt(host: string): Promise<string[]> {
 async function lookupA(host: string): Promise<string[]> {
   try {
     return await dns.resolve4(host);
+  } catch {
+    return [];
+  }
+}
+
+async function lookupCname(host: string): Promise<string[]> {
+  try {
+    const rows = await dns.resolveCname(host);
+    return rows.map((r) => r.replace(/\.$/, "").toLowerCase());
   } catch {
     return [];
   }
@@ -288,12 +300,16 @@ export const dnsVerificationService = {
       throw new Error("Domain not found");
     }
 
+    // Do not wipe last dnsStatus to PENDING on every poll (Hostinger-style: no flicker).
     await prisma.domain.update({
       where: { id: domainId },
-      data: { status: "VERIFYING", dnsStatus: "PENDING" },
+      data: {
+        status: domain.status === "ACTIVE" ? "ACTIVE" : "VERIFYING",
+      },
     });
 
     const mailHost = getMailHostname().toLowerCase().replace(/\.$/, "");
+    const webmailHost = getConfiguredWebmailHostname().toLowerCase().replace(/\.$/, "");
     const expectedMx = domain.dnsRecords.find((r) => r.type === "MX");
     const expectedSpf = domain.dnsRecords.find((r) => r.type === "SPF");
     const expectedMailA = domain.dnsRecords.find(
@@ -301,6 +317,16 @@ export const dnsVerificationService = {
     );
     const expectedDkim = domain.dnsRecords.find((r) => r.type === "DKIM");
     const expectedDmarc = domain.dnsRecords.find((r) => r.type === "DMARC");
+    const expectedAutodiscover = domain.dnsRecords.find(
+      (r) =>
+        r.type === "CNAME" &&
+        (r.name.startsWith("autodiscover.") || r.name === `autodiscover.${domain.name}`),
+    );
+    const expectedAutoconfig = domain.dnsRecords.find(
+      (r) =>
+        r.type === "CNAME" &&
+        (r.name.startsWith("autoconfig.") || r.name === `autoconfig.${domain.name}`),
+    );
 
     const mxObserved = await lookupMx(domain.name);
     const mxOk =
@@ -354,6 +380,25 @@ export const dnsVerificationService = {
     const dmarcObserved = await lookupTxt(dmarcHost);
     const dmarcOk = includesDmarc(dmarcObserved);
 
+    const autodiscoverHost = expectedAutodiscover?.name ?? `autodiscover.${domain.name}`;
+    const autoconfigHost = expectedAutoconfig?.name ?? `autoconfig.${domain.name}`;
+    const autodiscoverTarget = (
+      expectedAutodiscover?.value || webmailHost
+    )
+      .toLowerCase()
+      .replace(/\.$/, "");
+    const autoconfigTarget = (expectedAutoconfig?.value || webmailHost)
+      .toLowerCase()
+      .replace(/\.$/, "");
+    const autodiscoverObserved = await lookupCname(autodiscoverHost);
+    const autoconfigObserved = await lookupCname(autoconfigHost);
+    const autodiscoverOk = autodiscoverObserved.some(
+      (c) => c === autodiscoverTarget || c.endsWith(`.${autodiscoverTarget}`),
+    );
+    const autoconfigOk = autoconfigObserved.some(
+      (c) => c === autoconfigTarget || c.endsWith(`.${autoconfigTarget}`),
+    );
+
     const sslHost = mailHost;
     const ssl = await checkSsl(sslHost);
 
@@ -395,6 +440,24 @@ export const dnsVerificationService = {
       observed: dmarcObserved,
       detail: dmarcOk ? "DMARC TXT verified" : "DMARC TXT missing",
     };
+    const autodiscover: CheckResult = {
+      ok: autodiscoverOk,
+      label: "Autodiscover",
+      expected: autodiscoverTarget,
+      observed: autodiscoverObserved,
+      detail: autodiscoverOk
+        ? "Autodiscover CNAME verified"
+        : "Autodiscover CNAME missing or wrong target",
+    };
+    const autoconfig: CheckResult = {
+      ok: autoconfigOk,
+      label: "Autoconfig",
+      expected: autoconfigTarget,
+      observed: autoconfigObserved,
+      detail: autoconfigOk
+        ? "Autoconfig CNAME verified"
+        : "Autoconfig CNAME missing or wrong target",
+    };
 
     for (const record of domain.dnsRecords) {
       let status: DnsRecordStatus = record.status;
@@ -405,12 +468,18 @@ export const dnsVerificationService = {
       }
       if (record.type === "DKIM") status = toRecordStatus(dkimOk, dkimObserved);
       if (record.type === "DMARC") status = toRecordStatus(dmarcOk, dmarcObserved);
+      if (record.type === "CNAME" && record.name.startsWith("autodiscover.")) {
+        status = toRecordStatus(autodiscoverOk, autodiscoverObserved);
+      }
+      if (record.type === "CNAME" && record.name.startsWith("autoconfig.")) {
+        status = toRecordStatus(autoconfigOk, autoconfigObserved);
+      }
       if (status !== record.status) {
         await prisma.dnsRecord.update({ where: { id: record.id }, data: { status } });
       }
     }
 
-    const requiredChecks = [mailA, mx, spf, dkim, dmarc];
+    const requiredChecks = [mailA, mx, spf, dkim, dmarc, autodiscover, autoconfig];
     const requiredPassed = requiredChecks.filter((c) => c.ok).length;
     const requiredTotal = requiredChecks.length;
 
@@ -435,13 +504,11 @@ export const dnsVerificationService = {
         : "IMAP not reachable on mail host",
     };
 
-    const ready =
-      requiredPassed === requiredTotal && smtp.ok && imap.ok;
-    const waitingFor =
-      requiredChecks.find((c) => !c.ok)?.label ??
-      (!smtp.ok ? "SMTP" : !imap.ok ? "IMAP" : null);
+    // Customer "Verified" = 100% required DNS only (Hostinger-style). Ports are infra health.
+    const dnsReady = requiredPassed === requiredTotal;
+    const ready = dnsReady;
+    const waitingFor = requiredChecks.find((c) => !c.ok)?.label ?? null;
 
-    // overall reflects production readiness (A + MX + SPF + DKIM + DMARC + SMTP/IMAP)
     let overall: DomainVerifyReport["overall"] = "PENDING";
     if (ready) overall = "VERIFIED";
     else if (requiredPassed === 0) overall = "FAILED";
@@ -572,6 +639,8 @@ export const dnsVerificationService = {
         mailA: mailA.ok,
         dkim: dkim.ok,
         dmarc: dmarc.ok,
+        autodiscover: autodiscover.ok,
+        autoconfig: autoconfig.ok,
         smtp: smtp.ok,
         imap: imap.ok,
         ssl: ssl.ok,
@@ -580,7 +649,9 @@ export const dnsVerificationService = {
     });
 
     const friendlyStatus: DomainVerifyReport["friendlyStatus"] = ready
-      ? "Ready for Mail"
+      ? smtp.ok && imap.ok
+        ? "Ready for Mail"
+        : "Verified"
       : overall === "FAILED"
         ? "Needs attention"
         : requiredPassed === 0
@@ -595,6 +666,8 @@ export const dnsVerificationService = {
       mailA,
       dkim,
       dmarc,
+      autodiscover,
+      autoconfig,
       smtp,
       imap,
       ssl,

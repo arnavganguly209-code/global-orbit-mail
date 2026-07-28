@@ -100,7 +100,7 @@ export function getFriendlyDomainStatus(input: DomainOnboardingInput): FriendlyD
 
   if (input.dnsCheckStarted || status === "VERIFYING" || dns === "PARTIAL") {
     const passed = input.requiredPassed;
-    const total = input.requiredTotal ?? 5;
+    const total = input.requiredTotal ?? 7;
     if (typeof passed === "number" && passed > 0 && passed < total) {
       return {
         label: "Checking...",

@@ -167,6 +167,14 @@ export const mailboxRepository = {
     });
     if (!domain) return null;
 
+    const dnsReady =
+      domain.status === "ACTIVE" || domain.dnsStatus === "VERIFIED";
+    if (!dnsReady) {
+      throw new Error(
+        "Domain DNS is not fully verified yet. Finish DNS setup first — then create any number of mailboxes.",
+      );
+    }
+
     const localPart = input.localPart.toLowerCase();
     const email = `${localPart}@${domain.name}`;
     const { passwordHash, mailPasswordHash } = await hashMailboxPassword(input.password);

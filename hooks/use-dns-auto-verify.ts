@@ -2,8 +2,15 @@
 
 import * as React from "react";
 
-/** Poll intervals after "I've Added DNS": 30s, 60s, 120s, 300s (then keep 300s). */
-export const DNS_VERIFY_POLL_MS = [30_000, 60_000, 120_000, 300_000] as const;
+/**
+ * Hostinger-style cadence after "I've Added DNS":
+ * check now, then every ~10s for the first minute, then back off.
+ * Steady poll every 60s until verified.
+ */
+export const DNS_VERIFY_POLL_MS = [
+  10_000, 10_000, 10_000, 10_000, 10_000, 10_000, 20_000, 30_000, 60_000,
+] as const;
+export const DNS_VERIFY_STEADY_MS = 60_000;
 
 export type AutoVerifyReport = {
   domainId: string;
@@ -106,7 +113,7 @@ export function useDnsAutoVerify({
           if (index === DNS_VERIFY_POLL_MS.length - 1 && intervalId.current == null) {
             intervalId.current = window.setInterval(() => {
               void runCheck(index + 2);
-            }, 300_000);
+            }, DNS_VERIFY_STEADY_MS);
           }
         });
       }, delay);
