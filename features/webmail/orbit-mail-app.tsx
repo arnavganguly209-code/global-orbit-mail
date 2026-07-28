@@ -702,12 +702,12 @@ export function OrbitMailApp({
 
   function CompanyLogo({ className }: { className?: string }) {
     return (
-      <span className={cn("orbit-brand-logo-frame inline-flex max-w-full items-center", light && "shadow-sm")}>
+      <span className={cn("orbit-brand-logo-frame inline-flex shrink-0 items-center overflow-hidden rounded-2xl ring-1 ring-[#d4af37]/30", light && "shadow-sm")}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={companyLogo}
           alt="GLOBAL ORBIT PVT LTD"
-          className={cn("orbit-brand-logo object-contain", className)}
+          className={cn("orbit-brand-logo object-cover", className)}
         />
       </span>
     );
@@ -815,7 +815,7 @@ export function OrbitMailApp({
   const topBar = (
     <header
       className={cn(
-        "flex h-[4.75rem] shrink-0 items-center gap-3 border-b px-3 sm:h-[6.75rem] sm:px-4",
+        "flex h-[3.75rem] shrink-0 items-center gap-2.5 border-b px-3 sm:h-[4.75rem] sm:gap-3 sm:px-4",
         light ? "border-slate-200 bg-white" : "border-white/[0.07] bg-[#0b0b11]/95 backdrop-blur-xl",
       )}
     >
@@ -826,16 +826,35 @@ export function OrbitMailApp({
             if (layout === "mobile") setPane("folders");
             else setDrawerOpen(true);
           }}
-          className={iconBtn}
+          className={cn(iconBtn, "size-11 shrink-0")}
           aria-label="Open folders"
         >
           <Menu className="size-5" />
         </button>
       ) : (
         <div className={cn("flex shrink-0 items-center", sidebarWidth)}>
-          <CompanyLogo className="h-[4.25rem] max-h-[5rem] w-auto max-w-[calc(100%-0.5rem)] sm:h-[7rem] sm:max-h-[8rem] sm:max-w-[calc(100%-0.25rem)]" />
+          <CompanyLogo className="size-11 sm:size-14" />
         </div>
       )}
+
+      {isStack ? (
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={companyLogo}
+            alt=""
+            className="size-9 shrink-0 rounded-xl object-cover ring-1 ring-[#d4af37]/35"
+          />
+          <div className="min-w-0">
+            <p className={cn("truncate text-sm font-semibold", light ? "text-slate-900" : "text-white")}>
+              Orbit Mail
+            </p>
+            <p className={cn("truncate text-[0.65rem]", light ? "text-slate-500" : "text-zinc-500")}>
+              {me?.email || "Business email"}
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <form
         onSubmit={(e) => {
@@ -843,7 +862,10 @@ export function OrbitMailApp({
           setPage(1);
           setSearchQ(query.trim());
         }}
-        className="relative mx-auto hidden min-w-0 max-w-xl flex-1 md:block"
+        className={cn(
+          "relative min-w-0 max-w-xl flex-1",
+          isStack ? "hidden" : "mx-auto hidden md:block",
+        )}
       >
         <Search
           className={cn(
@@ -873,11 +895,24 @@ export function OrbitMailApp({
         </span>
       </form>
 
-      <div className="ml-auto flex items-center gap-1 sm:gap-2">
+      <div className="ml-auto flex items-center gap-0.5 sm:gap-2">
+        {isStack ? (
+          <button
+            type="button"
+            onClick={() => {
+              setCompose(emptyCompose());
+              setComposeOpen(true);
+            }}
+            className="mr-1 inline-flex size-10 items-center justify-center rounded-full bg-gradient-to-r from-[#f6e7a8] via-[#e0bc4a] to-[#c9971a] text-[#1a1200] shadow-md"
+            aria-label="Compose"
+          >
+            <PenSquare className="size-4" />
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => setAdvancedOpen(true)}
-          className={iconBtn}
+          className={cn(iconBtn, "size-10")}
           title="Advanced search"
         >
           <Filter className="size-4" />
@@ -1102,7 +1137,7 @@ export function OrbitMailApp({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search"
             className={cn(
-              "h-9 w-full rounded-xl border pl-9 pr-3 text-sm outline-none focus:border-[#d4af37]/70",
+              "h-11 w-full rounded-xl border pl-9 pr-3 text-[16px] outline-none focus:border-[#d4af37]/70 sm:text-sm",
               light ? "border-slate-200 bg-slate-50" : "border-white/10 bg-[#0a0a12] text-white",
             )}
           />
@@ -1695,7 +1730,18 @@ export function OrbitMailApp({
       {showMobileFolders ? (
         <div className="flex min-w-0 flex-1 flex-col bg-[#0b0b11]">
           <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
-            <Image src={companyLogo} alt="GLOBAL ORBIT" width={220} height={72} className="h-14 w-auto max-w-[220px] object-contain" unoptimized={false} />
+            <div className="flex min-w-0 items-center gap-2.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={companyLogo}
+                alt="GLOBAL ORBIT"
+                className="size-10 rounded-xl object-cover ring-1 ring-[#d4af37]/35"
+              />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-white">Orbit Mail</p>
+                <p className="truncate text-[0.65rem] text-zinc-500">Folders</p>
+              </div>
+            </div>
             <button type="button" onClick={() => setPane("list")} className="rounded-lg p-2 hover:bg-white/5">
               <X className="size-4" />
             </button>

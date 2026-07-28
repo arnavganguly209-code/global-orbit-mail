@@ -471,6 +471,34 @@
   background-color: #050508;
 }
 
+/* Native-app feel: respect notches / home indicator */
+.orbit-webmail,
+.orbit-mail-shell,
+.orbit-login {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.orbit-mail-shell {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.orbit-login {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Touch-friendly taps on mobile webmail */
+@media (max-width: 900px) {
+  .orbit-mail-shell button,
+  .orbit-login button,
+  .orbit-login input,
+  .orbit-mail-shell input {
+    touch-action: manipulation;
+  }
+}
+
 .orbit-mail-shell {
   --orbit-gold: #d4af37;
   --orbit-gold-soft: #f0d78c;

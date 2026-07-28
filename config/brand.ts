@@ -18,10 +18,11 @@ export const brand = {
   },
   assets: {
     logo: "/brand/logo.png",
-    logoMark: "/brand/logo.png",
+    logoMark: "/brand/icon-192.png",
     logoWordmark: "/brand/logo.png",
-    favicon: "/brand/favicon.svg",
-    ogImage: "/brand/logo.png",
+    favicon: "/brand/icon-192.png",
+    appleTouchIcon: "/brand/apple-touch-icon.png",
+    ogImage: "/brand/logo-orbit-globe.png",
   },
   logoWidth: 240,
 } as const;

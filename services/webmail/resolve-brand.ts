@@ -47,7 +47,7 @@ const DEFAULTS: PublicBrand = {
   headerLogoUrl: "/brand/logo.png",
   sidebarLogoUrl: "/brand/logo.png",
   signatureLogoUrl: "/brand/logo.png",
-  faviconUrl: "/brand/favicon.svg",
+  faviconUrl: "/brand/icon-192.png",
 };
 
 function str(v: unknown, fallback = "") {
