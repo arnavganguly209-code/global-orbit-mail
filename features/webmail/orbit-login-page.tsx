@@ -14,10 +14,8 @@ import {
   Globe2,
   Lock,
   Mail,
-  Moon,
   Shield,
   ShieldCheck,
-  Sun,
   User,
   Zap,
 } from "lucide-react";
@@ -64,8 +62,8 @@ const TRUST = [
 export function OrbitLoginPage() {
   const router = useRouter();
   const layout = useLayoutMode();
-  const { resolvedTheme, setTheme } = useTheme();
-  const light = resolvedTheme === "light";
+  const { setTheme } = useTheme();
+  const light = false;
 
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -78,9 +76,8 @@ export function OrbitLoginPage() {
   const [logoSrc, setLogoSrc] = React.useState("/brand/logo.png");
 
   React.useEffect(() => {
-    // Default dark for this premium surface; user can still toggle light.
-    if (resolvedTheme == null) setTheme("dark");
-  }, [resolvedTheme, setTheme]);
+    setTheme("dark");
+  }, [setTheme]);
 
   React.useEffect(() => {
     const domain = email.includes("@") ? email.split("@")[1] : "";
@@ -181,22 +178,8 @@ export function OrbitLoginPage() {
       {/* Premium gold light wash at bottom */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-[28%] bg-gradient-to-t from-[#d4af37]/18 via-[#d4af37]/05 to-transparent"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-[28%] bg-gradient-to-t from-[#d9b15c]/18 via-[#d9b15c]/05 to-transparent"
       />
-
-      <button
-        type="button"
-        onClick={() => setTheme(light ? "dark" : "light")}
-        className={cn(
-          "absolute right-3 top-3 z-30 inline-flex size-9 items-center justify-center rounded-full border backdrop-blur-md transition sm:right-4 sm:top-4",
-          light
-            ? "border-white/50 bg-white/75 text-slate-800 hover:bg-white"
-            : "border-white/15 bg-black/45 text-[#f0d78c] hover:bg-black/60",
-        )}
-        aria-label={light ? "Switch to dark mode" : "Switch to light mode"}
-      >
-        {light ? <Moon className="size-4" /> : <Sun className="size-4" />}
-      </button>
 
       <div
         className={cn(

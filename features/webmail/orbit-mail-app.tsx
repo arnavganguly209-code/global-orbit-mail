@@ -1,10 +1,9 @@
 "use client";
 
 import * as React from "react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import {
   Archive,
@@ -22,7 +21,6 @@ import {
   LogOut,
   Mail,
   Menu,
-  Moon,
   MoreHorizontal,
   Paperclip,
   PenSquare,
@@ -35,7 +33,6 @@ import {
   Settings,
   ShieldAlert,
   Star,
-  Sun,
   Trash2,
   Users,
   X,
@@ -96,20 +93,24 @@ const emptyCompose = (): ComposeState => ({
   attachments: [],
 });
 
+const FOLDER_STORAGE_KEY = "orbit-webmail-folder";
+
 export function OrbitMailApp({
   initialUid = null,
+  initialFolder = null,
   openCompose = false,
 }: {
   initialUid?: number | null;
+  initialFolder?: string | null;
   openCompose?: boolean;
 } = {}) {
   const router = useRouter();
   const qc = useQueryClient();
   const layout = useLayoutMode();
-  const { resolvedTheme, setTheme } = useTheme();
-  const light = resolvedTheme === "light";
+  /** Webmail dashboard is dark-only — no theme switching. */
+  const light = false;
 
-  const [folder, setFolder] = React.useState("INBOX");
+  const [folder, setFolder] = React.useState(initialFolder || "INBOX");
   const [page, setPage] = React.useState(1);
   const [selectedUid, setSelectedUid] = React.useState<number | null>(initialUid);
   const [selectedUids, setSelectedUids] = React.useState<number[]>([]);
@@ -151,6 +152,44 @@ export function OrbitMailApp({
       setPane("reader");
     }
   }, [initialUid]);
+
+  React.useEffect(() => {
+    if (initialFolder) {
+      setFolder(initialFolder);
+      try {
+        sessionStorage.setItem(FOLDER_STORAGE_KEY, initialFolder);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    try {
+      const saved = sessionStorage.getItem(FOLDER_STORAGE_KEY);
+      if (saved) setFolder(saved);
+    } catch {
+      /* ignore */
+    }
+  }, [initialFolder]);
+
+  React.useEffect(() => {
+    try {
+      sessionStorage.setItem(FOLDER_STORAGE_KEY, folder);
+    } catch {
+      /* ignore */
+    }
+  }, [folder]);
+
+  React.useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = query.trim();
+      setSearchQ((prev) => {
+        if (prev === next) return prev;
+        setPage(1);
+        return next;
+      });
+    }, 280);
+    return () => window.clearTimeout(t);
+  }, [query]);
 
   React.useEffect(() => {
     if (openCompose) {
@@ -280,7 +319,19 @@ export function OrbitMailApp({
       ),
     staleTime: 60_000,
     enabled: selectedUid != null,
-    placeholderData: keepPreviousData,
+    // Do not keep previous message body — that made clicks feel broken.
+  });
+
+  const unreadNotifQuery = useQuery({
+    queryKey: ["webmail", "notifications", "unread"],
+    queryFn: async () => {
+      const data = await webmailApi<{ messages: MessageItem[] }>(
+        `/api/webmail/search?folder=${encodeURIComponent("INBOX")}&unseen=1&q=`,
+      );
+      return data.messages.slice(0, 10);
+    },
+    staleTime: 12_000,
+    enabled: notifOpen && !!meQuery.data,
   });
 
   const threadQuery = useQuery({
@@ -294,7 +345,7 @@ export function OrbitMailApp({
   });
 
   if (!layout) {
-    return <div className="h-dvh bg-[#050508]" aria-hidden />;
+    return <div className="h-dvh bg-[#08090C]" aria-hidden />;
   }
 
   const folders = foldersQuery.data ?? [];
@@ -303,7 +354,7 @@ export function OrbitMailApp({
   const total = messagesQuery.data?.total ?? 0;
   const me = meQuery.data ?? null;
   const displayName = me?.branding?.displayName || me?.name || "";
-  const detail = selectedUid != null ? (detailQuery.data ?? null) : null;
+  const detail = selectedUid != null && detailQuery.data?.uid === selectedUid ? detailQuery.data : null;
   const threadMessages =
     viewMode === "threads" && threadQuery.data?.messages && threadQuery.data.messages.length > 1
       ? threadQuery.data.messages
@@ -388,7 +439,7 @@ export function OrbitMailApp({
   const rangeEnd = searching ? messages.length : Math.min(page * PAGE_SIZE, total);
   const allPageSelected = messages.length > 0 && messages.every((m) => selectedUids.includes(m.uid));
 
-  function selectFolder(path: string, _key?: SystemNavKey | "custom" | "starred") {
+  function selectFolder(path: string) {
     setFolder(path);
     setPage(1);
     setSelectedUid(null);
@@ -404,11 +455,11 @@ export function OrbitMailApp({
     const item = SYSTEM_NAV.find((n) => n.key === key);
     if (!item) return;
     if (item.virtual === "starred") {
-      selectFolder(STARRED_VIRTUAL, "starred");
+      selectFolder(STARRED_VIRTUAL);
       return;
     }
     const matched = matchSystemFolder(folders, item);
-    selectFolder(matched?.path || item.defaultPath, key);
+    selectFolder(matched?.path || item.defaultPath);
   }
 
   function applyAdvancedSearch() {
@@ -465,12 +516,19 @@ export function OrbitMailApp({
     w.print();
   }
 
-  async function openMessage(uid: number) {
+  async function openMessage(uid: number, opts?: { folderPath?: string }) {
+    const targetFolder = opts?.folderPath || (isStarredView ? "INBOX" : folder);
+    if (opts?.folderPath && opts.folderPath !== folder) {
+      setFolder(opts.folderPath);
+      setPage(1);
+      setSearchQ("");
+      setQuery("");
+    }
     setSelectedUid(uid);
     if (isStack) setPane("reader");
-    router.push(webmailRoutes.message(uid), { scroll: false });
+    router.push(webmailRoutes.message(uid, targetFolder), { scroll: false });
     qc.setQueryData<{ messages: MessageItem[]; total: number }>(
-      ["webmail", "messages", folder, searchQ, page, viewMode, isStarredView],
+      ["webmail", "messages", opts?.folderPath || folder, searchQ, page, viewMode, isStarredView],
       (prev) =>
         prev
           ? {
@@ -482,9 +540,10 @@ export function OrbitMailApp({
     try {
       await webmailApi("/api/webmail/messages/action", {
         method: "POST",
-        body: JSON.stringify({ action: "seen", folder: detailFolder, uids: [uid], seen: true }),
+        body: JSON.stringify({ action: "seen", folder: targetFolder, uids: [uid], seen: true }),
       });
       void qc.invalidateQueries({ queryKey: ["webmail", "folders"] });
+      void qc.invalidateQueries({ queryKey: ["webmail", "notifications"] });
     } catch {
       /* non-blocking */
     }
@@ -566,7 +625,7 @@ export function OrbitMailApp({
     e.preventDefault();
     const next = !m.flagged;
     qc.setQueryData<{ messages: MessageItem[]; total: number }>(
-      ["webmail", "messages", folder, searchQ, page],
+      ["webmail", "messages", folder, searchQ, page, viewMode, isStarredView],
       (prev) =>
         prev
           ? {
@@ -691,18 +750,17 @@ export function OrbitMailApp({
     layout === "desktop" ? "w-[420px]" : layout === "laptop" ? "w-[340px]" : "w-full";
 
   const shell = cn(
-    "orbit-mail-shell flex h-dvh flex-col overflow-hidden font-sans antialiased",
-    light ? "bg-[#eef1f6] text-slate-900" : "bg-[#050508] text-[#f7f8fb]",
+    "orbit-mail-shell flex h-dvh flex-col overflow-hidden font-sans antialiased text-[#f7f8fb]",
   );
   // Left brand mark = Orbit product logo. Right profile / mail signature = customer upload.
   const companyLogo = "/brand/logo.png";
   const mailboxAvatar = me?.branding?.avatarUrl || me?.branding?.domainLogoDataUrl || null;
   const signatureLogo = me?.branding?.avatarUrl || me?.branding?.domainLogoDataUrl || null;
-  const accent = me?.branding?.brandColor || "#d4af37";
+  const accent = me?.branding?.brandColor || "#d9b15c";
 
   function CompanyLogo({ className }: { className?: string }) {
     return (
-      <span className={cn("orbit-brand-logo-frame inline-flex max-w-full items-center", light && "shadow-sm")}>
+      <span className="orbit-brand-logo-frame inline-flex max-w-full items-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={companyLogo}
@@ -713,17 +771,23 @@ export function OrbitMailApp({
     );
   }
 
-  const navActive = light
-    ? "bg-amber-50 font-semibold text-slate-900 shadow-[inset_3px_0_0_#b45309]"
-    : "bg-[rgba(212,175,55,0.18)] font-semibold text-[#f0d78c] shadow-[inset_3px_0_0_#d4af37]";
-  const navIdle = light
-    ? "text-slate-700 hover:bg-slate-100 hover:text-slate-900"
-    : "text-zinc-400 hover:bg-[rgba(212,175,55,0.1)] hover:text-white";
-  const iconBtn = light
-    ? "rounded-lg p-2 text-slate-600 hover:bg-slate-100 hover:text-amber-800"
-    : "rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-[#f0d78c]";
-  const accentText = light ? "text-amber-800" : "text-[#f0d78c]";
-  const sectionLabel = light ? "text-amber-800" : "text-[#d4af37]/85";
+  const navActive = "orbit-nav-active";
+  const navIdle =
+    "border border-transparent text-zinc-400 hover:bg-[rgba(23,61,52,0.35)] hover:text-white";
+  const iconBtn =
+    "rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.06] hover:text-[#ffd97a]";
+  const accentText = "text-[#ffd97a]";
+  const sectionLabel = "text-[#d9b15c]/90";
+
+  function goToSentFolder() {
+    const sentItem = SYSTEM_NAV.find((n) => n.key === "sent");
+    if (!sentItem) {
+      selectFolder("Sent");
+      return;
+    }
+    const matched = matchSystemFolder(foldersQuery.data ?? [], sentItem);
+    selectFolder(matched?.path || sentItem.defaultPath);
+  }
 
   function renderFolderButton(f: Folder & { depth?: number }, opts?: { custom?: boolean }) {
     const active = f.path === folder && !isStarredView;
@@ -733,7 +797,7 @@ export function OrbitMailApp({
       <div key={f.path} className="group relative mb-0.5" style={{ paddingLeft: (f.depth || 0) * 12 }}>
         <button
           type="button"
-          onClick={() => selectFolder(f.path, "custom")}
+          onClick={() => selectFolder(f.path)}
           className={cn(
             "flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2.5 text-left text-sm transition-colors duration-150",
             active ? navActive : navIdle,
@@ -741,13 +805,11 @@ export function OrbitMailApp({
         >
           <Icon
             className="size-4 shrink-0"
-            style={{
-              color: active ? (light ? "#b45309" : "#d4af37") : light ? "#475569" : undefined,
-            }}
+            style={{ color: active ? "#d9b15c" : undefined }}
           />
-          <span className="flex-1 truncate">{label}</span>
+          <span className="flex-1 truncate font-medium">{label}</span>
           {f.unseen > 0 ? (
-            <span className="min-w-[1.35rem] rounded-full bg-[#d4af37] px-1.5 text-center text-[0.7rem] font-bold text-[#1a1200]">
+            <span className="min-w-[1.35rem] rounded-full bg-[#d9b15c] px-1.5 text-center text-[0.7rem] font-bold text-[#1a1200]">
               {f.unseen}
             </span>
           ) : null}
@@ -799,12 +861,12 @@ export function OrbitMailApp({
         <Icon
           className="size-4 shrink-0"
           style={{
-            color: active ? (light ? "#b45309" : item.color) : light ? "#475569" : undefined,
+            color: active ? item.color : undefined,
           }}
         />
-        <span className="flex-1 truncate">{item.label}</span>
+        <span className="flex-1 truncate font-medium">{item.label}</span>
         {unseen > 0 ? (
-          <span className="min-w-[1.35rem] rounded-full bg-[#d4af37] px-1.5 text-center text-[0.7rem] font-bold text-[#1a1200]">
+          <span className="min-w-[1.35rem] rounded-full bg-[#d9b15c] px-1.5 text-center text-[0.7rem] font-bold text-[#1a1200] shadow-[0_0_10px_rgba(217,177,92,0.35)]">
             {unseen}
           </span>
         ) : null}
@@ -813,12 +875,7 @@ export function OrbitMailApp({
   }
 
   const topBar = (
-    <header
-      className={cn(
-        "flex h-[4.75rem] shrink-0 items-center gap-3 border-b px-3 sm:h-[6.75rem] sm:px-4",
-        light ? "border-slate-200 bg-white" : "border-white/[0.07] bg-[#0b0b11]/95 backdrop-blur-xl",
-      )}
-    >
+    <header className="orbit-glass-panel flex h-[4.5rem] shrink-0 items-center gap-3 border-b border-white/[0.08] px-3 sm:h-[5.75rem] sm:px-5">
       {isStack ? (
         <button
           type="button"
@@ -833,7 +890,7 @@ export function OrbitMailApp({
         </button>
       ) : (
         <div className={cn("flex shrink-0 items-center", sidebarWidth)}>
-          <CompanyLogo className="h-[4.25rem] max-h-[5rem] w-auto max-w-[calc(100%-0.5rem)] sm:h-[7rem] sm:max-h-[8rem] sm:max-w-[calc(100%-0.25rem)]" />
+          <CompanyLogo className="h-[3.75rem] max-h-[5.25rem] w-auto max-w-[calc(100%-0.5rem)] sm:h-[5.25rem] sm:max-h-[6.25rem] sm:max-w-[calc(100%-0.25rem)]" />
         </div>
       )}
 
@@ -843,9 +900,9 @@ export function OrbitMailApp({
           <img
             src={companyLogo}
             alt=""
-            className="h-9 w-auto max-w-[140px] object-contain"
+            className="h-10 w-auto max-w-[150px] object-contain"
           />
-          <p className={cn("truncate text-[0.65rem]", light ? "text-slate-500" : "text-zinc-500")}>
+          <p className="truncate text-[0.65rem] font-medium text-zinc-500">
             {me?.email || "Business email"}
           </p>
         </div>
@@ -858,39 +915,24 @@ export function OrbitMailApp({
           setSearchQ(query.trim());
         }}
         className={cn(
-          "relative min-w-0 max-w-xl flex-1",
+          "relative min-w-0 max-w-2xl flex-1",
           isStack ? "hidden" : "mx-auto hidden md:block",
         )}
       >
-        <Search
-          className={cn(
-            "pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2",
-            light ? "text-slate-500" : "text-zinc-500",
-          )}
-        />
+        <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
         <input
           data-orbit-global-search
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search mail…"
-          className={cn(
-            "h-10 w-full rounded-xl border pl-9 pr-16 text-sm outline-none focus:border-[#d4af37]/70",
-            light
-              ? "border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-500"
-              : "border-white/10 bg-[#12121a] text-white",
-          )}
+          className="h-11 w-full rounded-2xl border border-white/[0.08] bg-[rgba(20,24,29,0.72)] pl-11 pr-16 text-sm font-medium text-white outline-none backdrop-blur-[40px] placeholder:text-zinc-500 focus:border-[#d9b15c]/55 focus:shadow-[0_0_0_3px_rgba(217,177,92,0.12)]"
         />
-        <span
-          className={cn(
-            "pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border px-1.5 py-0.5 text-[0.65rem]",
-            light ? "border-slate-200 text-slate-500" : "border-white/10 text-zinc-500",
-          )}
-        >
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-white/10 px-1.5 py-0.5 text-[0.65rem] font-semibold text-zinc-500">
           ⌘K
         </span>
       </form>
 
-      <div className="ml-auto flex items-center gap-0.5 sm:gap-2">
+      <div className="ml-auto flex items-center gap-1 sm:gap-2">
         {isStack ? (
           <button
             type="button"
@@ -898,7 +940,7 @@ export function OrbitMailApp({
               setCompose(emptyCompose());
               setComposeOpen(true);
             }}
-            className="mr-1 inline-flex size-10 items-center justify-center rounded-full bg-gradient-to-r from-[#f6e7a8] via-[#e0bc4a] to-[#c9971a] text-[#1a1200] shadow-md"
+            className="orbit-compose-btn mr-1 inline-flex size-10 items-center justify-center rounded-full text-[#1a1200]"
             aria-label="Compose"
           >
             <PenSquare className="size-4" />
@@ -913,15 +955,8 @@ export function OrbitMailApp({
           <Filter className="size-4" />
         </button>
         {me?.online ? (
-          <span
-            className={cn(
-              "hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.7rem] font-semibold sm:inline-flex",
-              light
-                ? "border-emerald-600/30 bg-emerald-50 text-emerald-700"
-                : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
-            )}
-          >
-            <i className={cn("size-1.5 rounded-full", light ? "bg-emerald-600" : "bg-emerald-400")} />
+          <span className="orbit-online-pill hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.7rem] font-semibold sm:inline-flex">
+            <i className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
             Online
           </span>
         ) : null}
@@ -934,24 +969,66 @@ export function OrbitMailApp({
           >
             <Bell className="size-4" />
             {inboxUnseen > 0 ? (
-              <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-[#d4af37] text-[0.6rem] font-bold text-[#1a1200]">
+              <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-[#d9b15c] text-[0.6rem] font-bold text-[#1a1200] shadow-[0_0_10px_rgba(217,177,92,0.55)]">
                 {inboxUnseen > 9 ? "9+" : inboxUnseen}
               </span>
             ) : null}
           </button>
-          {notifOpen ? (
-            <div
-              className={cn(
-                "absolute right-0 top-10 z-30 w-72 rounded-xl border p-4 text-sm shadow-xl",
-                light ? "border-slate-200 bg-white text-slate-700" : "border-white/10 bg-[#12121a] text-zinc-300",
-              )}
-            >
-              <p className={cn("font-semibold", accentText)}>Notifications</p>
-              <p className={cn("mt-2", light ? "text-slate-600" : "text-zinc-500")}>
-                {inboxUnseen > 0 ? `${inboxUnseen} unread in Inbox` : "No new notifications"}
-              </p>
-            </div>
-          ) : null}
+          <AnimatePresence>
+            {notifOpen ? (
+              <motion.div
+                initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 6, scale: 0.98 }}
+                transition={{ duration: 0.16 }}
+                className="orbit-glass-panel absolute right-0 top-11 z-30 w-[22rem] overflow-hidden rounded-2xl border border-white/[0.08] text-sm shadow-2xl"
+              >
+                <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
+                  <p className="font-semibold text-[#ffd97a]">Notifications</p>
+                  <span className="text-xs font-medium text-zinc-500">
+                    {inboxUnseen > 0 ? `${inboxUnseen} unread` : "All caught up"}
+                  </span>
+                </div>
+                <div className="orbit-scroll max-h-80 overflow-y-auto">
+                  {unreadNotifQuery.isLoading ? (
+                    <div className="space-y-2 p-3">
+                      {Array.from({ length: 3 }).map((_, i) => (
+                        <div key={i} className="orbit-skeleton h-14 rounded-xl" />
+                      ))}
+                    </div>
+                  ) : (unreadNotifQuery.data?.length ?? 0) === 0 ? (
+                    <p className="px-4 py-8 text-center text-zinc-500">No new notifications</p>
+                  ) : (
+                    unreadNotifQuery.data?.map((m) => (
+                      <button
+                        key={m.uid}
+                        type="button"
+                        className="flex w-full gap-3 border-b border-white/[0.05] px-4 py-3 text-left transition hover:bg-[rgba(23,61,52,0.35)]"
+                        onClick={() => {
+                          setNotifOpen(false);
+                          void openMessage(m.uid, { folderPath: "INBOX" });
+                        }}
+                      >
+                        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#d9b15c]/45 to-[#173d34] text-[0.65rem] font-bold">
+                          {initials(m.from || m.fromEmail)}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-semibold">{m.from || m.fromEmail}</span>
+                            <span className="shrink-0 text-[0.65rem] text-zinc-500">{formatWhen(m.date)}</span>
+                          </span>
+                          <span className="mt-0.5 block truncate text-sm text-zinc-300">
+                            {m.subject || "(no subject)"}
+                          </span>
+                          <span className="mt-0.5 block truncate text-xs text-zinc-500">{m.preview}</span>
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </div>
         <button
           type="button"
@@ -964,12 +1041,7 @@ export function OrbitMailApp({
         <button
           type="button"
           onClick={() => router.push(webmailRoutes.profile)}
-          className={cn(
-            "ml-1 flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-bold",
-            light
-              ? "border border-slate-200 bg-gradient-to-br from-amber-100 to-sky-100 text-slate-700"
-              : "border-l border-white/10 bg-gradient-to-br from-[#d4af37]/50 to-[#1e5fa1]/50",
-          )}
+          className="ml-1 flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/[0.1] bg-gradient-to-br from-[#d9b15c]/45 to-[#173d34] text-xs font-bold"
           title={me?.email || "Profile"}
         >
           {mailboxAvatar ? (
@@ -986,9 +1058,8 @@ export function OrbitMailApp({
   const sidebar = (
     <aside
       className={cn(
-        "flex shrink-0 flex-col border-r",
+        "orbit-glass-panel flex shrink-0 flex-col border-r border-white/[0.08]",
         sidebarWidth,
-        light ? "border-slate-200 bg-white" : "border-white/[0.07] bg-[#0b0b11]/95 backdrop-blur-xl",
         isStack && "fixed inset-y-0 left-0 z-40 shadow-2xl",
       )}
     >
@@ -1002,41 +1073,28 @@ export function OrbitMailApp({
           setComposeOpen(true);
           setDrawerOpen(false);
         }}
-        className="mx-3 mb-3 mt-1 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#f6e7a8] via-[#e0bc4a] to-[#c9971a] px-4 py-3 text-sm font-bold text-[#1a1200] shadow-[0_8px_22px_rgba(212,175,55,0.28)] transition hover:brightness-105 active:scale-[0.99]"
+        className="orbit-compose-btn mx-3 mb-3 mt-1 flex items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-bold text-[#1a1200] transition hover:brightness-105 active:scale-[0.99]"
       >
         <PenSquare className="size-4" />
         Compose
       </button>
 
       <nav className="orbit-scroll flex-1 overflow-y-auto overscroll-contain px-2 pb-3">
-        <p className={cn("mb-1 px-3 pt-1 text-[0.68rem] font-bold uppercase tracking-[0.14em]", sectionLabel)}>
+        <p className={cn("mb-1.5 px-3 pt-1 text-[0.68rem] font-bold uppercase tracking-[0.16em]", sectionLabel)}>
           Mailbox
         </p>
         {foldersQuery.isLoading && folders.length === 0
           ? Array.from({ length: 8 }).map((_, i) => (
-              <div
-                key={i}
-                className={cn("mb-1 h-10 animate-pulse rounded-[10px]", light ? "bg-slate-100" : "bg-white/5")}
-              />
+              <div key={i} className="mb-1 h-10 animate-pulse rounded-[12px] bg-white/5" />
             ))
           : systemNavResolved.map((entry) => renderSystemNavButton(entry))}
 
         <div className="mt-4 flex items-center justify-between px-3">
-          <p
-            className={cn(
-              "text-[0.68rem] font-bold uppercase tracking-[0.14em]",
-              light ? "text-slate-500" : "text-zinc-500",
-            )}
-          >
-            Folders
-          </p>
+          <p className="text-[0.68rem] font-bold uppercase tracking-[0.16em] text-zinc-500">Folders</p>
           <button
             type="button"
             onClick={openCreateFolder}
-            className={cn(
-              "rounded-md p-1",
-              light ? "text-slate-500 hover:bg-slate-100 hover:text-amber-800" : "text-zinc-500 hover:bg-white/5 hover:text-[#f0d78c]",
-            )}
+            className="rounded-md p-1 text-zinc-500 hover:bg-white/5 hover:text-[#ffd97a]"
             title="Create folder"
             aria-label="Create folder"
           >
@@ -1044,62 +1102,36 @@ export function OrbitMailApp({
           </button>
         </div>
         {nestedCustom.length === 0 ? (
-          <p className={cn("px-3 pt-2 text-xs", light ? "text-slate-500" : "text-zinc-600")}>
-            No custom folders yet.
-          </p>
+          <p className="px-3 pt-2 text-xs text-zinc-600">No custom folders yet.</p>
         ) : (
           nestedCustom.map((f) => renderFolderButton(f, { custom: true }))
         )}
       </nav>
 
-      <div
-        className={cn(
-          "mx-3 mb-3 rounded-xl border p-3",
-          light ? "border-slate-200 bg-slate-50" : "border-white/8 bg-[#12121a]/90",
-        )}
-      >
+      <div className="orbit-glass-panel mx-3 mb-3 rounded-2xl border border-white/[0.08] p-3.5">
         {quotaMb > 0 ? (
           <div>
-            <div
-              className={cn(
-                "mb-1 flex items-center justify-between text-[0.7rem]",
-                light ? "text-slate-600" : "text-zinc-500",
-              )}
-            >
-              <span>Storage</span>
+            <div className="mb-2 flex items-center justify-between text-[0.7rem] font-medium text-zinc-400">
+              <span className="uppercase tracking-[0.12em] text-[#d9b15c]/90">Storage</span>
               <span>
                 {formatStorageMb(usedMb)} of {formatStorageMb(quotaMb)} used ({Math.round(usedPct)}%)
               </span>
             </div>
-            <div className={cn("h-1.5 overflow-hidden rounded-full", light ? "bg-slate-200" : "bg-white/10")}>
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all",
-                  usedPct >= 90 ? "bg-red-400" : usedPct >= 75 ? "bg-amber-400" : "bg-[#d4af37]",
-                )}
-                style={{ width: `${usedPct}%` }}
-              />
+            <div className="orbit-storage-bar">
+              <span style={{ width: `${usedPct}%` }} />
             </div>
           </div>
         ) : (
-          <p className={cn("text-xs", light ? "text-slate-500" : "text-zinc-500")}>Storage usage unavailable</p>
+          <p className="text-xs text-zinc-500">Storage usage unavailable</p>
         )}
       </div>
 
-      <div
-        className={cn(
-          "flex items-center justify-around border-t px-2 py-3",
-          light ? "border-slate-200" : "border-white/8",
-        )}
-      >
+      <div className="flex items-center justify-around border-t border-white/[0.08] px-2 py-3">
         <button type="button" onClick={() => router.push(webmailRoutes.profile)} className={iconBtn} title="Profile & settings">
           <Settings className="size-4" />
         </button>
         <button type="button" onClick={() => router.push(webmailRoutes.contacts)} className={iconBtn} title="Contacts">
           <Users className="size-4" />
-        </button>
-        <button type="button" onClick={() => setTheme(light ? "dark" : "light")} className={iconBtn} title="Theme">
-          {light ? <Moon className="size-4" /> : <Sun className="size-4" />}
         </button>
         <button type="button" onClick={() => void logout()} className={iconBtn} title="Logout">
           <LogOut className="size-4" />
@@ -1111,10 +1143,9 @@ export function OrbitMailApp({
   const listPane = (
     <section
       className={cn(
-        "flex min-h-0 shrink-0 flex-col border-r",
+        "orbit-glass-panel flex min-h-0 shrink-0 flex-col border-r border-white/[0.08]",
         listWidth,
         isStack && "min-w-0 flex-1 border-r-0",
-        light ? "border-slate-200 bg-white" : "border-white/[0.07] bg-[#0a0a10]",
       )}
     >
       <div className="flex items-center gap-2 border-b border-white/8 px-3 py-3 md:hidden">
@@ -1147,8 +1178,8 @@ export function OrbitMailApp({
         </button>
       </div>
 
-      <div className="flex items-center justify-between px-4 py-3">
-        <h2 className={cn("text-lg font-bold tracking-tight", light ? "text-slate-900" : undefined)}>
+      <div className="flex items-center justify-between px-4 py-3.5">
+        <h2 className="text-lg font-bold tracking-tight">
           {folderLabel}{" "}
           <span className={accentText}>
             {folder.toUpperCase() === "INBOX" && !isStarredView ? inboxUnseen || total : total}
@@ -1156,12 +1187,7 @@ export function OrbitMailApp({
         </h2>
         <div className="flex items-center gap-1">
           {!searchQ.trim() && !isStarredView ? (
-            <div
-              className={cn(
-                "mr-1 flex rounded-lg border p-0.5 text-xs",
-                light ? "border-slate-200" : "border-white/10",
-              )}
-            >
+            <div className="mr-1 flex rounded-xl border border-white/[0.08] bg-black/20 p-0.5 text-xs backdrop-blur-md">
               <button
                 type="button"
                 onClick={() => {
@@ -1169,14 +1195,10 @@ export function OrbitMailApp({
                   setPage(1);
                 }}
                 className={cn(
-                  "rounded-md px-2 py-1 font-medium",
+                  "rounded-lg px-2.5 py-1.5 font-semibold transition",
                   viewMode === "messages"
-                    ? light
-                      ? "bg-amber-50 text-amber-900"
-                      : "bg-[#d4af37]/20 text-[#f0d78c]"
-                    : light
-                      ? "text-slate-600"
-                      : "text-zinc-400",
+                    ? "bg-[rgba(23,61,52,0.85)] text-[#ffd97a]"
+                    : "text-zinc-400 hover:text-white",
                 )}
               >
                 Messages
@@ -1188,14 +1210,10 @@ export function OrbitMailApp({
                   setPage(1);
                 }}
                 className={cn(
-                  "rounded-md px-2 py-1 font-medium",
+                  "rounded-lg px-2.5 py-1.5 font-semibold transition",
                   viewMode === "threads"
-                    ? light
-                      ? "bg-amber-50 text-amber-900"
-                      : "bg-[#d4af37]/20 text-[#f0d78c]"
-                    : light
-                      ? "text-slate-600"
-                      : "text-zinc-400",
+                    ? "bg-[rgba(23,61,52,0.85)] text-[#ffd97a]"
+                    : "text-zinc-400 hover:text-white",
                 )}
               >
                 Threads
@@ -1350,13 +1368,24 @@ export function OrbitMailApp({
                   return (
                     <div
                       key={m.uid}
+                      role="button"
+                      tabIndex={0}
+                      data-active={active ? "true" : "false"}
+                      data-unseen={m.unseen ? "true" : "false"}
+                      onMouseEnter={() => prefetchMessage(m.uid)}
+                      onFocus={() => prefetchMessage(m.uid)}
+                      onClick={() => void openMessage(m.uid)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          void openMessage(m.uid);
+                        }
+                      }}
                       className={cn(
-                        "orbit-mail-row mb-1.5 flex w-full gap-2 rounded-xl border px-2 py-3 text-left transition-colors duration-100",
+                        "orbit-mail-row mb-1.5 flex w-full gap-2 rounded-2xl border px-2.5 py-3 text-left",
                         active
-                          ? "border-[#d4af37]/55 bg-[rgba(212,175,55,0.12)]"
-                          : light
-                            ? "border-transparent hover:bg-slate-50"
-                            : "border-transparent hover:bg-white/[0.03]",
+                          ? "border-[#d9b15c]/45 bg-[rgba(217,177,92,0.1)]"
+                          : "border-transparent",
                         m.unseen && "font-semibold",
                       )}
                     >
@@ -1365,31 +1394,38 @@ export function OrbitMailApp({
                         checked={checked}
                         onChange={() => toggleSelect(m.uid)}
                         onClick={(e) => e.stopPropagation()}
-                        className="mt-2 size-3.5 shrink-0 accent-[#d4af37]"
+                        className="mt-2 size-3.5 shrink-0 rounded border-white/20 accent-[#d9b15c]"
                         aria-label={`Select ${m.subject || "message"}`}
                       />
-                      <button
-                        type="button"
-                        onMouseEnter={() => prefetchMessage(m.uid)}
-                        onFocus={() => prefetchMessage(m.uid)}
-                        onClick={() => void openMessage(m.uid)}
-                        className="flex min-w-0 flex-1 gap-3 text-left"
-                      >
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#d4af37]/40 to-[#1e5fa1]/40 text-xs font-bold">
+                      <span className="flex min-w-0 flex-1 gap-3 text-left">
+                        <span
+                          className={cn(
+                            "flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                            m.unseen
+                              ? "bg-gradient-to-br from-[#d9b15c]/55 to-[#173d34] text-[#ffd97a]"
+                              : "bg-gradient-to-br from-white/10 to-[#173d34]/60 text-zinc-200",
+                          )}
+                        >
                           {initials(m.from || m.fromEmail)}
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm">{m.from || m.fromEmail}</span>
-                            <span className="shrink-0 text-[0.7rem] text-zinc-500">{formatWhen(m.date)}</span>
+                            <span className="truncate text-sm font-semibold tracking-tight">
+                              {m.from || m.fromEmail}
+                            </span>
+                            <span className="shrink-0 text-[0.7rem] font-medium text-zinc-500">
+                              {formatWhen(m.date)}
+                            </span>
                           </span>
-                          <span className="mt-0.5 block truncate text-sm">{m.subject || "(no subject)"}</span>
+                          <span className="mt-0.5 block truncate text-sm font-medium text-zinc-100">
+                            {m.subject || "(no subject)"}
+                          </span>
                           <span className="mt-0.5 flex items-center gap-1 truncate text-xs font-normal text-zinc-500">
-                            {m.hasAttachment ? <Paperclip className="size-3" /> : null}
+                            {m.hasAttachment ? <Paperclip className="size-3 text-[#d9b15c]" /> : null}
                             {m.preview || " "}
                           </span>
                         </span>
-                      </button>
+                      </span>
                       <button
                         type="button"
                         className="mt-1 shrink-0 rounded p-1 hover:bg-white/5"
@@ -1399,7 +1435,7 @@ export function OrbitMailApp({
                         <Star
                           className={cn(
                             "size-3.5",
-                            m.flagged ? "fill-[#d4af37] text-[#d4af37]" : "text-zinc-600",
+                            m.flagged ? "fill-[#d9b15c] text-[#d9b15c]" : "text-zinc-600",
                           )}
                         />
                       </button>
@@ -1448,20 +1484,16 @@ export function OrbitMailApp({
   );
 
   const readerPane = (
-    <section className={cn("flex min-w-0 flex-1 flex-col", light ? "bg-white" : "bg-[#0a0a10]")}>
-      <div
-        className={cn(
-          "flex items-center justify-between gap-2 border-b px-3 py-2 sm:px-4",
-          light ? "border-slate-200" : "border-white/8",
-        )}
-      >
-        <div className={cn("flex flex-wrap items-center gap-0.5 text-sm", light ? "text-slate-600" : "text-zinc-400")}>
+    <section className="orbit-glass-panel flex min-w-0 flex-1 flex-col border-white/[0.08]">
+      <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] px-3 py-2.5 sm:px-4">
+        <div className="flex flex-wrap items-center gap-0.5 text-sm text-zinc-400">
           {isStack ? (
             <button
               type="button"
               onClick={() => {
                 setSelectedUid(null);
                 setPane("list");
+                router.push(webmailRoutes.mail, { scroll: false });
               }}
               className="mr-1 inline-flex items-center gap-1 rounded-lg px-2 py-1.5 hover:bg-white/5"
             >
@@ -1568,23 +1600,34 @@ export function OrbitMailApp({
       </div>
 
       {!selectedUid ? (
-        <div className="orbit-empty-state flex-1">
-          <div className="orbit-empty-state__icon">
-            <Mail className="size-8 text-[#d4af37]" />
+        <motion.div
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.28 }}
+          className="orbit-empty-state flex-1"
+        >
+          <div className="orbit-empty-state__orb" aria-hidden>
+            <Mail className="size-8 text-[#ffd97a]" />
           </div>
           <p className="orbit-empty-state__title">Select a message to read</p>
           <p className="orbit-empty-state__hint">
             Choose a conversation from the list to view the full message, attachments, and reply options.
           </p>
-        </div>
-      ) : detailQuery.isLoading && !detail ? (
+        </motion.div>
+      ) : detailQuery.isFetching && !detail ? (
         <div className="flex-1 space-y-4 p-6">
           <div className="orbit-skeleton h-8 w-2/3 rounded-lg" />
           <div className="orbit-skeleton h-4 w-1/3 rounded-lg" />
           <div className="orbit-skeleton mt-8 h-40 rounded-xl" />
         </div>
       ) : detail ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <motion.div
+          key={detail.uid}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
           <div className="border-b border-white/8 px-4 py-4 sm:px-6">
             <div className="flex items-start justify-between gap-3">
               <h1 className="text-lg font-bold leading-snug sm:text-xl">{detail.subject || "(no subject)"}</h1>
@@ -1674,9 +1717,9 @@ export function OrbitMailApp({
             ))}
           </div>
 
-          <div className="border-t border-white/8 p-3 sm:p-4">
-            <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#12121a] px-3 py-2">
-              <span className="flex size-8 items-center justify-center rounded-full bg-[#d4af37]/25 text-xs font-bold">
+          <div className="border-t border-white/[0.08] p-3 sm:p-4">
+            <div className="flex items-center gap-3 rounded-2xl border border-white/[0.08] bg-[rgba(20,24,29,0.72)] px-3 py-2.5 backdrop-blur-xl">
+              <span className="flex size-8 items-center justify-center rounded-full bg-[#d9b15c]/25 text-xs font-bold">
                 {initials(displayName || "U")}
               </span>
               <button
@@ -1689,15 +1732,24 @@ export function OrbitMailApp({
               <button
                 type="button"
                 onClick={() => startReply("reply")}
-                className="rounded-full bg-gradient-to-r from-[#f6e7a8] to-[#c9971a] px-4 py-2 text-sm font-bold text-[#1a1200]"
+                className="orbit-compose-btn rounded-full px-4 py-2 text-sm font-bold text-[#1a1200]"
               >
                 Reply
               </button>
             </div>
           </div>
-        </div>
+        </motion.div>
       ) : (
-        <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">Unable to load message</div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-zinc-500">
+          <p>Unable to load message</p>
+          <button
+            type="button"
+            className="rounded-lg px-3 py-1.5 text-[#ffd97a] hover:bg-white/5"
+            onClick={() => void detailQuery.refetch()}
+          >
+            Retry
+          </button>
+        </div>
       )}
     </section>
   );
@@ -1768,9 +1820,6 @@ export function OrbitMailApp({
             <button type="button" onClick={() => router.push(webmailRoutes.contacts)} className="rounded-lg p-2 text-zinc-400">
               <Users className="size-4" />
             </button>
-            <button type="button" onClick={() => setTheme(light ? "dark" : "light")} className="rounded-lg p-2 text-zinc-400">
-              {light ? <Moon className="size-4" /> : <Sun className="size-4" />}
-            </button>
             <button type="button" onClick={() => void logout()} className="rounded-lg p-2 text-zinc-400">
               <LogOut className="size-4" />
             </button>
@@ -1804,8 +1853,9 @@ export function OrbitMailApp({
             qc.invalidateQueries({ queryKey: ["webmail", "messages"] }),
             qc.invalidateQueries({ queryKey: ["webmail", "folders"] }),
             qc.invalidateQueries({ queryKey: ["webmail", "contacts"] }),
-          ]);
-          router.push(webmailRoutes.mail);
+          ]).then(() => {
+            goToSentFolder();
+          });
         }}
       />
 

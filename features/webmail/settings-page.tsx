@@ -55,14 +55,18 @@ function buildPreviewHtml(profile: ProfileForm) {
 
 export function WebmailSettingsPage() {
   const router = useRouter();
-  const { setTheme, resolvedTheme } = useTheme();
-  const light = resolvedTheme === "light";
-  const [prefs, setPrefs] = React.useState<Prefs>({ theme: "dark", signature: "" });
+  const { setTheme } = useTheme();
+  const light = false;
+  const [, setPrefs] = React.useState<Prefs>({ theme: "dark", signature: "" });
   const [profile, setProfile] = React.useState<ProfileForm>(brandingToForm(null, ""));
   const [email, setEmail] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    setTheme("dark");
+  }, [setTheme]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -75,8 +79,8 @@ export function WebmailSettingsPage() {
         if (cancelled) return;
         setEmail(me.email);
         setProfile(brandingToForm(me.branding, me.name));
-        setPrefs(settings);
-        setTheme(settings.theme);
+        setPrefs({ ...settings, theme: "dark" });
+        setTheme("dark");
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Failed to load profile");
         router.replace(webmailRoutes.home);
@@ -112,11 +116,12 @@ export function WebmailSettingsPage() {
         }),
         webmailApi<Prefs>("/api/webmail/settings", {
           method: "PUT",
-          body: JSON.stringify({ theme: prefs.theme, signature: profile.signatureText }),
+          body: JSON.stringify({ theme: "dark", signature: profile.signatureText }),
         }),
       ]);
       setProfile(brandingToForm(branding, branding.displayName));
-      setTheme(prefs.theme);
+      setPrefs((p) => ({ ...p, theme: "dark" }));
+      setTheme("dark");
       toast.success("Profile saved");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
@@ -315,30 +320,12 @@ export function WebmailSettingsPage() {
             />
           </div>
 
-          <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.14em] text-[#d4af37]">
+          <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.14em] text-[#d9b15c]">
             Appearance
           </h2>
-          <label className="mb-6 block text-sm">
-            <span className={cn("mb-1.5 block font-medium", light ? "text-slate-600" : "text-zinc-400")}>
-              Theme
-            </span>
-            <select
-              value={prefs.theme}
-              onChange={(e) =>
-                setPrefs((p) => ({ ...p, theme: e.target.value as Prefs["theme"] }))
-              }
-              className={cn(
-                "h-11 w-full rounded-xl border px-3 text-sm outline-none focus:border-[#d4af37]/70",
-                light
-                  ? "border-slate-200 bg-white text-slate-900"
-                  : "border-white/10 bg-[#12121a] text-white",
-              )}
-            >
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-              <option value="system">System</option>
-            </select>
-          </label>
+          <p className="mb-6 text-sm text-zinc-400">
+            Global Orbit Mail uses a permanent dark glass theme for a premium reading experience.
+          </p>
 
           <button
             type="button"

@@ -1,6 +1,14 @@
 import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import { RegisterWebmailSw } from "@/features/webmail/register-webmail-sw";
 import { PwaInstallBanner } from "@/features/webmail/pwa-install-banner";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-orbit-ui",
+  display: "swap",
+  weight: ["400", "500", "600", "700"],
+});
 
 export const metadata: Metadata = {
   title: {
@@ -34,8 +42,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#050508" },
-    { media: "(prefers-color-scheme: light)", color: "#050508" },
+    { media: "(prefers-color-scheme: dark)", color: "#08090C" },
+    { media: "(prefers-color-scheme: light)", color: "#08090C" },
   ],
   colorScheme: "dark",
   width: "device-width",
@@ -47,7 +55,9 @@ export const viewport: Viewport = {
 
 export default function WebmailLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="orbit-webmail min-h-dvh bg-[#050508] text-[#f5f5f7] antialiased [color-scheme:dark]">
+    <div
+      className={`${inter.variable} orbit-webmail min-h-dvh bg-[#08090C] text-[#f5f5f7] antialiased [color-scheme:dark] [font-family:var(--font-orbit-ui),ui-sans-serif,system-ui,sans-serif]`}
+    >
       <RegisterWebmailSw />
       {children}
       <PwaInstallBanner />

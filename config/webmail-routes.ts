@@ -11,7 +11,11 @@ export const webmailRoutes = {
   settings: "/settings",
   profile: "/profile",
   contacts: "/contacts",
-  message: (id: string | number) => `/mail/${id}`,
+  message: (id: string | number, folder?: string | null) => {
+    const base = `/mail/${id}`;
+    if (!folder) return base;
+    return `${base}?folder=${encodeURIComponent(folder)}`;
+  },
 } as const;
 
 /** Legacy public paths that must 308 to the new structure. */
