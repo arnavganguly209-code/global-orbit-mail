@@ -1,4 +1,4 @@
-import { promises as dns } from "node:dns";
+import { Resolver } from "node:dns/promises";
 import { connect as tlsConnect } from "node:tls";
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
@@ -6,8 +6,23 @@ import type { DnsRecordStatus, VerificationKind, VerificationState } from "@pris
 import { getMailHostname } from "@/lib/dns/records";
 import { getConfiguredWebmailHostname } from "@/lib/dns/mail-host";
 import { isUsableIpv4, resolveMailServerIpv4 } from "@/lib/dns/mail-ip";
+import { isLikelyCloudflareProxyIp } from "@/lib/dns/cloudflare-proxy";
 import { MailProvisioningService } from "@/services/provisioning/mail-provisioning-service";
 import { generateDkimKeypair } from "@/lib/dns/dkim";
+
+export { isLikelyCloudflareProxyIp } from "@/lib/dns/cloudflare-proxy";
+
+/**
+ * Prefer public resolvers so verification is not blocked by a broken local stub
+ * (systemd-resolved / router DNS / IPv6 link-local failures).
+ */
+const PUBLIC_DNS_SERVERS = ["8.8.8.8", "1.1.1.1", "9.9.9.9"];
+
+function createDnsResolver() {
+  const resolver = new Resolver();
+  resolver.setServers(PUBLIC_DNS_SERVERS);
+  return resolver;
+}
 
 export type CheckResult = {
   ok: boolean;
@@ -118,7 +133,7 @@ function includesDmarc(observed: string[]): boolean {
 
 async function lookupMx(host: string): Promise<string[]> {
   try {
-    const rows = await dns.resolveMx(host);
+    const rows = await createDnsResolver().resolveMx(host);
     return rows
       .sort((a, b) => a.priority - b.priority)
       .map((r) => `${r.priority} ${r.exchange.replace(/\.$/, "").toLowerCase()}.`);
@@ -129,7 +144,7 @@ async function lookupMx(host: string): Promise<string[]> {
 
 async function lookupTxt(host: string): Promise<string[]> {
   try {
-    return normalizeTxt(await dns.resolveTxt(host));
+    return normalizeTxt(await createDnsResolver().resolveTxt(host));
   } catch {
     return [];
   }
@@ -137,7 +152,7 @@ async function lookupTxt(host: string): Promise<string[]> {
 
 async function lookupA(host: string): Promise<string[]> {
   try {
-    return await dns.resolve4(host);
+    return await createDnsResolver().resolve4(host);
   } catch {
     return [];
   }
@@ -145,11 +160,94 @@ async function lookupA(host: string): Promise<string[]> {
 
 async function lookupCname(host: string): Promise<string[]> {
   try {
-    const rows = await dns.resolveCname(host);
+    const rows = await createDnsResolver().resolveCname(host);
     return rows.map((r) => r.replace(/\.$/, "").toLowerCase());
   } catch {
     return [];
   }
+}
+
+function normalizeHost(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, "");
+}
+
+/**
+ * Autodiscover / Autoconfig are HTTP client-discovery aliases.
+ * Cloudflare orange-cloud flattens CNAMEs to anycast A records, so a pure
+ * resolveCname() check falsely fails even when the zone CNAME is correct.
+ * Accept: exact CNAME, same A as target, or Cloudflare-proxied HTTP discovery.
+ */
+async function verifyClientDiscoveryAlias(
+  host: string,
+  expectedTarget: string,
+  label: string,
+): Promise<CheckResult> {
+  const target = normalizeHost(expectedTarget);
+  const cnames = await lookupCname(host);
+  if (cnames.some((c) => c === target || c.endsWith(`.${target}`))) {
+    return {
+      ok: true,
+      label,
+      expected: target,
+      observed: cnames,
+      detail: `${label} CNAME verified`,
+    };
+  }
+
+  const hostIps = await lookupA(host);
+  const targetIps = await lookupA(target);
+  if (hostIps.length > 0 && targetIps.some((ip) => hostIps.includes(ip))) {
+    return {
+      ok: true,
+      label,
+      expected: target,
+      observed: hostIps,
+      detail: `${label} resolves to the same IPs as ${target} (flattened alias)`,
+    };
+  }
+
+  const cfHits = hostIps.filter(isLikelyCloudflareProxyIp);
+  if (cfHits.length > 0) {
+    // Orange-cloud on HTTP discovery is valid; SMTP/mail A must stay DNS-only.
+    return {
+      ok: true,
+      label,
+      expected: target,
+      observed: hostIps,
+      detail: `${label} is Cloudflare-proxied (public DNS hides CNAME to ${target}). Proxy is acceptable for HTTP client discovery.`,
+    };
+  }
+
+  return {
+    ok: false,
+    label,
+    expected: target,
+    observed: cnames.length > 0 ? cnames : hostIps,
+    detail:
+      cnames.length > 0 || hostIps.length > 0
+        ? `${label} does not point to ${target}`
+        : `${label} CNAME missing`,
+  };
+}
+
+/** Soft-delete duplicate dns_records rows keeping the newest per type+name. */
+async function dedupeDnsRecords(domainId: string) {
+  const rows = await prisma.dnsRecord.findMany({
+    where: { domainId, deletedAt: null },
+    orderBy: { updatedAt: "desc" },
+  });
+  const seen = new Set<string>();
+  const duplicateIds: string[] = [];
+  for (const row of rows) {
+    const key = `${row.type}::${row.name.toLowerCase()}`;
+    if (seen.has(key)) duplicateIds.push(row.id);
+    else seen.add(key);
+  }
+  if (duplicateIds.length === 0) return;
+  await prisma.dnsRecord.updateMany({
+    where: { id: { in: duplicateIds } },
+    data: { deletedAt: new Date() },
+  });
 }
 
 async function tcpOpen(host: string, port: number, timeoutMs = 5000): Promise<boolean> {
@@ -261,25 +359,6 @@ function toRecordStatus(ok: boolean, observed: string[]): DnsRecordStatus {
  * Rough Cloudflare anycast / proxy detection for mail host A records.
  * Proxied orange-cloud MX/A breaks SMTP — never treat these as valid mail endpoints.
  */
-export function isLikelyCloudflareProxyIp(ip: string): boolean {
-  const parts = ip.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return false;
-  const [a, b] = parts as [number, number, number, number];
-  // Common Cloudflare published ranges (subset — enough to warn strongly)
-  if (a === 104 && b >= 16 && b <= 31) return true; // 104.16.0.0/12
-  if (a === 172 && b >= 64 && b <= 71) return true; // 172.64.0.0/13
-  if (a === 173 && b === 245) return true; // 173.245.48.0/20 approx
-  if (a === 103 && b >= 21 && b <= 22) return true;
-  if (a === 141 && b === 101) return true;
-  if (a === 188 && b === 114) return true;
-  if (a === 190 && b === 93) return true;
-  if (a === 197 && b === 234) return true;
-  if (a === 198 && b === 41) return true;
-  if (a === 162 && b === 158) return true;
-  if (a === 108 && b === 162) return true;
-  return false;
-}
-
 export function buildMailProxyWarnings(input: {
   domain: string;
   mailAHost: string;
@@ -324,6 +403,13 @@ export const dnsVerificationService = {
       throw new Error("Domain not found");
     }
 
+    await dedupeDnsRecords(domainId);
+    const freshRecords = await prisma.dnsRecord.findMany({
+      where: { domainId, deletedAt: null },
+    });
+    // Prefer deduped list for expected-record lookups
+    (domain as { dnsRecords: typeof freshRecords }).dnsRecords = freshRecords;
+
     // Do not wipe last dnsStatus to PENDING on every poll (Hostinger-style: no flicker).
     await prisma.domain.update({
       where: { id: domainId },
@@ -334,19 +420,19 @@ export const dnsVerificationService = {
 
     const mailHost = getMailHostname().toLowerCase().replace(/\.$/, "");
     const webmailHost = getConfiguredWebmailHostname().toLowerCase().replace(/\.$/, "");
-    const expectedMx = domain.dnsRecords.find((r) => r.type === "MX");
-    const expectedSpf = domain.dnsRecords.find((r) => r.type === "SPF");
-    const expectedMailA = domain.dnsRecords.find(
+    const expectedMx = freshRecords.find((r) => r.type === "MX");
+    const expectedSpf = freshRecords.find((r) => r.type === "SPF");
+    const expectedMailA = freshRecords.find(
       (r) => r.type === "A" && (r.name.startsWith("mail.") || r.name === `mail.${domain.name}`),
     );
-    const expectedDkim = domain.dnsRecords.find((r) => r.type === "DKIM");
-    const expectedDmarc = domain.dnsRecords.find((r) => r.type === "DMARC");
-    const expectedAutodiscover = domain.dnsRecords.find(
+    const expectedDkim = freshRecords.find((r) => r.type === "DKIM");
+    const expectedDmarc = freshRecords.find((r) => r.type === "DMARC");
+    const expectedAutodiscover = freshRecords.find(
       (r) =>
         r.type === "CNAME" &&
         (r.name.startsWith("autodiscover.") || r.name === `autodiscover.${domain.name}`),
     );
-    const expectedAutoconfig = domain.dnsRecords.find(
+    const expectedAutoconfig = freshRecords.find(
       (r) =>
         r.type === "CNAME" &&
         (r.name.startsWith("autoconfig.") || r.name === `autoconfig.${domain.name}`),
@@ -405,22 +491,22 @@ export const dnsVerificationService = {
 
     const autodiscoverHost = expectedAutodiscover?.name ?? `autodiscover.${domain.name}`;
     const autoconfigHost = expectedAutoconfig?.name ?? `autoconfig.${domain.name}`;
-    const autodiscoverTarget = (
-      expectedAutodiscover?.value || webmailHost
-    )
-      .toLowerCase()
-      .replace(/\.$/, "");
-    const autoconfigTarget = (expectedAutoconfig?.value || webmailHost)
-      .toLowerCase()
-      .replace(/\.$/, "");
-    const autodiscoverObserved = await lookupCname(autodiscoverHost);
-    const autoconfigObserved = await lookupCname(autoconfigHost);
-    const autodiscoverOk = autodiscoverObserved.some(
-      (c) => c === autodiscoverTarget || c.endsWith(`.${autodiscoverTarget}`),
+    const autodiscoverTarget = normalizeHost(expectedAutodiscover?.value || webmailHost);
+    const autoconfigTarget = normalizeHost(expectedAutoconfig?.value || webmailHost);
+    const autodiscover = await verifyClientDiscoveryAlias(
+      autodiscoverHost,
+      autodiscoverTarget,
+      "Autodiscover",
     );
-    const autoconfigOk = autoconfigObserved.some(
-      (c) => c === autoconfigTarget || c.endsWith(`.${autoconfigTarget}`),
+    const autoconfig = await verifyClientDiscoveryAlias(
+      autoconfigHost,
+      autoconfigTarget,
+      "Autoconfig",
     );
+    const autodiscoverOk = autodiscover.ok;
+    const autoconfigOk = autoconfig.ok;
+    const autodiscoverObserved = autodiscover.observed;
+    const autoconfigObserved = autoconfig.observed;
 
     const sslHost = mailHost;
     const ssl = await checkSsl(sslHost);
@@ -463,26 +549,8 @@ export const dnsVerificationService = {
       observed: dmarcObserved,
       detail: dmarcOk ? "DMARC TXT verified" : "DMARC TXT missing",
     };
-    const autodiscover: CheckResult = {
-      ok: autodiscoverOk,
-      label: "Autodiscover",
-      expected: autodiscoverTarget,
-      observed: autodiscoverObserved,
-      detail: autodiscoverOk
-        ? "Autodiscover CNAME verified"
-        : "Autodiscover CNAME missing or wrong target",
-    };
-    const autoconfig: CheckResult = {
-      ok: autoconfigOk,
-      label: "Autoconfig",
-      expected: autoconfigTarget,
-      observed: autoconfigObserved,
-      detail: autoconfigOk
-        ? "Autoconfig CNAME verified"
-        : "Autoconfig CNAME missing or wrong target",
-    };
 
-    for (const record of domain.dnsRecords) {
+    for (const record of freshRecords) {
       let status: DnsRecordStatus = record.status;
       if (record.type === "MX") status = toRecordStatus(mxOk, mxObserved);
       if (record.type === "SPF") status = toRecordStatus(spfOk, spfObserved);
@@ -530,7 +598,10 @@ export const dnsVerificationService = {
     // Customer "Verified" = 100% required DNS only (Hostinger-style). Ports are infra health.
     const dnsReady = requiredPassed === requiredTotal;
     const ready = dnsReady;
-    const waitingFor = requiredChecks.find((c) => !c.ok)?.label ?? null;
+    const failedCheck = requiredChecks.find((c) => !c.ok) ?? null;
+    const waitingFor = failedCheck
+      ? `${failedCheck.label}: ${failedCheck.detail}`
+      : null;
 
     let overall: DomainVerifyReport["overall"] = "PENDING";
     if (ready) overall = "VERIFIED";
@@ -581,6 +652,7 @@ export const dnsVerificationService = {
       ssl.detail,
     );
 
+    // Persist last verify summary for UI (failed check detail, not only PARTIAL).
     await prisma.domain.update({
       where: { id: domain.id },
       data: {
@@ -657,6 +729,8 @@ export const dnsVerificationService = {
         overall,
         ready,
         requiredPassed,
+        requiredTotal,
+        waitingFor,
         mx: mx.ok,
         spf: spf.ok,
         mailA: mailA.ok,
@@ -668,6 +742,12 @@ export const dnsVerificationService = {
         imap: imap.ok,
         ssl: ssl.ok,
         mailProxyWarnings: mailProxyWarnings.length,
+        checks: requiredChecks.map((c) => ({
+          label: c.label,
+          ok: c.ok,
+          detail: c.detail,
+          observed: c.observed.slice(0, 5),
+        })),
       },
     });
 

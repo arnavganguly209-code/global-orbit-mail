@@ -21,10 +21,14 @@ export type AutoVerifyReport = {
   requiredPassed: number;
   requiredTotal: number;
   waitingFor: string | null;
-  mx?: { ok: boolean; label: string };
-  spf?: { ok: boolean; label: string };
-  mailA?: { ok: boolean; label: string; detail?: string };
   friendlyStatus?: string;
+  mx?: { ok: boolean; label: string; detail?: string; observed?: string[] };
+  spf?: { ok: boolean; label: string; detail?: string; observed?: string[] };
+  mailA?: { ok: boolean; label: string; detail?: string; observed?: string[] };
+  dkim?: { ok: boolean; label: string; detail?: string; observed?: string[] };
+  dmarc?: { ok: boolean; label: string; detail?: string; observed?: string[] };
+  autodiscover?: { ok: boolean; label: string; detail?: string; observed?: string[] };
+  autoconfig?: { ok: boolean; label: string; detail?: string; observed?: string[] };
   mailProxyWarnings?: {
     severity: "error" | "warning";
     host: string;

@@ -437,19 +437,52 @@ export function DnsSetupWizard({
             ) : (
               <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-amber-600" />
             )}
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-foreground">{friendly.label}</p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                DNS is propagating. This usually takes a few minutes. We&apos;ll continue checking
-                automatically. No action required.
+                {auto.lastReport?.waitingFor
+                  ? auto.lastReport.waitingFor
+                  : "DNS is propagating. This usually takes a few minutes. We'll continue checking automatically. No action required."}
               </p>
               {auto.attempt > 0 ? (
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   Automatic check #{auto.attempt}
-                  {auto.lastReport?.waitingFor
-                    ? ` · Waiting for ${auto.lastReport.waitingFor}`
+                  {typeof auto.lastReport?.requiredPassed === "number" &&
+                  typeof auto.lastReport?.requiredTotal === "number"
+                    ? ` · ${auto.lastReport.requiredPassed}/${auto.lastReport.requiredTotal} required checks passed`
                     : null}
                 </p>
+              ) : null}
+              {auto.lastReport ? (
+                <ul className="mt-3 grid gap-1 text-[11px] text-muted-foreground sm:grid-cols-2">
+                  {(
+                    [
+                      auto.lastReport.mailA,
+                      auto.lastReport.mx,
+                      auto.lastReport.spf,
+                      auto.lastReport.dkim,
+                      auto.lastReport.dmarc,
+                      auto.lastReport.autodiscover,
+                      auto.lastReport.autoconfig,
+                    ] as const
+                  )
+                    .filter(Boolean)
+                    .map((check) => (
+                      <li key={check!.label} className="flex items-center gap-1.5">
+                        <span
+                          className={
+                            check!.ok ? "text-emerald-600" : "text-amber-700 dark:text-amber-400"
+                          }
+                        >
+                          {check!.ok ? "✓" : "○"}
+                        </span>
+                        <span className="truncate">
+                          {check!.label}
+                          {!check!.ok && check!.detail ? ` — ${check!.detail}` : ""}
+                        </span>
+                      </li>
+                    ))}
+                </ul>
               ) : null}
             </div>
           </div>

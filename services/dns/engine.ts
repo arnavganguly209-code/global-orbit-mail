@@ -12,10 +12,17 @@ import { generateDkimKeypair } from "@/lib/dns/dkim";
 import { resolveMailServerIpv4, resolveMailServerIpv6, isUsableIpv4 } from "@/lib/dns/mail-ip";
 import { detectWebsiteDns } from "@/lib/dns/website-detect";
 import { resolveDmarcReportingEmail } from "@/lib/dns/dmarc-reporting";
-import { promises as dns } from "node:dns";
+import { isLikelyCloudflareProxyIp } from "@/lib/dns/cloudflare-proxy";
+import { Resolver } from "node:dns/promises";
 import { createHash } from "node:crypto";
 
 export { buildDnsRecordsForDomain, generateDkimKeypair, toDnsInstructionJson, normalizeApexDomain };
+
+function createPublicDns() {
+  const resolver = new Resolver();
+  resolver.setServers(["8.8.8.8", "1.1.1.1", "9.9.9.9"]);
+  return resolver;
+}
 
 function toDbRecord(
   domainId: string,
@@ -112,7 +119,7 @@ export async function provisionDnsForDomain(
 
 async function detectExistingSpfRecords(apex: string): Promise<string[]> {
   try {
-    const txts = await dns.resolveTxt(apex);
+    const txts = await createPublicDns().resolveTxt(apex);
     const flat = txts.map((parts) => parts.join(""));
     return flat.filter((txt) => /^v=spf1\b/i.test(txt));
   } catch {
@@ -124,6 +131,7 @@ async function markAlreadyPublished(
   apex: string,
   records: ReturnType<typeof buildDnsRecordsForDomain>,
 ) {
+  const dns = createPublicDns();
   return Promise.all(
     records.map(async (record) => {
       let alreadyPublished = false;
@@ -138,11 +146,32 @@ async function markAlreadyPublished(
           const addrs = await dns.resolve4(record.name);
           alreadyPublished = addrs.includes(record.value);
         } else if (record.publishType === "CNAME" || record.type === "CNAME") {
-          const cnames = await dns.resolveCname(record.name);
           const expected = record.value.replace(/\.$/, "").toLowerCase();
-          alreadyPublished = cnames.some(
-            (row) => row.replace(/\.$/, "").toLowerCase() === expected,
-          );
+          try {
+            const cnames = await dns.resolveCname(record.name);
+            alreadyPublished = cnames.some(
+              (row) => row.replace(/\.$/, "").toLowerCase() === expected,
+            );
+          } catch {
+            alreadyPublished = false;
+          }
+          if (!alreadyPublished) {
+            // Cloudflare orange-cloud flattens CNAMEs; accept same-IP or CF proxy on discovery hosts.
+            try {
+              const hostIps = await dns.resolve4(record.name);
+              const targetIps = await dns.resolve4(expected);
+              if (hostIps.some((ip) => targetIps.includes(ip))) {
+                alreadyPublished = true;
+              } else if (
+                (record.purpose === "autodiscover" || record.purpose === "autoconfig") &&
+                hostIps.some(isLikelyCloudflareProxyIp)
+              ) {
+                alreadyPublished = true;
+              }
+            } catch {
+              /* keep false */
+            }
+          }
         } else if (
           record.publishType === "TXT" ||
           record.type === "TXT" ||
@@ -242,7 +271,7 @@ export async function getDomainDnsPayload(domainId: string) {
   // Live check: shared MX target must resolve before we show it to customers
   try {
     const mxTarget = getConfiguredMailHostname();
-    const addrs = await dns.resolve4(mxTarget);
+    const addrs = await createPublicDns().resolve4(mxTarget);
     if (!addrs.some((ip) => isUsableIpv4(ip))) {
       throw new Error(`MX target ${mxTarget} has no usable A record`);
     }
@@ -325,8 +354,8 @@ export async function getDomainDnsPayload(domainId: string) {
     const token = ownershipToken(domain.id, apex);
     let alreadyPublished = false;
     try {
-      const txts = await dns.resolveTxt(apex);
-      alreadyPublished = txts.map((p) => p.join("")).some((t) => t.includes(token));
+      const txts = await createPublicDns().resolveTxt(apex);
+      alreadyPublished = txts.map((p: string[]) => p.join("")).some((t: string) => t.includes(token));
     } catch {
       alreadyPublished = false;
     }
