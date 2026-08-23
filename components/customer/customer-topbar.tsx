@@ -58,16 +58,24 @@ export function CustomerTopbar({
           </Link>
         </Button>
         <ThemeToggle />
-        <Link
-          href="/dashboard/profile"
-          className="hidden items-center gap-2 rounded-xl border border-border/70 bg-card/50 px-3 py-1.5 text-right transition-colors hover:border-gold/40 sm:flex"
-        >
-          <UserCircle className="size-5 text-muted-foreground" />
-          <div>
-            <p className="text-xs font-medium">{userName ?? userEmail ?? "Customer"}</p>
-            <p className="text-[10px] uppercase tracking-wide text-gold">CUSTOMER</p>
-          </div>
-        </Link>
+        <div className="hidden flex-col items-end sm:flex">
+          <Link
+            href="/dashboard/profile"
+            className="flex items-center gap-2 rounded-xl border border-border/70 bg-card/50 px-3 py-1.5 text-right transition-colors hover:border-gold/40"
+          >
+            <UserCircle className="size-5 text-muted-foreground" />
+            <div>
+              <p className="text-xs font-medium">{userName ?? userEmail ?? "Customer"}</p>
+              <p className="text-[10px] uppercase tracking-wide text-gold">Account</p>
+            </div>
+          </Link>
+          <Link
+            href="/dashboard/profile#change-password"
+            className="mt-1 text-[11px] font-medium text-gold hover:underline"
+          >
+            Change Password
+          </Link>
+        </div>
         <Button type="button" variant="outline" size="sm" onClick={logout}>
           <LogOut className="size-3.5" />
           Logout

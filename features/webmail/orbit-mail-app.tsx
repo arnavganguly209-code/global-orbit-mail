@@ -1042,7 +1042,7 @@ export function OrbitMailApp({
           type="button"
           onClick={() => router.push(webmailRoutes.profile)}
           className="ml-1 flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/[0.1] bg-gradient-to-br from-[#d9b15c]/45 to-[#173d34] text-xs font-bold"
-          title={me?.email || "Profile"}
+          title="Account · Change Password"
         >
           {mailboxAvatar ? (
             // eslint-disable-next-line @next/next/no-img-element

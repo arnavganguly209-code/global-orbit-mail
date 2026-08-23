@@ -7,6 +7,11 @@ import { prisma } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/auth/session";
 import { writeActivity, writeAudit } from "@/lib/audit";
 import type { SystemRole } from "@/types";
+import {
+  changePasswordBodySchema,
+  CURRENT_PASSWORD_INCORRECT,
+  firstZodMessage,
+} from "@/lib/auth/password-policy";
 
 export const profileUpdateSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
@@ -22,16 +27,7 @@ export const profileUpdateSchema = z.object({
     ),
 });
 
-export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(8),
-  newPassword: z
-    .string()
-    .min(12)
-    .max(128)
-    .refine((p) => /[A-Z]/.test(p) && /[a-z]/.test(p) && /[0-9]/.test(p), {
-      message: "Password must include upper, lower, and a number",
-    }),
-});
+export const changePasswordSchema = changePasswordBodySchema;
 
 export const profileService = {
   async get(userId: string) {
@@ -89,15 +85,26 @@ export const profileService = {
     return this.get(userId);
   },
 
-  async changePassword(userId: string, body: unknown) {
-    const input = changePasswordSchema.parse(body);
+  async changePassword(
+    userId: string,
+    body: unknown,
+    options?: { keepSessionToken?: string | null },
+  ) {
+    let input;
+    try {
+      input = changePasswordSchema.parse(body);
+    } catch (error) {
+      if (error instanceof z.ZodError) throw new Error(firstZodMessage(error));
+      throw error;
+    }
+
     const user = await prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
     });
     if (!user?.passwordHash) throw new Error("User not found");
 
-    const ok = await verifyPassword(input.currentPassword, user.passwordHash);
-    if (!ok) throw new Error("Current password is incorrect");
+    const currentOk = await verifyPassword(input.currentPassword, user.passwordHash);
+    if (!currentOk) throw new Error(CURRENT_PASSWORD_INCORRECT);
 
     const passwordHash = await hashPassword(input.newPassword);
     await prisma.user.update({
@@ -105,18 +112,28 @@ export const profileService = {
       data: { passwordHash },
     });
 
+    await prisma.session.deleteMany({
+      where: {
+        userId,
+        ...(options?.keepSessionToken
+          ? { sessionToken: { not: options.keepSessionToken } }
+          : {}),
+      },
+    });
+
     await writeAudit({
       actorId: userId,
       action: "profile.password_change",
       resource: "user",
       resourceId: userId,
+      metadata: { sessionsRevoked: true },
     });
 
     await writeActivity({
       actorId: userId,
       organizationId: user.organizationId,
       category: "security",
-      message: "Admin password changed",
+      message: "Account password changed",
       severity: "warning",
     });
 

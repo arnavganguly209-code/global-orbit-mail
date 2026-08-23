@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loading } from "@/components/ui/loading";
+import { ChangePasswordForm } from "@/components/auth/change-password-form";
 import { customerFetch } from "@/lib/api/customer-fetch";
 import type { AdminProfile, ApiResponse } from "@/types";
 
@@ -24,8 +25,6 @@ export function CustomerProfilePage() {
   });
 
   const [name, setName] = React.useState("");
-  const [currentPassword, setCurrentPassword] = React.useState("");
-  const [newPassword, setNewPassword] = React.useState("");
 
   React.useEffect(() => {
     if (data) setName(data.name ?? "");
@@ -44,24 +43,6 @@ export function CustomerProfilePage() {
     onSuccess: () => {
       toast.success("Profile updated");
       qc.invalidateQueries({ queryKey: ["customer-profile"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const passwordMutation = useMutation({
-    mutationFn: async () => {
-      const res = await customerFetch("/api/customer/profile/password", {
-        method: "POST",
-        body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.message ?? "Change failed");
-      return json.data;
-    },
-    onSuccess: () => {
-      toast.success("Password changed");
-      setCurrentPassword("");
-      setNewPassword("");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -89,37 +70,16 @@ export function CustomerProfilePage() {
               <Label>Display name</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} />
             </div>
-            <Button type="button" onClick={() => saveMutation.mutate()}>
-              Update profile
+            <Button type="button" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? "Saving…" : "Update profile"}
             </Button>
           </section>
 
-          <section className="glass-surface space-y-4 rounded-2xl p-6">
-            <h2 className="font-display text-xl font-semibold">Change password</h2>
-            <div className="space-y-2">
-              <Label>Current password</Label>
-              <Input
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>New password</Label>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-              <p className="text-xs text-muted-foreground">
-                Minimum 12 characters with upper, lower, and a number.
-              </p>
-            </div>
-            <Button type="button" onClick={() => passwordMutation.mutate()}>
-              Change password
-            </Button>
+          <section
+            id="change-password"
+            className="glass-surface space-y-4 rounded-2xl border border-gold/20 p-6"
+          >
+            <ChangePasswordForm variant="customer" endpoint="/api/customer/profile/password" />
           </section>
         </div>
       ) : null}

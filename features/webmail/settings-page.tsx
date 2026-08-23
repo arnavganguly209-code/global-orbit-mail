@@ -8,6 +8,7 @@ import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { ArrowLeft, Camera, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ChangePasswordForm } from "@/components/auth/change-password-form";
 import { initials, webmailApi, type Me, type MeBranding } from "@/features/webmail/lib/api";
 import { webmailRoutes } from "@/config/webmail-routes";
 
@@ -335,6 +336,16 @@ export function WebmailSettingsPage() {
           >
             {saving ? "Saving…" : "Save profile"}
           </button>
+        </div>
+
+        <div
+          id="change-password"
+          className={cn(
+            "mt-6 rounded-2xl border p-6 shadow-lg sm:p-8",
+            light ? "border-slate-200 bg-white" : "border-white/10 bg-[#0b0b11]",
+          )}
+        >
+          <ChangePasswordForm variant="webmail" endpoint="/api/webmail/profile/password" />
         </div>
 
         <div className="mt-6 flex justify-center opacity-80">

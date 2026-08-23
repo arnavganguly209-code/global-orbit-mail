@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loading } from "@/components/ui/loading";
+import { ChangePasswordForm } from "@/components/auth/change-password-form";
 import { adminFetch } from "@/lib/api/admin-fetch";
 import type { AdminProfile, ApiResponse } from "@/types";
 
@@ -25,8 +26,6 @@ export function ProfileAdminPage() {
 
   const [name, setName] = React.useState("");
   const [image, setImage] = React.useState<string | null>(null);
-  const [currentPassword, setCurrentPassword] = React.useState("");
-  const [newPassword, setNewPassword] = React.useState("");
 
   React.useEffect(() => {
     if (!data) return;
@@ -49,25 +48,6 @@ export function ProfileAdminPage() {
       toast.success("Profile updated");
       qc.invalidateQueries({ queryKey: ["admin-profile"] });
       qc.invalidateQueries({ queryKey: ["admin-me"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const passwordMutation = useMutation({
-    mutationFn: async () => {
-      const res = await adminFetch("/api/admin/profile/password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.message ?? "Change failed");
-      return json.data;
-    },
-    onSuccess: () => {
-      toast.success("Password changed");
-      setCurrentPassword("");
-      setNewPassword("");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -152,31 +132,7 @@ export function ProfileAdminPage() {
           </section>
 
           <section className="glass-surface space-y-4 rounded-2xl p-6">
-            <h2 className="font-display text-xl font-semibold">Change password</h2>
-            <div className="space-y-2">
-              <Label>Current password</Label>
-              <Input
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>New password</Label>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-              <p className="text-xs text-muted-foreground">
-                Minimum 12 characters with upper, lower, and a number.
-              </p>
-            </div>
-            <Button type="button" onClick={() => passwordMutation.mutate()}>
-              Change password
-            </Button>
+            <ChangePasswordForm variant="admin" endpoint="/api/admin/profile/password" />
           </section>
         </div>
       ) : null}
