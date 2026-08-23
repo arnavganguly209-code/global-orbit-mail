@@ -43,6 +43,9 @@ if [[ -f .env ]]; then
   export WEBMAIL_SMTP_PORT="${WEBMAIL_SMTP_PORT:-465}"
 fi
 
+# Untracked local scratch files must not fail Next typecheck.
+rm -f _tmp*.ts .tmp-*.ts .tmp-*.js 2>/dev/null || true
+
 npm ci --legacy-peer-deps
 npm run build
 
