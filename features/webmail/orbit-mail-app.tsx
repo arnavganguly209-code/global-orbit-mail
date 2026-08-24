@@ -899,7 +899,7 @@ export function OrbitMailApp({
           type="button"
           onClick={() => selectFolder(f.path)}
           className={cn(
-          "flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2 text-left text-sm transition-colors duration-150",
+          "flex w-full items-center gap-2 rounded-lg px-2.5 py-1 text-left text-[13px] leading-tight transition-colors duration-150",
             active ? navActive : navIdle,
           )}
         >
@@ -954,7 +954,7 @@ export function OrbitMailApp({
         type="button"
         onClick={() => selectSystemNav(item.key)}
         className={cn(
-          "mb-0.5 grid w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] px-3 py-2 text-left text-sm transition-colors duration-150",
+          "mb-0 grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg px-2.5 py-1 text-[13px] leading-tight transition-colors duration-150",
           active ? navActive : navIdle,
         )}
       >
@@ -1158,12 +1158,12 @@ export function OrbitMailApp({
         isWide ? "w-[280px] min-w-[280px] max-w-[280px]" : "fixed inset-y-0 left-0 z-40 w-[min(300px,92vw)] shadow-2xl",
       )}
     >
-      <div className="flex min-h-[128px] items-center justify-center px-4 py-4 sm:min-h-[140px] sm:px-5">
+      <div className="flex items-center justify-center px-3 pt-2 pb-0 sm:px-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={companyLogo}
           alt="GLOBAL ORBIT PVT LTD"
-          className="h-24 w-auto max-w-[248px] object-contain object-center sm:h-32 sm:max-w-[260px]"
+          className="h-[4.5rem] w-auto max-w-[240px] object-contain object-center sm:h-28 sm:max-w-[252px]"
           decoding="async"
         />
       </div>
@@ -1175,24 +1175,26 @@ export function OrbitMailApp({
           setComposeOpen(true);
           setDrawerOpen(false);
         }}
-        className="mx-4 mb-4 mt-2 flex items-center justify-center gap-2 rounded-2xl bg-[#1a73e8] px-4 py-3 text-sm font-bold text-white shadow-[0_1px_3px_rgba(26,115,232,0.4)] transition hover:bg-[#1557c0]"
+        className="mx-4 mb-2 mt-0 flex items-center justify-center gap-2 rounded-2xl bg-[#1a73e8] px-4 py-2.5 text-sm font-bold text-white shadow-[0_1px_3px_rgba(26,115,232,0.4)] transition hover:bg-[#1557c0]"
       >
         <PenSquare className="size-4" />
         New Mail
       </button>
 
-      <nav className="orbit-scroll flex-1 overflow-y-auto overscroll-contain px-2 pb-3">
-        <p className={cn("mb-1.5 px-3 pt-1 text-[0.68rem] font-bold uppercase tracking-[0.16em]", sectionLabel)}>
+      <div className="shrink-0 px-2 pb-1">
+        <p className={cn("mb-0.5 px-3 text-[0.65rem] font-bold uppercase tracking-[0.14em]", sectionLabel)}>
           Mailbox
         </p>
         {foldersQuery.isLoading && folders.length === 0
           ? Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="mb-1 h-10 animate-pulse rounded-[12px] bg-white/5" />
+              <div key={i} className="mb-0.5 h-8 animate-pulse rounded-[10px] bg-white/5" />
             ))
           : systemNavResolved.map((entry) => renderSystemNavButton(entry))}
+      </div>
 
-        <div className="mt-4 flex items-center justify-between px-3">
-          <p className="text-[0.68rem] font-bold uppercase tracking-[0.16em] text-zinc-500">Folders</p>
+      <nav className="orbit-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2">
+        <div className="mt-1 flex items-center justify-between px-3">
+          <p className="text-[0.65rem] font-bold uppercase tracking-[0.14em] text-zinc-500">Folders</p>
           <button
             type="button"
             onClick={openCreateFolder}
@@ -1210,7 +1212,7 @@ export function OrbitMailApp({
         )}
       </nav>
 
-      <div className="mx-3 mb-3 rounded-xl border border-white/10 bg-white/[0.06] p-3.5">
+      <div className="mx-3 mb-2 rounded-xl border border-white/10 bg-white/[0.06] p-3">
         {quotaMb > 0 ? (
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9aa0a6]">Storage</p>
@@ -1234,7 +1236,7 @@ export function OrbitMailApp({
         )}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-white/[0.08] px-3 py-3">
+      <div className="flex items-center gap-2 border-t border-white/[0.08] px-3 py-2">
         <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/10 text-[0.65rem] font-bold">
           {mailboxAvatar ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -1264,21 +1266,21 @@ export function OrbitMailApp({
         isStack && "min-w-0 flex-1 border-r-0",
       )}
     >
-      <div className="flex items-center justify-between px-4 py-3.5">
-        <h2 className="flex min-w-0 items-center gap-2 text-[1.35rem] font-semibold tracking-tight text-[#202124]">
-          <span className="truncate">{folderLabel}</span>
-          {folderUnseen > 0 ? (
-            <span
-              className="inline-flex min-w-[1.5rem] shrink-0 items-center justify-center rounded-full bg-[#e8f0fe] px-2 py-0.5 text-xs font-bold text-[#1a73e8]"
-              title={`${folderUnseen} unread`}
-            >
-              {folderUnseen}
-            </span>
-          ) : null}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2">
+        <h2 className="shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight text-[#202124]">
+          {folderLabel}
         </h2>
-        <div className="flex items-center gap-1">
+        {folderUnseen > 0 ? (
+          <span
+            className="inline-flex min-w-[1.35rem] shrink-0 items-center justify-center rounded-full bg-[#e8f0fe] px-1.5 py-0.5 text-[11px] font-bold text-[#1a73e8]"
+            title={`${folderUnseen} unread`}
+          >
+            {folderUnseen}
+          </span>
+        ) : null}
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           {!searchQ.trim() && !isStarredView ? (
-            <div className="mr-1 flex rounded-xl border border-[#e4e7ec] bg-[#f8f9fa] p-0.5 text-xs">
+            <div className="flex rounded-lg border border-[#e4e7ec] bg-[#f8f9fa] p-0.5 text-[11px]">
               <button
                 type="button"
                 onClick={() => {
@@ -1286,7 +1288,7 @@ export function OrbitMailApp({
                   setPage(1);
                 }}
                 className={cn(
-                  "rounded-lg px-2.5 py-1.5 font-semibold transition",
+                  "rounded-md px-2 py-1 font-semibold transition",
                   viewMode === "messages"
                     ? "bg-white text-[#202124] shadow-sm"
                     : "text-zinc-500 hover:text-zinc-800",
@@ -1301,7 +1303,7 @@ export function OrbitMailApp({
                   setPage(1);
                 }}
                 className={cn(
-                  "rounded-lg px-2.5 py-1.5 font-semibold transition",
+                  "rounded-md px-2 py-1 font-semibold transition",
                   viewMode === "threads"
                     ? "bg-white text-[#202124] shadow-sm"
                     : "text-zinc-500 hover:text-zinc-800",
@@ -1315,14 +1317,18 @@ export function OrbitMailApp({
             type="button"
             onClick={() => void refreshMailbox()}
             disabled={mailboxRefreshing}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#dadce0] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#3c4043] hover:bg-[#f1f3f4] disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-[#dadce0] bg-white px-2 text-[11px] font-semibold text-[#3c4043] hover:bg-[#f1f3f4] disabled:cursor-not-allowed disabled:opacity-60"
             title="Refresh mailbox"
             aria-label="Refresh mailbox"
           >
-            <RefreshCw className={cn("size-3.5", mailboxRefreshing && "animate-spin")} />
-            <span className="hidden sm:inline">{mailboxRefreshing ? "Refreshing" : "Refresh"}</span>
+            <RefreshCw className={cn("size-3.5 shrink-0", mailboxRefreshing && "animate-spin")} />
+            <span>{mailboxRefreshing ? "Refreshing" : "Refresh"}</span>
           </button>
-          <button type="button" className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100" title="More">
+          <button
+            type="button"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-zinc-600 hover:bg-zinc-100"
+            title="More"
+          >
             <MoreHorizontal className="size-4" />
           </button>
         </div>
