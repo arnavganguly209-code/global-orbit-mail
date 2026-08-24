@@ -424,15 +424,17 @@ export function OrbitMailApp({
       const job = (async () => {
         lastMailboxSyncAt.current = Date.now();
         try {
-          const [mailRes, folderRes] = await Promise.all([
+          await Promise.all([
             qc.refetchQueries({ queryKey: ["webmail", "messages"], type: "active" }),
             qc.refetchQueries({ queryKey: ["webmail", "folders"], type: "active" }),
           ]);
           if (notifOpen) {
             await qc.refetchQueries({ queryKey: ["webmail", "notifications"], type: "active" });
           }
-          const failed =
-            mailRes.some((r) => r.isError) || folderRes.some((r) => r.isError);
+          const failed = qc
+            .getQueryCache()
+            .findAll({ predicate: (q) => q.queryKey[0] === "webmail" && (q.queryKey[1] === "messages" || q.queryKey[1] === "folders") })
+            .some((q) => q.state.status === "error");
           if (opts?.spinner && failed) {
             toast.error("Unable to refresh mailbox. Please try again.");
           }
