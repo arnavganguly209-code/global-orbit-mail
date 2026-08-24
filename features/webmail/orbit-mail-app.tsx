@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
   Archive,
@@ -224,13 +225,11 @@ export function OrbitMailApp({
 
   React.useEffect(() => {
     if (!notifOpen) return;
-    function onDoc(e: MouseEvent) {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setNotifOpen(false);
-      }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setNotifOpen(false);
     }
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [notifOpen]);
 
   React.useEffect(() => {
@@ -597,6 +596,9 @@ export function OrbitMailApp({
   }
 
   async function openMessage(uid: number, opts?: { folderPath?: string }) {
+    setNotifOpen(false);
+    setDrawerOpen(false);
+    setAdvancedOpen(false);
     const targetFolder = opts?.folderPath || (isStarredView ? "INBOX" : folder);
     if (opts?.folderPath && opts.folderPath !== folder) {
       setFolder(opts.folderPath);
@@ -973,7 +975,7 @@ export function OrbitMailApp({
   }
 
   const topBar = (
-    <header className="flex h-16 min-w-0 shrink-0 items-center gap-2 overflow-x-hidden border-b border-[#dadce0] bg-white px-3 sm:gap-3 sm:px-5">
+    <header className="relative z-20 flex h-16 min-w-0 shrink-0 items-center gap-2 border-b border-[#dadce0] bg-white px-3 sm:gap-3 sm:px-5">
       <button
         type="button"
         onClick={() => setDrawerOpen(true)}
@@ -1035,12 +1037,13 @@ export function OrbitMailApp({
             Online
           </span>
         ) : null}
-        <div className="relative" ref={notifRef}>
+        <div className="relative shrink-0" ref={notifRef}>
           <button
             type="button"
             onClick={() => setNotifOpen((v) => !v)}
             className={cn(headerIcon, "relative")}
             aria-label="Notifications"
+            aria-expanded={notifOpen}
           >
             <Bell className="size-4" />
             {inboxUnseen > 0 ? (
@@ -1049,61 +1052,70 @@ export function OrbitMailApp({
               </span>
             ) : null}
           </button>
-          <AnimatePresence>
-            {notifOpen ? (
-              <motion.div
-                initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 6, scale: 0.98 }}
-                transition={{ duration: 0.16 }}
-                className="absolute right-0 top-11 z-30 w-[22rem] overflow-hidden rounded-2xl border border-[#e4e7ec] bg-white text-sm text-[#202124] shadow-2xl"
-              >
-                <div className="flex items-center justify-between border-b border-[#e8eaed] px-4 py-3">
-                  <p className="font-semibold text-[#202124]">Notifications</p>
-                  <span className="text-xs font-medium text-zinc-500">
-                    {inboxUnseen > 0 ? `${inboxUnseen} unread` : "All caught up"}
-                  </span>
-                </div>
-                <div className="orbit-scroll max-h-80 overflow-y-auto">
-                  {unreadNotifQuery.isLoading ? (
-                    <div className="space-y-2 p-3">
-                      {Array.from({ length: 3 }).map((_, i) => (
-                        <div key={i} className="orbit-skeleton h-14 rounded-xl" />
-                      ))}
+          {notifOpen && typeof document !== "undefined"
+            ? createPortal(
+                <>
+                  <button
+                    type="button"
+                    className="fixed inset-0 z-[60] cursor-default bg-transparent"
+                    aria-label="Close notifications"
+                    onClick={() => setNotifOpen(false)}
+                  />
+                  <div
+                    role="dialog"
+                    aria-label="Notifications"
+                    className="fixed right-3 top-[4.25rem] z-[70] w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-[#e4e7ec] bg-white text-sm text-[#202124] shadow-2xl"
+                  >
+                    <div className="flex items-center justify-between border-b border-[#e8eaed] px-4 py-3">
+                      <p className="font-semibold text-[#202124]">Notifications</p>
+                      <span className="text-xs font-medium text-zinc-500">
+                        {inboxUnseen > 0 ? `${inboxUnseen} unread` : "All caught up"}
+                      </span>
                     </div>
-                  ) : (unreadNotifQuery.data?.length ?? 0) === 0 ? (
-                    <p className="px-4 py-8 text-center text-zinc-500">No new notifications</p>
-                  ) : (
-                    unreadNotifQuery.data?.map((m) => (
-                      <button
-                        key={m.uid}
-                        type="button"
-                        className="flex w-full gap-3 border-b border-[#f1f3f4] px-4 py-3 text-left text-[#202124] transition hover:bg-[#f6f8fc]"
-                        onClick={() => {
-                          setNotifOpen(false);
-                          void openMessage(m.uid, { folderPath: "INBOX" });
-                        }}
-                      >
-                        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-[#e8f0fe] text-[0.65rem] font-bold text-[#1a73e8]">
-                          {initials(m.from || m.fromEmail)}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm font-semibold">{m.from || m.fromEmail}</span>
-                            <span className="shrink-0 text-[0.65rem] text-zinc-500">{formatWhen(m.date)}</span>
-                          </span>
-                          <span className="mt-0.5 block truncate text-sm text-[#3c4043]">
-                            {m.subject || "(no subject)"}
-                          </span>
-                          <span className="mt-0.5 block truncate text-xs text-zinc-500">{m.preview}</span>
-                        </span>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
+                    <div className="orbit-scroll max-h-80 overflow-y-auto">
+                      {unreadNotifQuery.isLoading ? (
+                        <div className="space-y-2 p-3">
+                          {Array.from({ length: 3 }).map((_, i) => (
+                            <div key={i} className="orbit-skeleton h-14 rounded-xl" />
+                          ))}
+                        </div>
+                      ) : (unreadNotifQuery.data?.length ?? 0) === 0 ? (
+                        <p className="px-4 py-8 text-center text-zinc-500">No new notifications</p>
+                      ) : (
+                        unreadNotifQuery.data?.map((m) => (
+                          <button
+                            key={m.uid}
+                            type="button"
+                            className="flex w-full gap-3 border-b border-[#f1f3f4] px-4 py-3 text-left text-[#202124] transition hover:bg-[#f6f8fc]"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setNotifOpen(false);
+                              void openMessage(m.uid, { folderPath: "INBOX" });
+                            }}
+                          >
+                            <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-[#e8f0fe] text-[0.65rem] font-bold text-[#1a73e8]">
+                              {initials(m.from || m.fromEmail)}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center justify-between gap-2">
+                                <span className="truncate text-sm font-semibold">{m.from || m.fromEmail}</span>
+                                <span className="shrink-0 text-[0.65rem] text-zinc-500">{formatWhen(m.date)}</span>
+                              </span>
+                              <span className="mt-0.5 block truncate text-sm text-[#3c4043]">
+                                {m.subject || "(no subject)"}
+                              </span>
+                              <span className="mt-0.5 block truncate text-xs text-zinc-500">{m.preview}</span>
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>,
+                document.body,
+              )
+            : null}
         </div>
         <button
           type="button"
@@ -1624,7 +1636,7 @@ export function OrbitMailApp({
     <section
       ref={readerRef}
       className={cn(
-        "orbit-reader orbit-mail-workspace flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white",
+        "orbit-reader orbit-mail-workspace relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white",
         readerFs && "orbit-reader--fs",
       )}
     >
