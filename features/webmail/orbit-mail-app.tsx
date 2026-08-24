@@ -163,6 +163,8 @@ export function OrbitMailApp({
   const notifRef = React.useRef<HTMLDivElement>(null);
   const readerRef = React.useRef<HTMLElement>(null);
   const refreshLock = React.useRef(false);
+  const lastMailboxSyncAt = React.useRef(0);
+  const mailboxSyncInFlight = React.useRef<Promise<void> | null>(null);
   const [readerFs, setReaderFs] = React.useState(false);
   const [mailboxRefreshing, setMailboxRefreshing] = React.useState(false);
   const isStarredView = folder === STARRED_VIRTUAL;
@@ -307,9 +309,9 @@ export function OrbitMailApp({
       const data = await webmailApi<{ folders: Folder[] }>("/api/webmail/folders");
       return data.folders;
     },
-    staleTime: 12_000,
+    staleTime: 8_000,
     refetchInterval: () =>
-      typeof document !== "undefined" && document.visibilityState === "hidden" ? false : 20_000,
+      typeof document !== "undefined" && document.visibilityState === "hidden" ? false : 15_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     enabled: !!meQuery.data,
@@ -356,9 +358,9 @@ export function OrbitMailApp({
         `/api/webmail/messages?folder=${encodeURIComponent(folder)}&page=${page}&pageSize=${PAGE_SIZE}`,
       );
     },
-    staleTime: 5_000,
+    staleTime: 4_000,
     refetchInterval: () =>
-      typeof document !== "undefined" && document.visibilityState === "hidden" ? false : 12_000,
+      typeof document !== "undefined" && document.visibilityState === "hidden" ? false : 10_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     placeholderData: keepPreviousData,
@@ -408,26 +410,71 @@ export function OrbitMailApp({
     enabled: selectedUid != null && viewMode === "threads",
   });
 
-  async function refreshMailbox() {
-    if (refreshLock.current) return;
-    refreshLock.current = true;
-    setMailboxRefreshing(true);
-    try {
-      const [mailRes, folderRes] = await Promise.all([
-        messagesQuery.refetch(),
-        foldersQuery.refetch(),
-      ]);
-      if (notifOpen) void unreadNotifQuery.refetch();
-      if (mailRes.error || folderRes.error) {
-        toast.error("Unable to refresh mailbox. Please try again.");
+  const syncMailbox = React.useCallback(
+    async (opts?: { spinner?: boolean; force?: boolean }) => {
+      if (mailboxSyncInFlight.current) return mailboxSyncInFlight.current;
+      if (!opts?.force && Date.now() - lastMailboxSyncAt.current < 1500) {
+        return;
       }
-    } catch {
-      toast.error("Unable to refresh mailbox. Please try again.");
-    } finally {
-      refreshLock.current = false;
-      setMailboxRefreshing(false);
-    }
+      if (opts?.spinner) {
+        if (refreshLock.current) return;
+        refreshLock.current = true;
+        setMailboxRefreshing(true);
+      }
+      const job = (async () => {
+        lastMailboxSyncAt.current = Date.now();
+        try {
+          const [mailRes, folderRes] = await Promise.all([
+            qc.refetchQueries({ queryKey: ["webmail", "messages"], type: "active" }),
+            qc.refetchQueries({ queryKey: ["webmail", "folders"], type: "active" }),
+          ]);
+          if (notifOpen) {
+            await qc.refetchQueries({ queryKey: ["webmail", "notifications"], type: "active" });
+          }
+          const failed =
+            mailRes.some((r) => r.isError) || folderRes.some((r) => r.isError);
+          if (opts?.spinner && failed) {
+            toast.error("Unable to refresh mailbox. Please try again.");
+          }
+        } catch {
+          if (opts?.spinner) toast.error("Unable to refresh mailbox. Please try again.");
+        } finally {
+          if (opts?.spinner) {
+            refreshLock.current = false;
+            setMailboxRefreshing(false);
+          }
+          mailboxSyncInFlight.current = null;
+        }
+      })();
+      mailboxSyncInFlight.current = job;
+      return job;
+    },
+    [qc, notifOpen],
+  );
+
+  async function refreshMailbox() {
+    await syncMailbox({ spinner: true, force: true });
   }
+
+  React.useEffect(() => {
+    lastMailboxSyncAt.current = Date.now();
+    const onVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void syncMailbox({ force: false });
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) void syncMailbox({ force: true });
+      else onVisible();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [syncMailbox]);
 
   if (!layout) {
     return <div className="h-dvh bg-[#eef1f6]" aria-hidden />;
@@ -534,6 +581,7 @@ export function OrbitMailApp({
     setDrawerOpen(false);
     if (isStack) setPane("list");
     router.push(webmailRoutes.mail, { scroll: false });
+    void qc.refetchQueries({ queryKey: ["webmail", "folders"], type: "active" });
   }
 
   function selectSystemNav(key: SystemNavKey) {
@@ -630,8 +678,8 @@ export function OrbitMailApp({
         method: "POST",
         body: JSON.stringify({ action: "seen", folder: targetFolder, uids: [uid], seen: true }),
       });
-      void qc.invalidateQueries({ queryKey: ["webmail", "folders"] });
-      void qc.invalidateQueries({ queryKey: ["webmail", "notifications"] });
+      void qc.refetchQueries({ queryKey: ["webmail", "folders"], type: "active" });
+      void qc.refetchQueries({ queryKey: ["webmail", "notifications"] });
     } catch {
       /* non-blocking */
     }
