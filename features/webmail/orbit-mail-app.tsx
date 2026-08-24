@@ -410,6 +410,9 @@ export function OrbitMailApp({
         ? [detail]
         : [];
   const inboxUnseen = folders.find((f) => f.path.toUpperCase() === "INBOX")?.unseen ?? 0;
+  const folderUnseen = isStarredView
+    ? 0
+    : (folders.find((f) => f.path === folder)?.unseen ?? 0);
   const folderLabel = isStarredView
     ? "Starred"
     : folderIconLabel(folders.find((f) => f.path === folder) || { path: folder, name: folder, unseen: 0, messages: 0 }) ||
@@ -847,13 +850,13 @@ export function OrbitMailApp({
           type="button"
           onClick={() => selectFolder(f.path)}
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2.5 text-left text-sm transition-colors duration-150",
+          "flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2 text-left text-sm transition-colors duration-150",
             active ? navActive : navIdle,
           )}
         >
           <Icon
-            className="size-4 shrink-0"
-            style={{ color: active ? "#8ab4f8" : undefined }}
+            className="size-4 w-4 shrink-0"
+            style={{ color: active ? "#8ab4f8" : "#9aa0a6" }}
           />
           <span className="flex-1 truncate font-medium">{label}</span>
           {f.unseen > 0 ? (
@@ -902,15 +905,13 @@ export function OrbitMailApp({
         type="button"
         onClick={() => selectSystemNav(item.key)}
         className={cn(
-          "mb-0.5 flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2.5 text-left text-sm transition-colors duration-150",
+          "mb-0.5 grid w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] px-3 py-2 text-left text-sm transition-colors duration-150",
           active ? navActive : navIdle,
         )}
       >
         <Icon
-          className="size-4 shrink-0"
-          style={{
-            color: active ? item.color : undefined,
-          }}
+            className="size-4 w-4 shrink-0"
+            style={{ color: active ? "#8ab4f8" : "#9aa0a6" }}
         />
         <span className="flex-1 truncate font-medium">{item.label}</span>
         {unseen > 0 ? (
@@ -923,7 +924,7 @@ export function OrbitMailApp({
   }
 
   const topBar = (
-    <header className="flex h-14 min-w-0 shrink-0 items-center gap-2 overflow-x-hidden border-b border-[#dadce0] bg-white px-2 sm:h-14 sm:gap-3 sm:px-4">
+    <header className="flex h-16 min-w-0 shrink-0 items-center gap-2 overflow-x-hidden border-b border-[#dadce0] bg-white px-3 sm:gap-3 sm:px-5">
       <button
         type="button"
         onClick={() => setDrawerOpen(true)}
@@ -940,8 +941,8 @@ export function OrbitMailApp({
           setSearchQ(query.trim());
         }}
         className={cn(
-          "relative min-w-0 max-w-2xl flex-1",
-          isStack ? "mx-2" : "mx-auto",
+          "relative min-w-0 max-w-3xl flex-1",
+          isStack ? "mx-1" : "mx-auto w-full",
         )}
       >
         <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
@@ -1105,12 +1106,19 @@ export function OrbitMailApp({
     <aside
       className={cn(
         "orbit-mail-sidebar flex shrink-0 flex-col border-r border-black/40 bg-[#12151c] text-[#e8eaed]",
-        isWide ? "w-[248px] min-w-[248px] max-w-[248px]" : "fixed inset-y-0 left-0 z-40 w-[min(280px,88vw)] shadow-2xl",
+        isWide ? "w-[256px] min-w-[256px] max-w-[256px]" : "fixed inset-y-0 left-0 z-40 w-[min(288px,90vw)] shadow-2xl",
       )}
     >
-      <div className="flex items-center gap-2 px-4 pb-2 pt-4">
+      <div className="flex h-[76px] items-center justify-center px-5 pt-5 pb-1 sm:h-[80px] sm:px-6">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={companyLogo} alt="GLOBAL ORBIT" className="h-9 w-auto max-w-[180px] object-contain" />
+        <img
+          src={companyLogo}
+          alt="GLOBAL ORBIT PVT LTD"
+          width={180}
+          height={64}
+          className="h-14 w-auto max-w-[168px] object-contain object-center sm:h-16 sm:max-w-[180px]"
+          decoding="async"
+        />
       </div>
 
       <button
@@ -1120,7 +1128,7 @@ export function OrbitMailApp({
           setComposeOpen(true);
           setDrawerOpen(false);
         }}
-        className="mx-3 mb-4 mt-1 flex items-center justify-center gap-2 rounded-2xl bg-[#1a73e8] px-4 py-3 text-sm font-bold text-white shadow-[0_1px_3px_rgba(26,115,232,0.4)] transition hover:bg-[#1557c0]"
+        className="mx-4 mb-4 mt-2 flex items-center justify-center gap-2 rounded-2xl bg-[#1a73e8] px-4 py-3 text-sm font-bold text-white shadow-[0_1px_3px_rgba(26,115,232,0.4)] transition hover:bg-[#1557c0]"
       >
         <PenSquare className="size-4" />
         New Mail
@@ -1155,18 +1163,24 @@ export function OrbitMailApp({
         )}
       </nav>
 
-      <div className="orbit-glass-panel mx-3 mb-3 rounded-2xl border border-white/[0.08] bg-white/[0.04] p-3.5">
+      <div className="mx-3 mb-3 rounded-xl border border-white/10 bg-white/[0.06] p-3.5">
         {quotaMb > 0 ? (
           <div>
-            <div className="mb-2 flex items-center justify-between text-[0.7rem] font-medium text-[#9aa0a6]">
-              <span className="uppercase tracking-[0.12em]">Storage</span>
-              <span>
-                {formatStorageMb(usedMb)} of {formatStorageMb(quotaMb)} used ({Math.round(usedPct)}%)
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9aa0a6]">Storage</p>
+            <p className="mt-1 text-xs font-medium leading-snug text-[#e8eaed]">
+              {formatStorageMb(usedMb)} of {formatStorageMb(quotaMb)} used
+            </p>
+            <div className="mt-2.5 flex items-center gap-2.5">
+              <div className="orbit-storage-bar min-w-0 flex-1" aria-hidden>
+                <span style={{ width: `${usedPct}%` }} />
+              </div>
+              <span className="w-8 shrink-0 text-right text-[11px] font-bold tabular-nums text-[#c4c7c5]">
+                {Math.round(usedPct)}%
               </span>
             </div>
-            <div className="orbit-storage-bar">
-              <span style={{ width: `${usedPct}%` }} />
-            </div>
+            <p className="mt-2 text-[11px] text-[#9aa0a6]">
+              {formatStorageMb(Math.max(0, quotaMb - usedMb))} remaining
+            </p>
           </div>
         ) : (
           <p className="text-xs text-zinc-500">Storage usage unavailable</p>
@@ -1204,11 +1218,16 @@ export function OrbitMailApp({
       )}
     >
       <div className="flex items-center justify-between px-4 py-3.5">
-        <h2 className="text-lg font-bold tracking-tight">
-          {folderLabel}{" "}
-          <span className={accentText}>
-            {folder.toUpperCase() === "INBOX" && !isStarredView ? inboxUnseen || total : total}
-          </span>
+        <h2 className="flex min-w-0 items-center gap-2 text-[1.35rem] font-semibold tracking-tight text-[#202124]">
+          <span className="truncate">{folderLabel}</span>
+          {folderUnseen > 0 ? (
+            <span
+              className="inline-flex min-w-[1.5rem] shrink-0 items-center justify-center rounded-full bg-[#e8f0fe] px-2 py-0.5 text-xs font-bold text-[#1a73e8]"
+              title={`${folderUnseen} unread`}
+            >
+              {folderUnseen}
+            </span>
+          ) : null}
         </h2>
         <div className="flex items-center gap-1">
           {!searchQ.trim() && !isStarredView ? (
@@ -1406,67 +1425,89 @@ export function OrbitMailApp({
                         }
                       }}
                       className={cn(
-                        "orbit-mail-row mb-0 flex w-full items-start gap-2 rounded-none border-0 border-b border-[#eceef2] px-3 py-2.5 text-left text-[#202124]",
-                        active ? "bg-[#e8f0fe]" : "bg-white hover:bg-[#f6f8fc]",
+                        "orbit-mail-row mb-0 flex w-full min-w-0 items-center gap-2 rounded-none border-0 border-b border-[#eceef2] px-2 py-2.5 text-left sm:gap-3 sm:px-3",
+                        active ? "bg-[#e8f0fe]" : m.unseen ? "bg-[#f8fafc] hover:bg-[#f1f5fb]" : "bg-white hover:bg-[#f6f8fc]",
                       )}
                     >
-                      <span
-                        className={cn(
-                          "mt-3 size-1.5 shrink-0 rounded-full",
-                          m.unseen ? "bg-[#1a73e8]" : "bg-transparent",
-                        )}
-                        aria-hidden
-                      />
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggleSelect(m.uid)}
                         onClick={(e) => e.stopPropagation()}
-                        className="mt-2 size-3.5 shrink-0 rounded accent-[#1a73e8]"
+                        className="size-3.5 shrink-0 rounded accent-[#1a73e8]"
                         aria-label={`Select ${m.subject || "message"}`}
                       />
-                      <span className="flex min-w-0 flex-1 gap-3 text-left">
-                        <span
-                          className={cn(
-                            "flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold",
-                            m.unseen
-                              ? "bg-[#1a73e8] text-white"
-                              : "bg-[#dadce0] text-[#3c4043]",
-                          )}
-                        >
-                          {initials(m.from || m.fromEmail)}
-                        </span>
+                      <span
+                        className={cn(
+                          "flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                          m.unseen ? "bg-[#1a73e8] text-white" : "bg-[#dadce0] text-[#5f6368]",
+                        )}
+                      >
+                        {initials(m.from || m.fromEmail)}
+                      </span>
+                      <span className="flex min-w-0 flex-1 items-start gap-2">
                         <span className="min-w-0 flex-1">
-                          <span className="flex items-center justify-between gap-2">
-                            <span className={cn("truncate text-sm tracking-tight", m.unseen ? "font-bold" : "font-medium")} title={m.from || m.fromEmail}>
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span
+                              className={cn(
+                                "size-1.5 shrink-0 rounded-full",
+                                m.unseen ? "bg-[#1a73e8]" : "bg-transparent",
+                              )}
+                              aria-hidden
+                            />
+                            <span
+                              className={cn(
+                                "min-w-0 truncate text-[13px] leading-5",
+                                m.unseen ? "font-bold text-[#202124]" : "font-normal text-[#5f6368]",
+                              )}
+                              title={m.from || m.fromEmail}
+                            >
                               {m.from || m.fromEmail}
                             </span>
-                            <span className="shrink-0 text-[0.7rem] font-medium text-zinc-500">
-                              {formatWhen(m.date)}
-                            </span>
                           </span>
-                          <span className={cn("mt-0.5 block truncate text-sm", m.unseen ? "font-semibold text-[#202124]" : "font-medium text-[#3c4043]")} title={m.subject || "(no subject)"}>
+                          <span
+                            className={cn(
+                              "mt-0.5 block truncate pl-3.5 text-[13px] leading-5",
+                              m.unseen ? "font-bold text-[#202124]" : "font-normal text-[#5f6368]",
+                            )}
+                            title={m.subject || "(no subject)"}
+                          >
                             {m.subject || "(no subject)"}
+                            {m.preview ? (
+                              <span className="font-normal text-[#80868b]">
+                                {" — "}
+                                {m.preview}
+                              </span>
+                            ) : null}
                           </span>
-                          <span className="mt-0.5 flex items-center gap-1 truncate text-xs font-normal text-zinc-500">
-                            {m.hasAttachment ? <Paperclip className="size-3 text-[#5f6368]" /> : null}
-                            {m.preview || " "}
+                        </span>
+                        <span className="flex shrink-0 flex-col items-end gap-1 pt-0.5">
+                          <span
+                            className={cn(
+                              "text-[11px] tabular-nums",
+                              m.unseen ? "font-bold text-[#1a73e8]" : "font-normal text-[#80868b]",
+                            )}
+                          >
+                            {formatWhen(m.date)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            {m.hasAttachment ? <Paperclip className="size-3.5 text-[#80868b]" /> : null}
+                            <button
+                              type="button"
+                              className="rounded p-0.5 hover:bg-black/5"
+                              onClick={(e) => void toggleFlag(m, e)}
+                              aria-label={m.flagged ? "Unstar" : "Star"}
+                            >
+                              <Star
+                                className={cn(
+                                  "size-3.5",
+                                  m.flagged ? "fill-[#fbbc04] text-[#fbbc04]" : "text-[#dadce0]",
+                                )}
+                              />
+                            </button>
                           </span>
                         </span>
                       </span>
-                      <button
-                        type="button"
-                        className="mt-1 shrink-0 rounded p-1 hover:bg-white/5"
-                        onClick={(e) => void toggleFlag(m, e)}
-                        aria-label={m.flagged ? "Unstar" : "Star"}
-                      >
-                        <Star
-                          className={cn(
-                            "size-3.5",
-                            m.flagged ? "fill-[#fbbc04] text-[#fbbc04]" : "text-zinc-400",
-                          )}
-                        />
-                      </button>
                     </div>
                   );
                 })
@@ -1662,7 +1703,7 @@ export function OrbitMailApp({
           className="orbit-empty-state flex-1"
         >
           <div className="orbit-empty-state__orb" aria-hidden>
-            <Mail className="size-8 text-[#1a73e8]" />
+            <Mail className="size-10 text-[#1a73e8]" strokeWidth={1.5} />
           </div>
           <p className="orbit-empty-state__title">Select a message to read</p>
           <p className="orbit-empty-state__hint">

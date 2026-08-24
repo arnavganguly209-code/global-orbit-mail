@@ -596,7 +596,7 @@
 }
 
 .orbit-mail-app .orbit-mail-row[data-unseen="true"] {
-  box-shadow: inset 3px 0 0 #1a73e8;
+  box-shadow: none;
 }
 
 .orbit-mail-app .orbit-tool-btn {
@@ -710,8 +710,8 @@
   max-height: 5.75rem;
   object-fit: contain;
   object-position: left center;
-  image-rendering: -webkit-optimize-contrast;
-  filter: contrast(1.06) saturate(1.05);
+  image-rendering: auto;
+  filter: none;
 }
 
 @media (min-width: 1280px) {
@@ -769,7 +769,7 @@
 }
 
 .orbit-mail-row[data-unseen="true"] {
-  box-shadow: inset 3px 0 0 #1a73e8;
+  box-shadow: none;
 }
 
 .orbit-mail-body {
@@ -928,9 +928,9 @@
 }
 
 .orbit-storage-bar {
-  height: 6px;
+  height: 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
 }
 
@@ -992,9 +992,12 @@
   background: #e8f0fe !important;
   box-shadow: inset 3px 0 0 #1a73e8;
 }
-.orbit-mail-app .orbit-mail-row[data-unseen="true"],
-.orbit-mail-app .orbit-mail-row[data-unseen="true"] {
-  box-shadow: inset 3px 0 0 #1a73e8;
+.orbit-mail-app .orbit-mail-row[data-unseen="true"]:not([data-active="true"]) {
+  background: #f8fafc !important;
+  box-shadow: none;
+}
+.orbit-mail-app .orbit-mail-row[data-unseen="true"][data-active="true"] {
+  background: #e8f0fe !important;
 }
 .orbit-mail-app .orbit-tool-btn {
   color: #5f6368;
@@ -1050,8 +1053,8 @@
   background-size: 200% 100%;
 }
 .orbit-mail-app aside.orbit-mail-sidebar.fixed {
-  width: min(280px, 88vw);
+  width: min(288px, 90vw);
   min-width: 0;
-  max-width: min(280px, 88vw);
+  max-width: min(288px, 90vw);
 }
 
