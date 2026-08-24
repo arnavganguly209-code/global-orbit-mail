@@ -873,13 +873,13 @@ export function OrbitMailApp({
 
   const navActive = "orbit-nav-active";
   const navIdle =
-    "border border-transparent text-[#9aa0a6] hover:bg-white/[0.08] hover:text-white";
+    "border border-transparent text-[#f3efe6] hover:bg-white/[0.05] hover:text-white";
   const iconBtn =
-    "rounded-xl p-2.5 text-[#9aa0a6] transition hover:bg-white/[0.08] hover:text-white";
+    "rounded-lg p-2 text-[#d4af37] transition hover:bg-white/[0.06] hover:text-[#f0d78c]";
   const headerIcon =
     "rounded-xl p-2.5 text-[#5f6368] transition hover:bg-[#f1f3f4] hover:text-[#202124]";
   const accentText = "text-[#5f6368]";
-  const sectionLabel = "text-[#9aa0a6]";
+  const sectionLabel = "text-[#d4af37]";
 
   function goToSentFolder() {
     const sentItem = SYSTEM_NAV.find((n) => n.key === "sent");
@@ -901,17 +901,18 @@ export function OrbitMailApp({
           type="button"
           onClick={() => selectFolder(f.path)}
           className={cn(
-          "flex w-full items-center gap-2 rounded-lg px-2.5 py-1 text-left text-[13px] leading-tight transition-colors duration-150",
+            "mb-0 grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-full px-2.5 py-[5px] text-left text-[13px] leading-tight transition-[background-color,box-shadow,border-color] duration-150",
             active ? navActive : navIdle,
           )}
         >
           <Icon
             className="size-4 w-4 shrink-0"
-            style={{ color: active ? "#8ab4f8" : "#9aa0a6" }}
+            strokeWidth={1.6}
+            style={{ color: active ? "#f0d78c" : "#d4af37" }}
           />
-          <span className="flex-1 truncate font-medium">{label}</span>
+          <span className="flex-1 truncate font-medium tracking-tight">{label}</span>
           {f.unseen > 0 ? (
-            <span className="min-w-[1.35rem] rounded-full bg-white/15 px-1.5 text-center text-[0.7rem] font-bold text-white">
+            <span className="min-w-[1.15rem] rounded-full bg-[#d4af37] px-1.5 text-center text-[0.65rem] font-bold text-[#1a1200]">
               {f.unseen}
             </span>
           ) : null}
@@ -956,17 +957,18 @@ export function OrbitMailApp({
         type="button"
         onClick={() => selectSystemNav(item.key)}
         className={cn(
-          "mb-0 grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg px-2.5 py-1 text-[13px] leading-tight transition-colors duration-150",
+          "mb-0 grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-full px-2.5 py-[5px] text-[13px] leading-tight transition-[background-color,box-shadow,border-color] duration-150",
           active ? navActive : navIdle,
         )}
       >
         <Icon
-            className="size-4 w-4 shrink-0"
-            style={{ color: active ? "#8ab4f8" : "#9aa0a6" }}
+          className="size-4 w-4 shrink-0"
+          strokeWidth={1.6}
+          style={{ color: active ? "#f0d78c" : "#d4af37" }}
         />
-        <span className="flex-1 truncate font-medium">{item.label}</span>
+        <span className="flex-1 truncate font-medium tracking-tight">{item.label}</span>
         {unseen > 0 ? (
-          <span className="min-w-[1.35rem] rounded-full bg-white/15 px-1.5 text-center text-[0.7rem] font-bold text-white">
+          <span className="min-w-[1.15rem] rounded-full bg-[#d4af37] px-1.5 text-center text-[0.65rem] font-bold text-[#1a1200]">
             {unseen}
           </span>
         ) : null}
@@ -1166,16 +1168,16 @@ export function OrbitMailApp({
   const sidebar = (
     <aside
       className={cn(
-        "orbit-mail-sidebar flex shrink-0 flex-col border-r border-black/40 bg-[#12151c] text-[#e8eaed]",
-        isWide ? "w-[280px] min-w-[280px] max-w-[280px]" : "fixed inset-y-0 left-0 z-40 w-[min(300px,92vw)] shadow-2xl",
+        "orbit-mail-sidebar flex shrink-0 flex-col text-[#f4f1ea]",
+        isWide ? "w-[252px] min-w-[252px] max-w-[252px]" : "fixed inset-y-0 left-0 z-40 w-[min(280px,90vw)] shadow-2xl",
       )}
     >
-      <div className="flex items-center justify-center px-3 pt-2 pb-0 sm:px-4">
+      <div className="flex shrink-0 items-center justify-center px-4 pt-3 pb-1">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={companyLogo}
           alt="GLOBAL ORBIT PVT LTD"
-          className="h-[4.5rem] w-auto max-w-[240px] object-contain object-center sm:h-28 sm:max-w-[252px]"
+          className="h-[4.25rem] w-auto max-w-[208px] object-contain object-center sm:h-[4.75rem] sm:max-w-[220px]"
           decoding="async"
         />
       </div>
@@ -1187,69 +1189,70 @@ export function OrbitMailApp({
           setComposeOpen(true);
           setDrawerOpen(false);
         }}
-        className="mx-4 mb-2 mt-0 flex items-center justify-center gap-2 rounded-2xl bg-[#1a73e8] px-4 py-2.5 text-sm font-bold text-white shadow-[0_1px_3px_rgba(26,115,232,0.4)] transition hover:bg-[#1557c0]"
+        className="orbit-sidebar-compose mx-3 mb-3 mt-1 flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-bold"
+        aria-label="New Mail"
       >
-        <PenSquare className="size-4" />
+        <PenSquare className="size-4" strokeWidth={2} />
         New Mail
       </button>
 
       <div className="shrink-0 px-2 pb-1">
-        <p className={cn("mb-0.5 px-3 text-[0.65rem] font-bold uppercase tracking-[0.14em]", sectionLabel)}>
+        <p className={cn("mb-1 px-3 text-[0.62rem] font-semibold uppercase tracking-[0.18em]", sectionLabel)}>
           Mailbox
         </p>
         {foldersQuery.isLoading && folders.length === 0
           ? Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="mb-0.5 h-8 animate-pulse rounded-[10px] bg-white/5" />
+              <div key={i} className="mb-0.5 h-7 animate-pulse rounded-full bg-white/5" />
             ))
           : systemNavResolved.map((entry) => renderSystemNavButton(entry))}
       </div>
 
       <nav className="orbit-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2">
         <div className="mt-1 flex items-center justify-between px-3">
-          <p className="text-[0.65rem] font-bold uppercase tracking-[0.14em] text-zinc-500">Folders</p>
+          <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-[#d4af37]">Folders</p>
           <button
             type="button"
             onClick={openCreateFolder}
-            className="rounded-md p-1 text-[#9aa0a6] hover:bg-white/5 hover:text-white"
+            className="rounded-md p-1 text-[#d4af37] hover:bg-white/5 hover:text-[#f0d78c]"
             title="Create folder"
             aria-label="Create folder"
           >
-            <FolderPlus className="size-3.5" />
+            <FolderPlus className="size-3.5" strokeWidth={1.75} />
           </button>
         </div>
         {nestedCustom.length === 0 ? (
-          <p className="px-3 pt-2 text-xs text-zinc-600">No custom folders yet.</p>
+          <p className="px-3 pt-2 text-xs text-[#8a8378]">No custom folders yet.</p>
         ) : (
           nestedCustom.map((f) => renderFolderButton(f, { custom: true }))
         )}
       </nav>
 
-      <div className="mx-3 mb-2 rounded-xl border border-white/10 bg-white/[0.06] p-3">
+      <div className="orbit-sidebar-storage mx-3 mb-2 rounded-2xl p-3">
         {quotaMb > 0 ? (
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9aa0a6]">Storage</p>
-            <p className="mt-1 text-xs font-medium leading-snug text-[#e8eaed]">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#d4af37]">Storage</p>
+            <p className="mt-1.5 text-xs font-semibold leading-snug text-white">
               {formatStorageMb(usedMb)} of {formatStorageMb(quotaMb)} used
             </p>
             <div className="mt-2.5 flex items-center gap-2.5">
               <div className="orbit-storage-bar min-w-0 flex-1" aria-hidden>
                 <span style={{ width: `${usedPct}%` }} />
               </div>
-              <span className="w-8 shrink-0 text-right text-[11px] font-bold tabular-nums text-[#c4c7c5]">
+              <span className="w-8 shrink-0 text-right text-[11px] font-bold tabular-nums text-white/90">
                 {Math.round(usedPct)}%
               </span>
             </div>
-            <p className="mt-2 text-[11px] text-[#9aa0a6]">
+            <p className="mt-2 text-[11px] text-[#cfc6b8]">
               {formatStorageMb(Math.max(0, quotaMb - usedMb))} remaining
             </p>
           </div>
         ) : (
-          <p className="text-xs text-zinc-500">Storage usage unavailable</p>
+          <p className="text-xs text-[#8a8378]">Storage usage unavailable</p>
         )}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-white/[0.08] px-3 py-2">
-        <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/10 text-[0.65rem] font-bold">
+      <div className="flex items-center gap-2 border-t border-[rgba(255,215,130,0.12)] px-3 py-2">
+        <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[rgba(255,215,130,0.2)] bg-white/5 text-[0.65rem] font-bold text-[#f0d78c]">
           {mailboxAvatar ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={mailboxAvatar} alt="" className="size-full object-cover" />
@@ -1257,14 +1260,14 @@ export function OrbitMailApp({
             initials(displayName || me?.email || "?")
           )}
         </span>
-        <span className="min-w-0 flex-1 truncate text-xs text-[#e8eaed]" title={me?.email}>
+        <span className="min-w-0 flex-1 truncate text-xs text-white" title={me?.email}>
           {me?.email || displayName}
         </span>
-        <button type="button" onClick={() => router.push(webmailRoutes.profile)} className={iconBtn} title="Profile & settings">
-          <Settings className="size-4" />
+        <button type="button" onClick={() => router.push(webmailRoutes.profile)} className={iconBtn} title="Profile & settings" aria-label="Profile and settings">
+          <Settings className="size-4" strokeWidth={1.6} />
         </button>
-        <button type="button" onClick={() => void logout()} className={iconBtn} title="Logout">
-          <LogOut className="size-4" />
+        <button type="button" onClick={() => void logout()} className={iconBtn} title="Logout" aria-label="Logout">
+          <LogOut className="size-4" strokeWidth={1.6} />
         </button>
       </div>
     </aside>

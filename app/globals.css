@@ -538,8 +538,16 @@
 }
 
 .orbit-mail-app .orbit-mail-sidebar {
-  background: #12151c;
-  color: #e8eaed;
+  background:
+    radial-gradient(ellipse 90% 42% at 50% -8%, rgba(212, 175, 55, 0.14), transparent 58%),
+    rgba(8, 10, 14, 0.92);
+  color: #f4f1ea;
+  border-right: 1px solid rgba(255, 215, 130, 0.12);
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  box-shadow:
+    inset 1px 0 0 rgba(255, 255, 255, 0.04),
+    10px 0 28px rgba(0, 0, 0, 0.18);
 }
 
 .orbit-mail-app .orbit-mail-body {
@@ -928,9 +936,9 @@
 }
 
 .orbit-storage-bar {
-  height: 8px;
+  height: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }
 
@@ -938,8 +946,8 @@
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #1a73e8;
-  box-shadow: none;
+  background: linear-gradient(90deg, #c9a227, #f0d78c);
+  box-shadow: 0 0 8px rgba(217, 177, 92, 0.35);
 }
 
 .orbit-compose-btn {
@@ -949,12 +957,41 @@
   color: #fff;
 }
 
+.orbit-mail-sidebar button:focus-visible {
+  outline: 2px solid #f0d78c;
+  outline-offset: 2px;
+}
+
 .orbit-nav-active {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid transparent;
-  box-shadow: inset 3px 0 0 #1a73e8;
+  background: linear-gradient(90deg, rgba(217, 177, 92, 0.2), rgba(18, 14, 8, 0.35));
+  border: 1px solid rgba(217, 177, 92, 0.32);
+  box-shadow: inset 2px 0 0 #d4af37, 0 0 14px rgba(217, 177, 92, 0.12);
   color: #ffffff;
   font-weight: 600;
+}
+
+.orbit-sidebar-compose {
+  color: #1a1200;
+  background: linear-gradient(180deg, #f6e7a8 0%, #d4af37 48%, #b8922a 100%);
+  border: 1px solid rgba(255, 232, 170, 0.45);
+  box-shadow:
+    0 8px 18px rgba(184, 146, 42, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.orbit-sidebar-compose:hover {
+  filter: brightness(1.06);
+}
+
+.orbit-sidebar-compose:focus-visible {
+  outline: 2px solid #f0d78c;
+  outline-offset: 2px;
+}
+
+.orbit-sidebar-storage {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 215, 130, 0.16);
+  box-shadow: 0 0 18px rgba(217, 177, 92, 0.08);
 }
 
 .orbit-online-pill {
@@ -1053,8 +1090,8 @@
   background-size: 200% 100%;
 }
 .orbit-mail-app aside.orbit-mail-sidebar.fixed {
-  width: min(300px, 92vw);
+  width: min(280px, 90vw);
   min-width: 0;
-  max-width: min(300px, 92vw);
+  max-width: min(280px, 90vw);
 }
 
