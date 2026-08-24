@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black-translucent",
+    statusBarStyle: "default",
     title: "Orbit Mail",
   },
   formatDetection: {
@@ -41,11 +41,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#08090C" },
-    { media: "(prefers-color-scheme: light)", color: "#08090C" },
-  ],
-  colorScheme: "dark",
+  themeColor: "#ffffff",
+  colorScheme: "light",
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
@@ -56,7 +53,7 @@ export const viewport: Viewport = {
 export default function WebmailLayout({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className={`${inter.variable} orbit-webmail min-h-dvh bg-[#08090C] text-[#f5f5f7] antialiased [color-scheme:dark] [font-family:var(--font-orbit-ui),ui-sans-serif,system-ui,sans-serif]`}
+      className={`${inter.variable} orbit-webmail min-h-dvh bg-white text-[#202124] antialiased [color-scheme:light] [font-family:var(--font-orbit-ui),ui-sans-serif,system-ui,sans-serif]`}
     >
       <RegisterWebmailSw />
       {children}

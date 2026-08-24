@@ -18,6 +18,7 @@ import {
   Forward,
   HelpCircle,
   Inbox,
+  KeyRound,
   LogOut,
   Mail,
   Menu,
@@ -34,12 +35,22 @@ import {
   ShieldAlert,
   Star,
   Trash2,
+  User,
   Users,
   X,
   FolderPlus,
   CircleAlert,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { MailHtmlFrame } from "@/features/webmail/mail-html-frame";
 import { webmailRoutes } from "@/config/webmail-routes";
 import { useLayoutMode } from "@/features/webmail/hooks/use-layout-mode";
 import { ComposeWindow, type ComposeState } from "@/features/webmail/compose-window";
@@ -107,8 +118,8 @@ export function OrbitMailApp({
   const router = useRouter();
   const qc = useQueryClient();
   const layout = useLayoutMode();
-  /** Webmail dashboard is dark-only — no theme switching. */
-  const light = false;
+  /** Gmail-style light workspace. Sidebar stays dark. */
+  const light = true;
 
   const [folder, setFolder] = React.useState(initialFolder || "INBOX");
   const [page, setPage] = React.useState(1);
@@ -144,6 +155,8 @@ export function OrbitMailApp({
   const [viewMode, setViewMode] = React.useState<"messages" | "threads">("messages");
   const [folderBusy, setFolderBusy] = React.useState(false);
   const notifRef = React.useRef<HTMLDivElement>(null);
+  const readerRef = React.useRef<HTMLElement>(null);
+  const [readerFs, setReaderFs] = React.useState(false);
   const isStarredView = folder === STARRED_VIRTUAL;
 
   React.useEffect(() => {
@@ -229,6 +242,41 @@ export function OrbitMailApp({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
+
+  React.useEffect(() => {
+    function onFs() {
+      if (!document.fullscreenElement) setReaderFs(false);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setReaderFs(false);
+    }
+    document.addEventListener("fullscreenchange", onFs);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFs);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, []);
+
+  async function toggleReaderFs() {
+    if (readerFs) {
+      setReaderFs(false);
+      if (document.fullscreenElement) {
+        try {
+          await document.exitFullscreen();
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+    setReaderFs(true);
+    try {
+      await readerRef.current?.requestFullscreen();
+    } catch {
+      /* CSS overlay fallback */
+    }
+  }
 
   const meQuery = useQuery({
     queryKey: ["webmail", "me"],
@@ -345,7 +393,7 @@ export function OrbitMailApp({
   });
 
   if (!layout) {
-    return <div className="h-dvh bg-[#08090C]" aria-hidden />;
+    return <div className="h-dvh bg-[#eef1f6]" aria-hidden />;
   }
 
   const folders = foldersQuery.data ?? [];
@@ -421,17 +469,14 @@ export function OrbitMailApp({
   const usedMb = me?.branding?.usedMb ?? 0;
   const usedPct = quotaMb > 0 ? Math.min(100, (usedMb / quotaMb) * 100) : 0;
 
-  const isStack = layout === "mobile" || layout === "tablet";
-  const showSidebar =
-    layout === "desktop" || layout === "laptop" || (layout === "tablet" && drawerOpen);
+  const isMobile = layout === "mobile";
+  const isTablet = layout === "tablet";
+  const isWide = layout === "desktop" || layout === "laptop";
+  const isStack = isMobile;
+  const showSidebar = !readerFs && (isWide || ((isMobile || isTablet) && drawerOpen));
   const showList =
-    layout === "desktop" ||
-    layout === "laptop" ||
-    (layout === "tablet" && pane !== "reader") ||
-    (layout === "mobile" && pane === "list");
-  const showReader =
-    layout === "desktop" || layout === "laptop" || (isStack && pane === "reader");
-  const showMobileFolders = layout === "mobile" && pane === "folders";
+    !readerFs && (isWide || isTablet || (isMobile && pane !== "reader"));
+  const showReader = readerFs || isWide || isTablet || (isMobile && pane === "reader");
 
   const searching = Boolean(searchQ.trim());
   const totalPages = searching ? 1 : Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -744,13 +789,14 @@ export function OrbitMailApp({
     me?.email ? loadRememberedRecipients(me.email) : [],
     contactsQuery.data?.recent,
   );
-  const sidebarWidth =
-    layout === "desktop" ? "w-[300px]" : layout === "laptop" ? "w-[260px]" : "w-[min(340px,88vw)]";
-  const listWidth =
-    layout === "desktop" ? "w-[420px]" : layout === "laptop" ? "w-[340px]" : "w-full";
+  const listWidth = isMobile
+    ? "w-full"
+    : layout === "desktop"
+      ? "w-[420px]"
+      : "w-[min(360px,38vw)]";
 
   const shell = cn(
-    "orbit-mail-shell flex h-dvh flex-col overflow-hidden font-sans antialiased text-[#f7f8fb]",
+    "orbit-mail-shell orbit-mail-app flex h-dvh min-w-0 flex-col overflow-hidden bg-white font-sans text-[#202124] antialiased",
   );
   // Left brand mark = Orbit product logo. Right profile / mail signature = customer upload.
   const companyLogo = "/brand/logo.png";
@@ -773,11 +819,13 @@ export function OrbitMailApp({
 
   const navActive = "orbit-nav-active";
   const navIdle =
-    "border border-transparent text-zinc-400 hover:bg-[rgba(23,61,52,0.35)] hover:text-white";
+    "border border-transparent text-[#9aa0a6] hover:bg-white/[0.08] hover:text-white";
   const iconBtn =
-    "rounded-xl p-2.5 text-zinc-400 transition hover:bg-white/[0.06] hover:text-[#ffd97a]";
-  const accentText = "text-[#ffd97a]";
-  const sectionLabel = "text-[#d9b15c]/90";
+    "rounded-xl p-2.5 text-[#9aa0a6] transition hover:bg-white/[0.08] hover:text-white";
+  const headerIcon =
+    "rounded-xl p-2.5 text-[#5f6368] transition hover:bg-[#f1f3f4] hover:text-[#202124]";
+  const accentText = "text-[#5f6368]";
+  const sectionLabel = "text-[#9aa0a6]";
 
   function goToSentFolder() {
     const sentItem = SYSTEM_NAV.find((n) => n.key === "sent");
@@ -805,11 +853,11 @@ export function OrbitMailApp({
         >
           <Icon
             className="size-4 shrink-0"
-            style={{ color: active ? "#d9b15c" : undefined }}
+            style={{ color: active ? "#8ab4f8" : undefined }}
           />
           <span className="flex-1 truncate font-medium">{label}</span>
           {f.unseen > 0 ? (
-            <span className="min-w-[1.35rem] rounded-full bg-[#d9b15c] px-1.5 text-center text-[0.7rem] font-bold text-[#1a1200]">
+            <span className="min-w-[1.35rem] rounded-full bg-white/15 px-1.5 text-center text-[0.7rem] font-bold text-white">
               {f.unseen}
             </span>
           ) : null}
@@ -866,7 +914,7 @@ export function OrbitMailApp({
         />
         <span className="flex-1 truncate font-medium">{item.label}</span>
         {unseen > 0 ? (
-          <span className="min-w-[1.35rem] rounded-full bg-[#d9b15c] px-1.5 text-center text-[0.7rem] font-bold text-[#1a1200] shadow-[0_0_10px_rgba(217,177,92,0.35)]">
+          <span className="min-w-[1.35rem] rounded-full bg-white/15 px-1.5 text-center text-[0.7rem] font-bold text-white">
             {unseen}
           </span>
         ) : null}
@@ -875,38 +923,15 @@ export function OrbitMailApp({
   }
 
   const topBar = (
-    <header className="orbit-glass-panel flex h-[4.5rem] shrink-0 items-center gap-3 border-b border-white/[0.08] px-3 sm:h-[5.75rem] sm:px-5">
-      {isStack ? (
-        <button
-          type="button"
-          onClick={() => {
-            if (layout === "mobile") setPane("folders");
-            else setDrawerOpen(true);
-          }}
-          className={cn(iconBtn, "size-11 shrink-0")}
-          aria-label="Open folders"
-        >
-          <Menu className="size-5" />
-        </button>
-      ) : (
-        <div className={cn("flex shrink-0 items-center", sidebarWidth)}>
-          <CompanyLogo className="h-[3.75rem] max-h-[5.25rem] w-auto max-w-[calc(100%-0.5rem)] sm:h-[5.25rem] sm:max-h-[6.25rem] sm:max-w-[calc(100%-0.25rem)]" />
-        </div>
-      )}
-
-      {isStack ? (
-        <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={companyLogo}
-            alt=""
-            className="h-10 w-auto max-w-[150px] object-contain"
-          />
-          <p className="truncate text-[0.65rem] font-medium text-zinc-500">
-            {me?.email || "Business email"}
-          </p>
-        </div>
-      ) : null}
+    <header className="flex h-14 min-w-0 shrink-0 items-center gap-2 overflow-x-hidden border-b border-[#dadce0] bg-white px-2 sm:h-14 sm:gap-3 sm:px-4">
+      <button
+        type="button"
+        onClick={() => setDrawerOpen(true)}
+        className={cn(headerIcon, "size-10 shrink-0", isWide && "invisible")}
+        aria-label="Open folders"
+      >
+        <Menu className="size-5" />
+      </button>
 
       <form
         onSubmit={(e) => {
@@ -916,7 +941,7 @@ export function OrbitMailApp({
         }}
         className={cn(
           "relative min-w-0 max-w-2xl flex-1",
-          isStack ? "hidden" : "mx-auto hidden md:block",
+          isStack ? "mx-2" : "mx-auto",
         )}
       >
         <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
@@ -925,9 +950,9 @@ export function OrbitMailApp({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search mail…"
-          className="h-11 w-full rounded-2xl border border-white/[0.08] bg-[rgba(20,24,29,0.72)] pl-11 pr-16 text-sm font-medium text-white outline-none backdrop-blur-[40px] placeholder:text-zinc-500 focus:border-[#d9b15c]/55 focus:shadow-[0_0_0_3px_rgba(217,177,92,0.12)]"
+          className="h-11 w-full rounded-full border-0 bg-[#f1f3f4] pl-11 pr-16 text-sm font-medium text-[#202124] outline-none placeholder:text-zinc-500 focus:bg-white focus:shadow-[0_1px_6px_rgba(32,33,36,0.16)]"
         />
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-white/10 px-1.5 py-0.5 text-[0.65rem] font-semibold text-zinc-500">
+        <span className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded-md border border-[#dadce0] px-1.5 py-0.5 text-[0.65rem] font-semibold text-zinc-500 sm:inline">
           ⌘K
         </span>
       </form>
@@ -940,7 +965,7 @@ export function OrbitMailApp({
               setCompose(emptyCompose());
               setComposeOpen(true);
             }}
-            className="orbit-compose-btn mr-1 inline-flex size-10 items-center justify-center rounded-full text-[#1a1200]"
+            className="orbit-compose-btn mr-1 inline-flex size-10 items-center justify-center rounded-full text-white"
             aria-label="Compose"
           >
             <PenSquare className="size-4" />
@@ -949,7 +974,7 @@ export function OrbitMailApp({
         <button
           type="button"
           onClick={() => setAdvancedOpen(true)}
-          className={cn(iconBtn, "size-10")}
+          className={cn(headerIcon, "size-10")}
           title="Advanced search"
         >
           <Filter className="size-4" />
@@ -964,12 +989,12 @@ export function OrbitMailApp({
           <button
             type="button"
             onClick={() => setNotifOpen((v) => !v)}
-            className={cn(iconBtn, "relative")}
+            className={cn(headerIcon, "relative")}
             aria-label="Notifications"
           >
             <Bell className="size-4" />
             {inboxUnseen > 0 ? (
-              <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-[#d9b15c] text-[0.6rem] font-bold text-[#1a1200] shadow-[0_0_10px_rgba(217,177,92,0.55)]">
+              <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-[#d93025] text-[0.6rem] font-bold text-white">
                 {inboxUnseen > 9 ? "9+" : inboxUnseen}
               </span>
             ) : null}
@@ -981,10 +1006,10 @@ export function OrbitMailApp({
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 6, scale: 0.98 }}
                 transition={{ duration: 0.16 }}
-                className="orbit-glass-panel absolute right-0 top-11 z-30 w-[22rem] overflow-hidden rounded-2xl border border-white/[0.08] text-sm shadow-2xl"
+                className="absolute right-0 top-11 z-30 w-[22rem] overflow-hidden rounded-2xl border border-[#e4e7ec] bg-white text-sm text-[#202124] shadow-2xl"
               >
-                <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
-                  <p className="font-semibold text-[#ffd97a]">Notifications</p>
+                <div className="flex items-center justify-between border-b border-[#e8eaed] px-4 py-3">
+                  <p className="font-semibold text-[#202124]">Notifications</p>
                   <span className="text-xs font-medium text-zinc-500">
                     {inboxUnseen > 0 ? `${inboxUnseen} unread` : "All caught up"}
                   </span>
@@ -1003,13 +1028,13 @@ export function OrbitMailApp({
                       <button
                         key={m.uid}
                         type="button"
-                        className="flex w-full gap-3 border-b border-white/[0.05] px-4 py-3 text-left transition hover:bg-[rgba(23,61,52,0.35)]"
+                        className="flex w-full gap-3 border-b border-[#f1f3f4] px-4 py-3 text-left text-[#202124] transition hover:bg-[#f6f8fc]"
                         onClick={() => {
                           setNotifOpen(false);
                           void openMessage(m.uid, { folderPath: "INBOX" });
                         }}
                       >
-                        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#d9b15c]/45 to-[#173d34] text-[0.65rem] font-bold">
+                        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-[#e8f0fe] text-[0.65rem] font-bold text-[#1a73e8]">
                           {initials(m.from || m.fromEmail)}
                         </span>
                         <span className="min-w-0 flex-1">
@@ -1017,7 +1042,7 @@ export function OrbitMailApp({
                             <span className="truncate text-sm font-semibold">{m.from || m.fromEmail}</span>
                             <span className="shrink-0 text-[0.65rem] text-zinc-500">{formatWhen(m.date)}</span>
                           </span>
-                          <span className="mt-0.5 block truncate text-sm text-zinc-300">
+                          <span className="mt-0.5 block truncate text-sm text-[#3c4043]">
                             {m.subject || "(no subject)"}
                           </span>
                           <span className="mt-0.5 block truncate text-xs text-zinc-500">{m.preview}</span>
@@ -1033,24 +1058,45 @@ export function OrbitMailApp({
         <button
           type="button"
           onClick={() => router.push(webmailRoutes.profile)}
-          className={iconBtn}
+          className={headerIcon}
           title="Profile & settings"
         >
           <HelpCircle className="size-4" />
         </button>
-        <button
-          type="button"
-          onClick={() => router.push(webmailRoutes.profile)}
-          className="ml-1 flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/[0.1] bg-gradient-to-br from-[#d9b15c]/45 to-[#173d34] text-xs font-bold"
-          title="Account · Change Password"
-        >
-          {mailboxAvatar ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={mailboxAvatar} alt="" className="size-full object-cover" />
-          ) : (
-            initials(displayName || me?.email || "?")
-          )}
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="ml-1 flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#dadce0] bg-[#e8eaed] text-xs font-bold text-[#202124]"
+              title="Account"
+            >
+              {mailboxAvatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={mailboxAvatar} alt="" className="size-full object-cover" />
+              ) : (
+                initials(displayName || me?.email || "?")
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56 border-[#e5e7eb] bg-white text-[#202124]">
+            <DropdownMenuItem onClick={() => router.push(webmailRoutes.profile)}>
+              <User className="mr-2 size-4" />
+              Profile
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push(webmailRoutes.profile)}>
+              <KeyRound className="mr-2 size-4" />
+              Change Password
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push(webmailRoutes.contacts)}>
+              <Users className="mr-2 size-4" />
+              Contacts
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void logout()}>
+              <LogOut className="mr-2 size-4" />
+              Logout
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );
@@ -1058,13 +1104,14 @@ export function OrbitMailApp({
   const sidebar = (
     <aside
       className={cn(
-        "orbit-glass-panel flex shrink-0 flex-col border-r border-white/[0.08]",
-        sidebarWidth,
-        isStack && "fixed inset-y-0 left-0 z-40 shadow-2xl",
+        "orbit-mail-sidebar flex shrink-0 flex-col border-r border-black/40 bg-[#12151c] text-[#e8eaed]",
+        isWide ? "w-[248px] min-w-[248px] max-w-[248px]" : "fixed inset-y-0 left-0 z-40 w-[min(280px,88vw)] shadow-2xl",
       )}
     >
-      {/* No second company logo in sidebar — brand lives only in top-left header */}
-      <div className={cn("shrink-0", isStack ? "pt-3" : "pt-2")} />
+      <div className="flex items-center gap-2 px-4 pb-2 pt-4">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={companyLogo} alt="GLOBAL ORBIT" className="h-9 w-auto max-w-[180px] object-contain" />
+      </div>
 
       <button
         type="button"
@@ -1073,10 +1120,10 @@ export function OrbitMailApp({
           setComposeOpen(true);
           setDrawerOpen(false);
         }}
-        className="orbit-compose-btn mx-3 mb-3 mt-1 flex items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-bold text-[#1a1200] transition hover:brightness-105 active:scale-[0.99]"
+        className="mx-3 mb-4 mt-1 flex items-center justify-center gap-2 rounded-2xl bg-[#1a73e8] px-4 py-3 text-sm font-bold text-white shadow-[0_1px_3px_rgba(26,115,232,0.4)] transition hover:bg-[#1557c0]"
       >
         <PenSquare className="size-4" />
-        Compose
+        New Mail
       </button>
 
       <nav className="orbit-scroll flex-1 overflow-y-auto overscroll-contain px-2 pb-3">
@@ -1094,7 +1141,7 @@ export function OrbitMailApp({
           <button
             type="button"
             onClick={openCreateFolder}
-            className="rounded-md p-1 text-zinc-500 hover:bg-white/5 hover:text-[#ffd97a]"
+            className="rounded-md p-1 text-[#9aa0a6] hover:bg-white/5 hover:text-white"
             title="Create folder"
             aria-label="Create folder"
           >
@@ -1108,11 +1155,11 @@ export function OrbitMailApp({
         )}
       </nav>
 
-      <div className="orbit-glass-panel mx-3 mb-3 rounded-2xl border border-white/[0.08] p-3.5">
+      <div className="orbit-glass-panel mx-3 mb-3 rounded-2xl border border-white/[0.08] bg-white/[0.04] p-3.5">
         {quotaMb > 0 ? (
           <div>
-            <div className="mb-2 flex items-center justify-between text-[0.7rem] font-medium text-zinc-400">
-              <span className="uppercase tracking-[0.12em] text-[#d9b15c]/90">Storage</span>
+            <div className="mb-2 flex items-center justify-between text-[0.7rem] font-medium text-[#9aa0a6]">
+              <span className="uppercase tracking-[0.12em]">Storage</span>
               <span>
                 {formatStorageMb(usedMb)} of {formatStorageMb(quotaMb)} used ({Math.round(usedPct)}%)
               </span>
@@ -1126,12 +1173,20 @@ export function OrbitMailApp({
         )}
       </div>
 
-      <div className="flex items-center justify-around border-t border-white/[0.08] px-2 py-3">
+      <div className="flex items-center gap-2 border-t border-white/[0.08] px-3 py-3">
+        <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/10 text-[0.65rem] font-bold">
+          {mailboxAvatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={mailboxAvatar} alt="" className="size-full object-cover" />
+          ) : (
+            initials(displayName || me?.email || "?")
+          )}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-xs text-[#e8eaed]" title={me?.email}>
+          {me?.email || displayName}
+        </span>
         <button type="button" onClick={() => router.push(webmailRoutes.profile)} className={iconBtn} title="Profile & settings">
           <Settings className="size-4" />
-        </button>
-        <button type="button" onClick={() => router.push(webmailRoutes.contacts)} className={iconBtn} title="Contacts">
-          <Users className="size-4" />
         </button>
         <button type="button" onClick={() => void logout()} className={iconBtn} title="Logout">
           <LogOut className="size-4" />
@@ -1143,41 +1198,11 @@ export function OrbitMailApp({
   const listPane = (
     <section
       className={cn(
-        "orbit-glass-panel flex min-h-0 shrink-0 flex-col border-r border-white/[0.08]",
+        "orbit-mail-workspace flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-r border-[#e4e7ec] bg-white",
         listWidth,
         isStack && "min-w-0 flex-1 border-r-0",
       )}
     >
-      <div className="flex items-center gap-2 border-b border-white/8 px-3 py-3 md:hidden">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            setPage(1);
-            setSearchQ(query.trim());
-          }}
-          className="relative min-w-0 flex-1"
-        >
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search"
-            className={cn(
-              "h-11 w-full rounded-xl border pl-9 pr-3 text-[16px] outline-none focus:border-[#d4af37]/70 sm:text-sm",
-              light ? "border-slate-200 bg-slate-50" : "border-white/10 bg-[#0a0a12] text-white",
-            )}
-          />
-        </form>
-        <button
-          type="button"
-          onClick={() => setAdvancedOpen(true)}
-          className="rounded-lg p-2 text-zinc-400 hover:bg-white/5"
-          title="Advanced search"
-        >
-          <Filter className="size-4" />
-        </button>
-      </div>
-
       <div className="flex items-center justify-between px-4 py-3.5">
         <h2 className="text-lg font-bold tracking-tight">
           {folderLabel}{" "}
@@ -1187,7 +1212,7 @@ export function OrbitMailApp({
         </h2>
         <div className="flex items-center gap-1">
           {!searchQ.trim() && !isStarredView ? (
-            <div className="mr-1 flex rounded-xl border border-white/[0.08] bg-black/20 p-0.5 text-xs backdrop-blur-md">
+            <div className="mr-1 flex rounded-xl border border-[#e4e7ec] bg-[#f8f9fa] p-0.5 text-xs">
               <button
                 type="button"
                 onClick={() => {
@@ -1197,8 +1222,8 @@ export function OrbitMailApp({
                 className={cn(
                   "rounded-lg px-2.5 py-1.5 font-semibold transition",
                   viewMode === "messages"
-                    ? "bg-[rgba(23,61,52,0.85)] text-[#ffd97a]"
-                    : "text-zinc-400 hover:text-white",
+                    ? "bg-white text-[#202124] shadow-sm"
+                    : "text-zinc-500 hover:text-zinc-800",
                 )}
               >
                 Messages
@@ -1212,8 +1237,8 @@ export function OrbitMailApp({
                 className={cn(
                   "rounded-lg px-2.5 py-1.5 font-semibold transition",
                   viewMode === "threads"
-                    ? "bg-[rgba(23,61,52,0.85)] text-[#ffd97a]"
-                    : "text-zinc-400 hover:text-white",
+                    ? "bg-white text-[#202124] shadow-sm"
+                    : "text-zinc-500 hover:text-zinc-800",
                 )}
               >
                 Threads
@@ -1223,24 +1248,24 @@ export function OrbitMailApp({
           <button
             type="button"
             onClick={() => void messagesQuery.refetch()}
-            className="rounded-lg px-2 py-1 text-sm text-zinc-400 hover:bg-white/5"
+            className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
             title="Refresh"
           >
             ↻
           </button>
-          <button type="button" className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5" title="More">
+          <button type="button" className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100" title="More">
             <MoreHorizontal className="size-4" />
           </button>
         </div>
       </div>
 
-      <div className="flex items-center gap-2 border-b border-white/8 px-3 py-2">
-        <label className="flex items-center gap-2 text-xs text-zinc-400">
+      <div className="flex items-center gap-2 border-b border-[#e8eaed] px-3 py-2">
+        <label className="flex items-center gap-2 text-xs text-[#5f6368]">
           <input
             type="checkbox"
             checked={allPageSelected}
             onChange={toggleSelectAllPage}
-            className="size-3.5 accent-[#d4af37]"
+            className="size-3.5 accent-[#1a73e8]"
             aria-label="Select all on page"
           />
           Select all
@@ -1250,7 +1275,7 @@ export function OrbitMailApp({
             <span className="mr-1 text-xs text-zinc-500">{selectedUids.length} selected</span>
             <button
               type="button"
-              className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5"
+              className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100"
               title="Archive"
               onClick={() => void runAction("archive", selectedUids)}
             >
@@ -1258,7 +1283,7 @@ export function OrbitMailApp({
             </button>
             <button
               type="button"
-              className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5"
+              className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100"
               title="Delete"
               onClick={() => void runAction("delete", selectedUids)}
             >
@@ -1266,7 +1291,7 @@ export function OrbitMailApp({
             </button>
             <button
               type="button"
-              className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5"
+              className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100"
               title="Spam"
               onClick={() => void runAction("spam", selectedUids)}
             >
@@ -1274,7 +1299,7 @@ export function OrbitMailApp({
             </button>
             <button
               type="button"
-              className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5"
+              className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100"
               title="Mark read"
               onClick={() => void runAction("seen", selectedUids, { seen: true })}
             >
@@ -1282,7 +1307,7 @@ export function OrbitMailApp({
             </button>
             <button
               type="button"
-              className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5"
+              className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100"
               title="Mark unread"
               onClick={() => void runAction("seen", selectedUids, { seen: false })}
             >
@@ -1290,7 +1315,7 @@ export function OrbitMailApp({
             </button>
             <button
               type="button"
-              className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5"
+              className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100"
               title="Star"
               onClick={() => void runAction("flag", selectedUids, { flagged: true })}
             >
@@ -1298,7 +1323,7 @@ export function OrbitMailApp({
             </button>
             <button
               type="button"
-              className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/5"
+              className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100"
               title="Unstar"
               onClick={() => void runAction("flag", selectedUids, { flagged: false })}
             >
@@ -1307,7 +1332,7 @@ export function OrbitMailApp({
             <select
               value={bulkMoveTarget}
               onChange={(e) => setBulkMoveTarget(e.target.value)}
-              className="h-7 max-w-[110px] rounded-lg border border-white/10 bg-transparent px-1 text-[0.7rem]"
+              className="h-7 max-w-[110px] rounded-lg border border-[#dadce0] bg-white px-1 text-[0.7rem] text-[#202124]"
             >
               <option value="">Move…</option>
               {folders.map((f) => (
@@ -1319,7 +1344,7 @@ export function OrbitMailApp({
             <button
               type="button"
               disabled={!bulkMoveTarget}
-              className="rounded-lg px-2 py-1 text-[0.7rem] hover:bg-white/5 disabled:opacity-40"
+              className="rounded-lg px-2 py-1 text-[0.7rem] text-[#202124] hover:bg-[#f1f3f4] disabled:opacity-40"
               onClick={() => void runAction("move", selectedUids, { target: bulkMoveTarget })}
             >
               Go
@@ -1328,14 +1353,13 @@ export function OrbitMailApp({
         ) : null}
       </div>
 
-      <div className="orbit-scroll flex-1 overflow-y-auto overscroll-contain px-2 py-2 [content-visibility:auto]">
+      <div className="orbit-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [content-visibility:auto]">
         {messagesQuery.isLoading && messages.length === 0
           ? Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
                 className={cn(
-                  "mb-1.5 h-[72px] animate-pulse rounded-xl",
-                  light ? "bg-slate-100" : "bg-white/[0.04]",
+                  "mb-0 h-[68px] animate-pulse rounded-none border-b border-[#eceef2] bg-[#f1f3f4]",
                 )}
               />
             ))
@@ -1343,7 +1367,7 @@ export function OrbitMailApp({
             ? (
                 <div className="orbit-empty-state">
                   <div className="orbit-empty-state__icon">
-                    <Mail className="size-7 text-[#d4af37]" />
+                    <Mail className="size-7 text-[#1a73e8]" />
                   </div>
                   <p className="orbit-empty-state__title">No messages here</p>
                   <p className="orbit-empty-state__hint">
@@ -1355,7 +1379,7 @@ export function OrbitMailApp({
                       setCompose(emptyCompose());
                       setComposeOpen(true);
                     }}
-                    className="mt-1 rounded-full bg-gradient-to-r from-[#f6e7a8] to-[#c9971a] px-4 py-2 text-sm font-bold text-[#1a1200]"
+                    className="mt-1 rounded-full bg-[#1a73e8] px-4 py-2 text-sm font-bold text-white hover:bg-[#1557c0]"
                   >
                     Compose
                   </button>
@@ -1382,19 +1406,23 @@ export function OrbitMailApp({
                         }
                       }}
                       className={cn(
-                        "orbit-mail-row mb-1.5 flex w-full gap-2 rounded-2xl border px-2.5 py-3 text-left",
-                        active
-                          ? "border-[#d9b15c]/45 bg-[rgba(217,177,92,0.1)]"
-                          : "border-transparent",
-                        m.unseen && "font-semibold",
+                        "orbit-mail-row mb-0 flex w-full items-start gap-2 rounded-none border-0 border-b border-[#eceef2] px-3 py-2.5 text-left text-[#202124]",
+                        active ? "bg-[#e8f0fe]" : "bg-white hover:bg-[#f6f8fc]",
                       )}
                     >
+                      <span
+                        className={cn(
+                          "mt-3 size-1.5 shrink-0 rounded-full",
+                          m.unseen ? "bg-[#1a73e8]" : "bg-transparent",
+                        )}
+                        aria-hidden
+                      />
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggleSelect(m.uid)}
                         onClick={(e) => e.stopPropagation()}
-                        className="mt-2 size-3.5 shrink-0 rounded border-white/20 accent-[#d9b15c]"
+                        className="mt-2 size-3.5 shrink-0 rounded accent-[#1a73e8]"
                         aria-label={`Select ${m.subject || "message"}`}
                       />
                       <span className="flex min-w-0 flex-1 gap-3 text-left">
@@ -1402,26 +1430,26 @@ export function OrbitMailApp({
                           className={cn(
                             "flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold",
                             m.unseen
-                              ? "bg-gradient-to-br from-[#d9b15c]/55 to-[#173d34] text-[#ffd97a]"
-                              : "bg-gradient-to-br from-white/10 to-[#173d34]/60 text-zinc-200",
+                              ? "bg-[#1a73e8] text-white"
+                              : "bg-[#dadce0] text-[#3c4043]",
                           )}
                         >
                           {initials(m.from || m.fromEmail)}
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm font-semibold tracking-tight">
+                            <span className={cn("truncate text-sm tracking-tight", m.unseen ? "font-bold" : "font-medium")} title={m.from || m.fromEmail}>
                               {m.from || m.fromEmail}
                             </span>
                             <span className="shrink-0 text-[0.7rem] font-medium text-zinc-500">
                               {formatWhen(m.date)}
                             </span>
                           </span>
-                          <span className="mt-0.5 block truncate text-sm font-medium text-zinc-100">
+                          <span className={cn("mt-0.5 block truncate text-sm", m.unseen ? "font-semibold text-[#202124]" : "font-medium text-[#3c4043]")} title={m.subject || "(no subject)"}>
                             {m.subject || "(no subject)"}
                           </span>
                           <span className="mt-0.5 flex items-center gap-1 truncate text-xs font-normal text-zinc-500">
-                            {m.hasAttachment ? <Paperclip className="size-3 text-[#d9b15c]" /> : null}
+                            {m.hasAttachment ? <Paperclip className="size-3 text-[#5f6368]" /> : null}
                             {m.preview || " "}
                           </span>
                         </span>
@@ -1435,7 +1463,7 @@ export function OrbitMailApp({
                         <Star
                           className={cn(
                             "size-3.5",
-                            m.flagged ? "fill-[#d9b15c] text-[#d9b15c]" : "text-zinc-600",
+                            m.flagged ? "fill-[#fbbc04] text-[#fbbc04]" : "text-zinc-400",
                           )}
                         />
                       </button>
@@ -1484,119 +1512,146 @@ export function OrbitMailApp({
   );
 
   const readerPane = (
-    <section className="orbit-glass-panel flex min-w-0 flex-1 flex-col border-white/[0.08]">
-      <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] px-3 py-2.5 sm:px-4">
-        <div className="flex flex-wrap items-center gap-0.5 text-sm text-zinc-400">
-          {isStack ? (
+    <section
+      ref={readerRef}
+      className={cn(
+        "orbit-reader orbit-mail-workspace flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white",
+        readerFs && "orbit-reader--fs",
+      )}
+    >
+      <div className="orbit-reader-toolbar flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-[#e8eaed] bg-white px-2 py-1.5 sm:px-3">
+        {isMobile && !readerFs ? (
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedUid(null);
+              setPane("list");
+              router.push(webmailRoutes.mail, { scroll: false });
+            }}
+            className="orbit-tool-btn mr-1 inline-flex items-center gap-1 px-2"
+            title="Back to inbox"
+            aria-label="Back to inbox"
+          >
+            <ArrowLeft className="size-4" />
+            <span className="text-sm font-medium">Inbox</span>
+          </button>
+        ) : null}
+        {[
+          { label: "Archive", icon: Archive, fn: () => runAction("archive", selectedUid ? [selectedUid] : []) },
+          { label: "Delete", icon: Trash2, fn: () => runAction("delete", selectedUid ? [selectedUid] : []) },
+          { label: "Spam", icon: ShieldAlert, fn: () => runAction("spam", selectedUid ? [selectedUid] : []) },
+        ].map((a) => (
+          <button
+            key={a.label}
+            type="button"
+            disabled={!selectedUid}
+            onClick={() => void a.fn()}
+            className="orbit-tool-btn"
+            title={a.label}
+            aria-label={a.label}
+          >
+            <a.icon className="size-4" />
+          </button>
+        ))}
+        {selectedUid ? (
+          <>
             <button
               type="button"
+              className="orbit-tool-btn"
+              onClick={() => void runAction("seen", [selectedUid], { seen: false })}
+              title="Mark unread"
+              aria-label="Mark unread"
+            >
+              <Mail className="size-4" />
+            </button>
+            <button
+              type="button"
+              className="orbit-tool-btn"
               onClick={() => {
-                setSelectedUid(null);
-                setPane("list");
-                router.push(webmailRoutes.mail, { scroll: false });
+                const flagged = messages.find((m) => m.uid === selectedUid)?.flagged;
+                void runAction("flag", [selectedUid], { flagged: !flagged });
               }}
-              className="mr-1 inline-flex items-center gap-1 rounded-lg px-2 py-1.5 hover:bg-white/5"
+              title="Star"
+              aria-label="Star"
             >
-              <ArrowLeft className="size-4" />
-              Back
+              <Star className="size-4" />
             </button>
-          ) : null}
-          {[
-            { label: "Archive", icon: Archive, fn: () => runAction("archive", selectedUid ? [selectedUid] : []) },
-            { label: "Delete", icon: Trash2, fn: () => runAction("delete", selectedUid ? [selectedUid] : []) },
-            { label: "Spam", icon: ShieldAlert, fn: () => runAction("spam", selectedUid ? [selectedUid] : []) },
-          ].map((a) => (
             <button
-              key={a.label}
               type="button"
-              disabled={!selectedUid}
-              onClick={() => void a.fn()}
-              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-white/5 disabled:opacity-40"
+              className="orbit-tool-btn"
+              onClick={() => printMessage()}
+              title="Print"
+              aria-label="Print"
             >
-              <a.icon className="size-3.5" />
-              {layout === "mobile" ? null : a.label}
+              <Printer className="size-4" />
             </button>
-          ))}
-          {selectedUid ? (
-            <>
+            <button
+              type="button"
+              className="orbit-tool-btn"
+              onClick={() => void downloadEml()}
+              title="Download"
+              aria-label="Download"
+            >
+              <FileDown className="size-4" />
+            </button>
+            <button
+              type="button"
+              className="orbit-tool-btn"
+              onClick={() => void toggleReaderFs()}
+              title={readerFs ? "Exit full screen" : "Enter full screen"}
+              aria-label={readerFs ? "Exit full screen" : "Enter full screen"}
+            >
+              {readerFs ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="orbit-tool-btn" title="More actions" aria-label="More actions">
+                  <MoreHorizontal className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="border-[#e4e7ec] bg-white text-[#202124]">
+                <DropdownMenuItem onClick={() => void viewSource()}>View source</DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!moveTarget}
+                  onClick={() => void runAction("move", [selectedUid], { target: moveTarget })}
+                >
+                  Move to selected folder
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!moveTarget}
+                  onClick={() => void runAction("copy", [selectedUid], { target: moveTarget })}
+                >
+                  Copy to selected folder
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <select
+              value={moveTarget}
+              onChange={(e) => setMoveTarget(e.target.value)}
+              className="ml-1 hidden h-8 max-w-[9rem] shrink-0 rounded-lg border border-[#dadce0] bg-white px-2 text-xs text-[#202124] sm:block"
+              aria-label="Move to folder"
+              title="Move to folder"
+            >
+              <option value="">Move to…</option>
+              {folders.map((f) => (
+                <option key={f.path} value={f.path}>
+                  {folderIconLabel(f)}
+                </option>
+              ))}
+            </select>
+            {readerFs ? (
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-white/5"
-                onClick={() => void runAction("seen", [selectedUid], { seen: false })}
-                title="Mark unread"
+            className="orbit-tool-btn ml-auto shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[#1a73e8] hover:bg-[#e8f0fe]"
+                onClick={() => void toggleReaderFs()}
+                title="Exit full screen"
+                aria-label="Exit full screen"
               >
-                Unread
+                Exit full screen
               </button>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-white/5"
-                onClick={() => {
-                  const flagged = messages.find((m) => m.uid === selectedUid)?.flagged;
-                  void runAction("flag", [selectedUid], { flagged: !flagged });
-                }}
-                title="Star"
-              >
-                <Star className="size-3.5" />
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-white/5"
-                onClick={() => printMessage()}
-                title="Print"
-              >
-                <Printer className="size-3.5" />
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-white/5"
-                onClick={() => void downloadEml()}
-                title="Download EML"
-              >
-                <FileDown className="size-3.5" />
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-white/5"
-                onClick={() => void viewSource()}
-                title="View source"
-              >
-                <Code2 className="size-3.5" />
-              </button>
-              {layout !== "mobile" ? (
-                <span className="ml-1 inline-flex items-center gap-1">
-                  <select
-                    value={moveTarget}
-                    onChange={(e) => setMoveTarget(e.target.value)}
-                    className="h-8 rounded-lg border border-white/10 bg-transparent px-2 text-xs"
-                  >
-                    <option value="">Move to…</option>
-                    {folders.map((f) => (
-                      <option key={f.path} value={f.path}>
-                        {folderIconLabel(f)}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    disabled={!moveTarget}
-                    className="rounded-lg px-2 py-1.5 text-xs hover:bg-white/5 disabled:opacity-40"
-                    onClick={() => void runAction("move", [selectedUid], { target: moveTarget })}
-                  >
-                    Move
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!moveTarget}
-                    className="rounded-lg px-2 py-1.5 text-xs hover:bg-white/5 disabled:opacity-40"
-                    onClick={() => void runAction("copy", [selectedUid], { target: moveTarget })}
-                  >
-                    Copy
-                  </button>
-                </span>
-              ) : null}
-            </>
-          ) : null}
-        </div>
+            ) : null}
+          </>
+        ) : null}
       </div>
 
       {!selectedUid ? (
@@ -1607,7 +1662,7 @@ export function OrbitMailApp({
           className="orbit-empty-state flex-1"
         >
           <div className="orbit-empty-state__orb" aria-hidden>
-            <Mail className="size-8 text-[#ffd97a]" />
+            <Mail className="size-8 text-[#1a73e8]" />
           </div>
           <p className="orbit-empty-state__title">Select a message to read</p>
           <p className="orbit-empty-state__hint">
@@ -1628,33 +1683,38 @@ export function OrbitMailApp({
           transition={{ duration: 0.2 }}
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-          <div className="border-b border-white/8 px-4 py-4 sm:px-6">
+          <div className="shrink-0 border-b border-[#e8eaed] bg-white px-4 py-3 sm:px-6">
             <div className="flex items-start justify-between gap-3">
-              <h1 className="text-lg font-bold leading-snug sm:text-xl">{detail.subject || "(no subject)"}</h1>
-              <span className="shrink-0 rounded-full bg-[#d4af37]/20 px-2 py-0.5 text-xs font-semibold text-[#f0d78c]">
+              <h1
+                className="min-w-0 flex-1 truncate text-lg font-bold leading-snug sm:text-xl"
+                title={detail.subject || "(no subject)"}
+              >
+                {detail.subject || "(no subject)"}
+              </h1>
+              <span className="shrink-0 rounded-full bg-[#eef3ff] px-2 py-0.5 text-xs font-semibold text-[#1a73e8]">
                 {folderLabel}
                 {threadMessages.length > 1 ? ` · ${threadMessages.length} messages` : ""}
               </span>
             </div>
           </div>
 
-          <div className="orbit-scroll flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6">
+          <div className="orbit-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-4 sm:px-8">
+            <div className="mx-auto w-full min-w-0 max-w-[720px]">
             {threadMessages.map((msg, idx) => (
               <article
                 key={`${msg.uid}-${idx}`}
                 className={cn(
-                  "mb-6 rounded-xl border p-4",
-                  light ? "border-slate-200 bg-slate-50" : "border-white/10 bg-white/[0.02]",
-                  msg.uid === selectedUid && "ring-1 ring-[#d4af37]/40",
+                  "mb-6 rounded-xl border border-[#e8eaed] bg-white p-4 text-[#202124]",
+                  msg.uid === selectedUid && "ring-1 ring-[#1a73e8]/25",
                 )}
               >
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#d4af37]/50 to-[#1e5fa1]/50 text-xs font-bold">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#e8f0fe] text-xs font-bold text-[#1a73e8]">
                       {initials(msg.from)}
                     </span>
                     <div className="min-w-0">
-                      <p className="truncate font-semibold text-sm">
+                      <p className="truncate text-sm font-semibold" title={`${msg.from} <${msg.fromEmail}>`}>
                         {msg.from}{" "}
                         <span className="font-normal text-zinc-500">&lt;{msg.fromEmail}&gt;</span>
                       </p>
@@ -1666,33 +1726,24 @@ export function OrbitMailApp({
                   </div>
                   {msg.uid === selectedUid ? (
                     <div className="flex items-center gap-1 text-zinc-400">
-                      <button type="button" onClick={() => startReply("reply")} className="rounded-lg p-1.5 hover:bg-white/5" title="Reply">
+                      <button type="button" onClick={() => startReply("reply")} className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100" title="Reply">
                         <Reply className="size-4" />
                       </button>
-                      <button type="button" onClick={() => startReply("replyAll")} className="rounded-lg p-1.5 hover:bg-white/5" title="Reply all">
+                      <button type="button" onClick={() => startReply("replyAll")} className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100" title="Reply all">
                         <ReplyAll className="size-4" />
                       </button>
-                      <button type="button" onClick={() => startReply("forward")} className="rounded-lg p-1.5 hover:bg-white/5" title="Forward">
+                      <button type="button" onClick={() => startReply("forward")} className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100" title="Forward">
                         <Forward className="size-4" />
                       </button>
                     </div>
                   ) : null}
                 </div>
                 {msg.html ? (
-                  <div
-                    className={cn(
-                      "orbit-mail-body prose max-w-none text-[0.98rem] leading-relaxed prose-a:text-[#d4af37]",
-                      light ? "prose-slate text-slate-900" : "prose-invert text-zinc-100",
-                    )}
-                    dangerouslySetInnerHTML={{ __html: msg.html }}
-                  />
+                  <div className="orbit-mail-body mx-auto w-full min-w-0 max-w-[720px] overflow-x-auto rounded-xl bg-white p-1">
+                    <MailHtmlFrame html={msg.html} />
+                  </div>
                 ) : (
-                  <pre
-                    className={cn(
-                      "whitespace-pre-wrap font-sans text-[0.98rem] leading-relaxed",
-                      light ? "text-slate-800" : "text-zinc-100",
-                    )}
-                  >
+                  <pre className="mx-auto max-w-[720px] whitespace-pre-wrap break-words rounded-xl bg-white p-4 font-sans text-[0.98rem] leading-relaxed text-[#202124]">
                     {msg.text}
                   </pre>
                 )}
@@ -1704,7 +1755,7 @@ export function OrbitMailApp({
                         <a
                           key={a.part}
                           href={`/api/webmail/messages/${msg.uid}/attachments/${a.part}?folder=${encodeURIComponent(detailFolder)}`}
-                          className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs hover:bg-white/5"
+                          className="inline-flex items-center gap-1 rounded-lg border border-[#dadce0] bg-[#f8f9fa] px-2 py-1 text-xs text-[#202124] hover:bg-[#eef1f6]"
                         >
                           <Paperclip className="size-3" />
                           {a.filename}
@@ -1715,11 +1766,12 @@ export function OrbitMailApp({
                 ) : null}
               </article>
             ))}
+            </div>
           </div>
 
-          <div className="border-t border-white/[0.08] p-3 sm:p-4">
-            <div className="flex items-center gap-3 rounded-2xl border border-white/[0.08] bg-[rgba(20,24,29,0.72)] px-3 py-2.5 backdrop-blur-xl">
-              <span className="flex size-8 items-center justify-center rounded-full bg-[#d9b15c]/25 text-xs font-bold">
+          <div className="shrink-0 border-t border-[#e8eaed] bg-white p-3 sm:p-4">
+            <div className="flex items-center gap-3 rounded-2xl border border-[#e4e7ec] bg-[#f8f9fa] px-3 py-2.5">
+              <span className="flex size-8 items-center justify-center rounded-full bg-[#e8f0fe] text-xs font-bold text-[#1a73e8]">
                 {initials(displayName || "U")}
               </span>
               <button
@@ -1732,7 +1784,7 @@ export function OrbitMailApp({
               <button
                 type="button"
                 onClick={() => startReply("reply")}
-                className="orbit-compose-btn rounded-full px-4 py-2 text-sm font-bold text-[#1a1200]"
+                className="orbit-compose-btn rounded-full px-4 py-2 text-sm font-bold text-white"
               >
                 Reply
               </button>
@@ -1744,7 +1796,7 @@ export function OrbitMailApp({
           <p>Unable to load message</p>
           <button
             type="button"
-            className="rounded-lg px-3 py-1.5 text-[#ffd97a] hover:bg-white/5"
+            className="rounded-lg px-3 py-1.5 text-[#1a73e8] hover:bg-[#e8f0fe]"
             onClick={() => void detailQuery.refetch()}
           >
             Retry
@@ -1758,12 +1810,10 @@ export function OrbitMailApp({
     <div
       className={shell}
       data-layout={layout}
-      data-theme={light ? "light" : "dark"}
+      data-theme="gmail"
       style={{ ["--orbit-gold" as string]: accent }}
     >
-      {topBar}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-      {isStack && drawerOpen ? (
+      {(!isWide && drawerOpen) ? (
         <button
           type="button"
           className="fixed inset-0 z-30 bg-black/50"
@@ -1772,65 +1822,17 @@ export function OrbitMailApp({
         />
       ) : null}
 
-      {showSidebar ? sidebar : null}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {showSidebar ? sidebar : null}
 
-      {showMobileFolders ? (
-        <div className="flex min-w-0 flex-1 flex-col bg-[#0b0b11]">
-          <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
-            <div className="flex min-w-0 items-center gap-2.5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={companyLogo}
-                alt="GLOBAL ORBIT"
-                className="h-12 w-auto max-w-[200px] object-contain"
-              />
-            </div>
-            <button type="button" onClick={() => setPane("list")} className="rounded-lg p-2 hover:bg-white/5">
-              <X className="size-4" />
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setCompose(emptyCompose());
-              setComposeOpen(true);
-            }}
-            className="mx-4 my-3 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#f6e7a8] via-[#e0bc4a] to-[#c9971a] px-4 py-3 text-sm font-bold text-[#1a1200]"
-          >
-            <PenSquare className="size-4" />
-            Compose
-          </button>
-          <div className="orbit-scroll flex-1 overflow-y-auto p-2">
-            {systemNavResolved.map((entry) => renderSystemNavButton(entry))}
-            <div className="mt-3 px-3 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-zinc-500">Folders</div>
-            {nestedCustom.map((f) => renderFolderButton(f, { custom: true }))}
-            <button
-              type="button"
-              onClick={openCreateFolder}
-              className="mt-2 flex w-full items-center gap-2 rounded-xl px-4 py-3 text-sm text-[#f0d78c] hover:bg-white/5"
-            >
-              <FolderPlus className="size-4" />
-              New folder
-            </button>
-          </div>
-          <div className="flex items-center justify-around border-t border-white/8 py-3">
-            <button type="button" onClick={() => router.push(webmailRoutes.settings)} className="rounded-lg p-2 text-zinc-400">
-              <Settings className="size-4" />
-            </button>
-            <button type="button" onClick={() => router.push(webmailRoutes.contacts)} className="rounded-lg p-2 text-zinc-400">
-              <Users className="size-4" />
-            </button>
-            <button type="button" onClick={() => void logout()} className="rounded-lg p-2 text-zinc-400">
-              <LogOut className="size-4" />
-            </button>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white">
+          {readerFs ? null : topBar}
+
+          <div className="flex min-h-0 flex-1 overflow-hidden bg-white">
+            {showList ? listPane : null}
+            {showReader ? readerPane : null}
           </div>
         </div>
-      ) : (
-        <>
-          {showList ? listPane : null}
-          {showReader ? readerPane : null}
-        </>
-      )}
       </div>
 
       <ComposeWindow
@@ -1868,8 +1870,8 @@ export function OrbitMailApp({
             )}
           >
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-[#f0d78c]">Advanced search</h3>
-              <button type="button" onClick={() => setAdvancedOpen(false)} className="rounded-lg p-1 hover:bg-white/5">
+              <h3 className="text-lg font-bold text-[#202124]">Advanced search</h3>
+              <button type="button" onClick={() => setAdvancedOpen(false)} className="rounded-lg p-1 text-zinc-600 hover:bg-zinc-100">
                 <X className="size-4" />
               </button>
             </div>
@@ -1883,12 +1885,12 @@ export function OrbitMailApp({
                   ["before", "Before (YYYY-MM-DD)"],
                 ] as const
               ).map(([key, label]) => (
-                <label key={key} className="block text-xs text-zinc-400">
+                <label key={key} className="block text-xs text-zinc-600">
                   {label}
                   <input
                     value={adv[key]}
                     onChange={(e) => setAdv((a) => ({ ...a, [key]: e.target.value }))}
-                    className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-transparent px-3 text-sm outline-none focus:border-[#d4af37]/60"
+                    className="mt-1 h-9 w-full rounded-lg border border-[#dadce0] bg-[#f8f9fa] px-3 text-sm text-[#202124] outline-none focus:border-[#1a73e8]"
                   />
                 </label>
               ))}
@@ -1899,7 +1901,7 @@ export function OrbitMailApp({
                   type="checkbox"
                   checked={adv.hasAttachment}
                   onChange={(e) => setAdv((a) => ({ ...a, hasAttachment: e.target.checked }))}
-                  className="accent-[#d4af37]"
+                  className="accent-[#1a73e8]"
                 />
                 Has attachment
               </label>
@@ -1908,7 +1910,7 @@ export function OrbitMailApp({
                   type="checkbox"
                   checked={adv.unread}
                   onChange={(e) => setAdv((a) => ({ ...a, unread: e.target.checked }))}
-                  className="accent-[#d4af37]"
+                  className="accent-[#1a73e8]"
                 />
                 Unread
               </label>
@@ -1917,7 +1919,7 @@ export function OrbitMailApp({
                   type="checkbox"
                   checked={adv.starred}
                   onChange={(e) => setAdv((a) => ({ ...a, starred: e.target.checked }))}
-                  className="accent-[#d4af37]"
+                  className="accent-[#1a73e8]"
                 />
                 Starred
               </label>
@@ -1925,7 +1927,7 @@ export function OrbitMailApp({
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                className="rounded-lg px-3 py-2 text-sm text-zinc-400 hover:bg-white/5"
+                className="rounded-lg px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-100"
                 onClick={() => {
                   setAdv({
                     from: "",
@@ -1947,7 +1949,7 @@ export function OrbitMailApp({
               <button
                 type="button"
                 onClick={applyAdvancedSearch}
-                className="rounded-lg bg-gradient-to-r from-[#f6e7a8] to-[#c9971a] px-4 py-2 text-sm font-bold text-[#1a1200]"
+                className="rounded-lg bg-[#1a73e8] px-4 py-2 text-sm font-bold text-white hover:bg-[#1557c0]"
               >
                 Search
               </button>
@@ -1958,14 +1960,14 @@ export function OrbitMailApp({
 
       {sourceOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-2xl border border-white/10 bg-[#0b0b11] shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-              <h3 className="font-semibold text-[#f0d78c]">Message source</h3>
-              <button type="button" onClick={() => setSourceOpen(false)} className="rounded-lg p-1 hover:bg-white/5">
+          <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-2xl border border-[#e4e7ec] bg-white text-[#202124] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[#e8eaed] px-4 py-3">
+              <h3 className="font-semibold text-[#202124]">Message source</h3>
+              <button type="button" onClick={() => setSourceOpen(false)} className="rounded-lg p-1 hover:bg-zinc-100">
                 <X className="size-4" />
               </button>
             </div>
-            <pre className="orbit-scroll flex-1 overflow-auto whitespace-pre-wrap break-all p-4 text-xs text-zinc-300">
+            <pre className="orbit-scroll flex-1 overflow-auto whitespace-pre-wrap break-all bg-[#f8f9fa] p-4 text-xs text-[#202124]">
               {sourceText}
             </pre>
           </div>
@@ -1974,7 +1976,7 @@ export function OrbitMailApp({
 
       {folderDialog ? (
         <div className="fixed inset-0 z-[55] flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#0e0e16] p-5 shadow-2xl">
+          <div className="w-full max-w-sm rounded-2xl border border-[#e4e7ec] bg-white p-5 text-[#202124] shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="font-semibold">
                 {folderDialog.mode === "create" ? "Create folder" : "Rename folder"}
@@ -1991,13 +1993,13 @@ export function OrbitMailApp({
                 if (e.key === "Enter") void submitFolderDialog();
               }}
               placeholder="Folder name"
-              className="mb-4 h-10 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-sm outline-none focus:border-[#d4af37]/6"
+              className="mb-4 h-10 w-full rounded-lg border border-[#dadce0] bg-[#f8f9fa] px-3 text-sm text-[#202124] outline-none focus:border-[#1a73e8]"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setFolderDialog(null)}
-                className="rounded-lg px-3 py-2 text-sm text-zinc-400 hover:bg-white/5"
+                className="rounded-lg px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-100"
               >
                 Cancel
               </button>
@@ -2005,7 +2007,7 @@ export function OrbitMailApp({
                 type="button"
                 disabled={folderBusy}
                 onClick={() => void submitFolderDialog()}
-                className="rounded-full bg-gradient-to-r from-[#f6e7a8] to-[#c9971a] px-4 py-2 text-sm font-bold text-[#1a1200] disabled:opacity-60"
+                className="rounded-full bg-[#1a73e8] px-4 py-2 text-sm font-bold text-white hover:bg-[#1557c0] disabled:opacity-60"
               >
                 {folderBusy ? "Saving…" : folderDialog.mode === "create" ? "Create" : "Rename"}
               </button>

@@ -231,7 +231,7 @@ function attachmentsMatch(a: ComposeAttachment[], b: ComposeAttachment[]) {
 function toolbarBtn(active?: boolean) {
   return cn(
     "rounded-md p-1.5 text-zinc-400 hover:bg-white/5 hover:text-[#f0d78c]",
-    active && "bg-[#d4af37]/15 text-[#f0d78c]",
+    active && "bg-[#e8f0fe] text-[#1a73e8]",
   );
 }
 
@@ -356,7 +356,7 @@ function ComposeToolbar({
         {colorOpen ? (
           <div
             data-orbit-compose-popover
-            className="absolute left-0 top-9 z-20 flex gap-1 rounded-lg border border-white/10 bg-[#12121a] p-2 shadow-xl"
+            className="absolute left-0 top-9 z-20 flex gap-1 rounded-lg border border-[#e5e7eb] bg-white p-2 shadow-xl"
           >
             {TEXT_COLORS.map((color) => (
               <button
@@ -405,7 +405,7 @@ function ComposeToolbar({
         {highlightOpen ? (
           <div
             data-orbit-compose-popover
-            className="absolute left-0 top-9 z-20 flex gap-1 rounded-lg border border-white/10 bg-[#12121a] p-2 shadow-xl"
+            className="absolute left-0 top-9 z-20 flex gap-1 rounded-lg border border-[#e5e7eb] bg-white p-2 shadow-xl"
           >
             {HIGHLIGHT_COLORS.map((color) => (
               <button
@@ -505,7 +505,7 @@ function ComposeToolbar({
         {emojiOpen ? (
           <div
             data-orbit-compose-popover
-            className="absolute right-0 top-9 z-20 grid w-48 grid-cols-6 gap-1 rounded-lg border border-white/10 bg-[#12121a] p-2 shadow-xl"
+            className="absolute right-0 top-9 z-20 grid w-48 grid-cols-6 gap-1 rounded-lg border border-[#e5e7eb] bg-white p-2 shadow-xl"
           >
             {COMMON_EMOJIS.map((emoji) => (
               <button
@@ -1004,14 +1004,14 @@ export function ComposeWindow({
                   }
         }
         className={cn(
-          "relative flex flex-col overflow-hidden border border-[#d4af37]/25 bg-[#0e0e16] shadow-2xl",
+          "relative flex flex-col overflow-hidden border border-[#dadce0] bg-white text-[#202124] shadow-2xl",
           mobile ? "h-[92dvh] w-full rounded-t-2xl" : "rounded-2xl",
           !mobile && minimized && "fixed bottom-4 right-4 z-50",
         )}
       >
         <div
           className={cn(
-            "flex items-center justify-between border-b border-white/10 bg-[#12121a] px-4 py-3",
+            "flex items-center justify-between border-b border-[#e5e7eb] bg-[#f8f9fa] px-4 py-3 text-[#202124]",
             !mobile && "cursor-grab active:cursor-grabbing",
           )}
           onPointerDown={onHeaderPointerDown}
@@ -1038,7 +1038,7 @@ export function ComposeWindow({
                     setMinimized((v) => !v);
                     if (!minimized) setMaximized(false);
                   }}
-                  className="rounded-lg p-1 hover:bg-white/5"
+                  className="rounded-lg p-1 hover:bg-black/5"
                 >
                   <Minimize2 className="size-3.5" />
                 </button>
@@ -1049,7 +1049,7 @@ export function ComposeWindow({
                     setMaximized((v) => !v);
                     setMinimized(false);
                   }}
-                  className="rounded-lg p-1 hover:bg-white/5"
+                  className="rounded-lg p-1 hover:bg-black/5"
                 >
                   <Maximize2 className="size-3.5" />
                 </button>
@@ -1073,7 +1073,7 @@ export function ComposeWindow({
               onBlur={() => window.setTimeout(() => setToFocus(false), 150)}
               autoComplete="off"
               placeholder="name@domain.com, …"
-              className="h-9 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 text-sm outline-none focus:border-[#d4af37]/60"
+              className="h-9 min-w-0 flex-1 rounded-lg border border-[#dadce0] bg-[#f8f9fa] px-3 text-sm text-[#202124] outline-none focus:border-[#1a73e8]"
             />
             <button type="button" className="text-xs text-[#f0d78c]" onClick={() => setShowCc((v) => !v)}>
               Cc
@@ -1082,7 +1082,7 @@ export function ComposeWindow({
               Bcc
             </button>
             {toFocus && suggestions.length > 0 ? (
-              <div className="absolute left-10 right-16 top-10 z-10 overflow-hidden rounded-lg border border-white/10 bg-[#12121a] shadow-xl">
+              <div className="absolute left-10 right-16 top-10 z-10 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white shadow-xl">
                 {suggestions.map((s) => (
                   <button
                     key={s}
@@ -1109,10 +1109,10 @@ export function ComposeWindow({
                 onFocus={() => setCcFocus(true)}
                 onBlur={() => window.setTimeout(() => setCcFocus(false), 150)}
                 autoComplete="off"
-                className="h-9 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 text-sm outline-none focus:border-[#d4af37]/60"
+                className="h-9 min-w-0 flex-1 rounded-lg border border-[#dadce0] bg-[#f8f9fa] px-3 text-sm text-[#202124] outline-none focus:border-[#1a73e8]"
               />
               {ccFocus && ccSuggestions.length > 0 ? (
-                <div className="absolute left-10 right-0 top-10 z-10 overflow-hidden rounded-lg border border-white/10 bg-[#12121a] shadow-xl">
+                <div className="absolute left-10 right-0 top-10 z-10 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white shadow-xl">
                   {ccSuggestions.map((s) => (
                     <button
                       key={s}
@@ -1140,10 +1140,10 @@ export function ComposeWindow({
                 onFocus={() => setBccFocus(true)}
                 onBlur={() => window.setTimeout(() => setBccFocus(false), 150)}
                 autoComplete="off"
-                className="h-9 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 text-sm outline-none focus:border-[#d4af37]/60"
+                className="h-9 min-w-0 flex-1 rounded-lg border border-[#dadce0] bg-[#f8f9fa] px-3 text-sm text-[#202124] outline-none focus:border-[#1a73e8]"
               />
               {bccFocus && bccSuggestions.length > 0 ? (
-                <div className="absolute left-10 right-0 top-10 z-10 overflow-hidden rounded-lg border border-white/10 bg-[#12121a] shadow-xl">
+                <div className="absolute left-10 right-0 top-10 z-10 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white shadow-xl">
                   {bccSuggestions.map((s) => (
                     <button
                       key={s}
@@ -1167,7 +1167,7 @@ export function ComposeWindow({
             <input
               value={compose.subject}
               onChange={(e) => setCompose((c) => ({ ...c, subject: e.target.value }))}
-              className="h-9 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 text-sm outline-none focus:border-[#d4af37]/60"
+              className="h-9 min-w-0 flex-1 rounded-lg border border-[#dadce0] bg-[#f8f9fa] px-3 text-sm text-[#202124] outline-none focus:border-[#1a73e8]"
             />
           </div>
         </div>
@@ -1186,23 +1186,23 @@ export function ComposeWindow({
         />
 
         <div
-          className="orbit-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3 [&_.orbit-compose-editor_a]:text-[#f0d78c] [&_.orbit-compose-editor_a]:underline [&_.orbit-compose-editor_ol]:list-decimal [&_.orbit-compose-editor_ol]:pl-5 [&_.orbit-compose-editor_p.is-editor-empty:first-child::before]:pointer-events-none [&_.orbit-compose-editor_p.is-editor-empty:first-child::before]:float-left [&_.orbit-compose-editor_p.is-editor-empty:first-child::before]:h-0 [&_.orbit-compose-editor_p.is-editor-empty:first-child::before]:text-zinc-600 [&_.orbit-compose-editor_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] [&_.orbit-compose-editor_table]:w-full [&_.orbit-compose-editor_table]:border-collapse [&_.orbit-compose-editor_td]:border [&_.orbit-compose-editor_td]:border-white/20 [&_.orbit-compose-editor_td]:p-2 [&_.orbit-compose-editor_th]:border [&_.orbit-compose-editor_th]:border-white/20 [&_.orbit-compose-editor_th]:bg-white/5 [&_.orbit-compose-editor_th]:p-2 [&_.orbit-compose-editor_ul]:list-disc [&_.orbit-compose-editor_ul]:pl-5"
+          className="orbit-scroll min-h-0 flex-1 overflow-y-auto bg-white px-4 py-3 text-[#202124] [&_.orbit-compose-editor_a]:text-[#1a73e8] [&_.orbit-compose-editor_a]:underline [&_.orbit-compose-editor_ol]:list-decimal [&_.orbit-compose-editor_ol]:pl-5 [&_.orbit-compose-editor_p.is-editor-empty:first-child::before]:pointer-events-none [&_.orbit-compose-editor_p.is-editor-empty:first-child::before]:float-left [&_.orbit-compose-editor_p.is-editor-empty:first-child::before]:h-0 [&_.orbit-compose-editor_p.is-editor-empty:first-child::before]:text-zinc-400 [&_.orbit-compose-editor_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] [&_.orbit-compose-editor_table]:w-full [&_.orbit-compose-editor_table]:border-collapse [&_.orbit-compose-editor_td]:border [&_.orbit-compose-editor_td]:border-[#dadce0] [&_.orbit-compose-editor_td]:p-2 [&_.orbit-compose-editor_th]:border [&_.orbit-compose-editor_th]:border-[#dadce0] [&_.orbit-compose-editor_th]:bg-[#f8f9fa] [&_.orbit-compose-editor_th]:p-2 [&_.orbit-compose-editor_ul]:list-disc [&_.orbit-compose-editor_ul]:pl-5"
           data-orbit-compose-popover
         >
           <EditorContent editor={editor} />
         </div>
 
         {compose.attachments.length > 0 ? (
-          <div className="space-y-2 border-t border-white/10 px-4 py-3">
+          <div className="space-y-2 border-t border-[#e5e7eb] px-4 py-3">
             {compose.attachments.map((a) => (
               <div
                 key={a.id}
-                className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#14141e] px-3 py-2 text-sm"
+                className="flex items-center gap-3 rounded-xl border border-[#e5e7eb] bg-[#f8f9fa] px-3 py-2 text-sm"
               >
                 {a.contentType.startsWith("image/") ? (
-                  <ImageIcon className="size-4 text-[#d4af37]" />
+                  <ImageIcon className="size-4 text-[#1a73e8]" />
                 ) : (
-                  <FileText className="size-4 text-[#d4af37]" />
+                  <FileText className="size-4 text-[#1a73e8]" />
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{a.filename}</p>
@@ -1212,13 +1212,13 @@ export function ComposeWindow({
                   </p>
                   {a.progress < 100 ? (
                     <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/10">
-                      <div className="h-full bg-[#d4af37]" style={{ width: `${a.progress}%` }} />
+                      <div className="h-full bg-[#1a73e8]" style={{ width: `${a.progress}%` }} />
                     </div>
                   ) : null}
                 </div>
                 <button
                   type="button"
-                  className="rounded p-1 text-zinc-400 hover:bg-white/5 hover:text-white"
+                  className="rounded p-1 text-zinc-500 hover:bg-black/5 hover:text-[#202124]"
                   onClick={() =>
                     setCompose((c) => ({ ...c, attachments: c.attachments.filter((x) => x.id !== a.id) }))
                   }
@@ -1230,7 +1230,7 @@ export function ComposeWindow({
           </div>
         ) : null}
 
-        <div className="flex items-center justify-between gap-2 border-t border-white/10 px-4 py-3">
+        <div className="flex items-center justify-between gap-2 border-t border-[#e5e7eb] bg-white px-4 py-3">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <input
               ref={fileRef}
@@ -1245,7 +1245,7 @@ export function ComposeWindow({
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-sm text-zinc-300 hover:bg-white/5"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#dadce0] px-3 py-2 text-sm text-[#202124] hover:bg-[#f1f3f4]"
             >
               <Paperclip className="size-3.5" />
               Attach
@@ -1254,7 +1254,7 @@ export function ComposeWindow({
               type="button"
               onClick={() => void saveDraft(false)}
               disabled={draftSaving}
-              className="shrink-0 text-sm text-zinc-400 hover:text-white disabled:opacity-50"
+              className="shrink-0 text-sm text-[#5f6368] hover:text-[#202124] disabled:opacity-50"
             >
               Save draft
             </button>
@@ -1274,7 +1274,7 @@ export function ComposeWindow({
             type="button"
             disabled={sending}
             onClick={() => void send()}
-            className="inline-flex shrink-0 items-center gap-2 rounded-full bg-gradient-to-r from-[#f6e7a8] to-[#c9971a] px-5 py-2 text-sm font-bold text-[#1a1200] disabled:opacity-60"
+            className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[#1a73e8] px-5 py-2 text-sm font-bold text-white hover:bg-[#1557c0] disabled:opacity-60"
           >
             <Send className="size-3.5" />
             {sending ? "Sending…" : "Send"}

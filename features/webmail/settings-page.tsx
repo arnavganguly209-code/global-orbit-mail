@@ -57,7 +57,7 @@ function buildPreviewHtml(profile: ProfileForm) {
 export function WebmailSettingsPage() {
   const router = useRouter();
   const { setTheme } = useTheme();
-  const light = false;
+  const light = true;
   const [, setPrefs] = React.useState<Prefs>({ theme: "dark", signature: "" });
   const [profile, setProfile] = React.useState<ProfileForm>(brandingToForm(null, ""));
   const [email, setEmail] = React.useState("");
