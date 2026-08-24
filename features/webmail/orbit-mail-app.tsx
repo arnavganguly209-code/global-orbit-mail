@@ -42,6 +42,7 @@ import {
   CircleAlert,
   Maximize2,
   Minimize2,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -156,7 +157,9 @@ export function OrbitMailApp({
   const [folderBusy, setFolderBusy] = React.useState(false);
   const notifRef = React.useRef<HTMLDivElement>(null);
   const readerRef = React.useRef<HTMLElement>(null);
+  const refreshLock = React.useRef(false);
   const [readerFs, setReaderFs] = React.useState(false);
+  const [mailboxRefreshing, setMailboxRefreshing] = React.useState(false);
   const isStarredView = folder === STARRED_VIRTUAL;
 
   React.useEffect(() => {
@@ -298,8 +301,11 @@ export function OrbitMailApp({
       const data = await webmailApi<{ folders: Folder[] }>("/api/webmail/folders");
       return data.folders;
     },
-    staleTime: 15_000,
-    refetchInterval: 30_000,
+    staleTime: 20_000,
+    refetchInterval: () =>
+      typeof document !== "undefined" && document.visibilityState === "hidden" ? false : 45_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
     enabled: !!meQuery.data,
   });
 
@@ -345,7 +351,10 @@ export function OrbitMailApp({
       );
     },
     staleTime: 8_000,
-    refetchInterval: 20_000,
+    refetchInterval: () =>
+      typeof document !== "undefined" && document.visibilityState === "hidden" ? false : 18_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
     placeholderData: keepPreviousData,
     enabled: !!meQuery.data,
   });
@@ -378,8 +387,9 @@ export function OrbitMailApp({
       );
       return data.messages.slice(0, 10);
     },
-    staleTime: 12_000,
-    enabled: notifOpen && !!meQuery.data,
+    staleTime: 20_000,
+    enabled: !!meQuery.data && notifOpen,
+    refetchOnWindowFocus: false,
   });
 
   const threadQuery = useQuery({
@@ -391,6 +401,28 @@ export function OrbitMailApp({
     staleTime: 60_000,
     enabled: selectedUid != null && viewMode === "threads",
   });
+
+  async function refreshMailbox() {
+    if (refreshLock.current) return;
+    refreshLock.current = true;
+    setMailboxRefreshing(true);
+    try {
+      const [mailRes, folderRes] = await Promise.all([
+        messagesQuery.refetch(),
+        foldersQuery.refetch(),
+      ]);
+      void meQuery.refetch();
+      if (notifOpen) void unreadNotifQuery.refetch();
+      if (mailRes.error || folderRes.error) {
+        toast.error("Unable to refresh mailbox. Please try again.");
+      }
+    } catch {
+      toast.error("Unable to refresh mailbox. Please try again.");
+    } finally {
+      refreshLock.current = false;
+      setMailboxRefreshing(false);
+    }
+  }
 
   if (!layout) {
     return <div className="h-dvh bg-[#eef1f6]" aria-hidden />;
@@ -598,8 +630,10 @@ export function OrbitMailApp({
   }
 
   function prefetchMessage(uid: number) {
+    const key = ["webmail", "message", detailFolder, uid] as const;
+    if (qc.getQueryData(key)) return;
     void qc.prefetchQuery({
-      queryKey: ["webmail", "message", detailFolder, uid],
+      queryKey: key,
       queryFn: () =>
         webmailApi<MessageDetail>(
           `/api/webmail/messages/${uid}?folder=${encodeURIComponent(detailFolder)}`,
@@ -610,6 +644,21 @@ export function OrbitMailApp({
 
   async function runAction(action: string, uids: number[], extra?: Record<string, unknown>) {
     if (uids.length === 0) return;
+    if (action === "seen") {
+      const nextUnseen = extra?.seen === false;
+      qc.setQueryData<{ messages: MessageItem[]; total: number }>(
+        ["webmail", "messages", folder, searchQ, page, viewMode, isStarredView],
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: prev.messages.map((m) =>
+                  uids.includes(m.uid) ? { ...m, unseen: nextUnseen } : m,
+                ),
+              }
+            : prev,
+      );
+    }
     try {
       await webmailApi("/api/webmail/messages/action", {
         method: "POST",
@@ -1106,17 +1155,15 @@ export function OrbitMailApp({
     <aside
       className={cn(
         "orbit-mail-sidebar flex shrink-0 flex-col border-r border-black/40 bg-[#12151c] text-[#e8eaed]",
-        isWide ? "w-[256px] min-w-[256px] max-w-[256px]" : "fixed inset-y-0 left-0 z-40 w-[min(288px,90vw)] shadow-2xl",
+        isWide ? "w-[280px] min-w-[280px] max-w-[280px]" : "fixed inset-y-0 left-0 z-40 w-[min(300px,92vw)] shadow-2xl",
       )}
     >
-      <div className="flex h-[76px] items-center justify-center px-5 pt-5 pb-1 sm:h-[80px] sm:px-6">
+      <div className="flex min-h-[128px] items-center justify-center px-4 py-4 sm:min-h-[140px] sm:px-5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={companyLogo}
           alt="GLOBAL ORBIT PVT LTD"
-          width={180}
-          height={64}
-          className="h-14 w-auto max-w-[168px] object-contain object-center sm:h-16 sm:max-w-[180px]"
+          className="h-24 w-auto max-w-[248px] object-contain object-center sm:h-32 sm:max-w-[260px]"
           decoding="async"
         />
       </div>
@@ -1266,11 +1313,14 @@ export function OrbitMailApp({
           ) : null}
           <button
             type="button"
-            onClick={() => void messagesQuery.refetch()}
-            className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
-            title="Refresh"
+            onClick={() => void refreshMailbox()}
+            disabled={mailboxRefreshing}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#dadce0] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#3c4043] hover:bg-[#f1f3f4] disabled:cursor-not-allowed disabled:opacity-60"
+            title="Refresh mailbox"
+            aria-label="Refresh mailbox"
           >
-            ↻
+            <RefreshCw className={cn("size-3.5", mailboxRefreshing && "animate-spin")} />
+            <span className="hidden sm:inline">{mailboxRefreshing ? "Refreshing" : "Refresh"}</span>
           </button>
           <button type="button" className="rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100" title="More">
             <MoreHorizontal className="size-4" />
@@ -1373,6 +1423,14 @@ export function OrbitMailApp({
       </div>
 
       <div className="orbit-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [content-visibility:auto]">
+        {messagesQuery.isError && messages.length > 0 ? (
+          <div className="flex items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            <span>Unable to refresh mailbox. Please try again.</span>
+            <button type="button" className="font-semibold underline" onClick={() => void refreshMailbox()}>
+              Retry
+            </button>
+          </div>
+        ) : null}
         {messagesQuery.isLoading && messages.length === 0
           ? Array.from({ length: 8 }).map((_, i) => (
               <div
@@ -1426,7 +1484,11 @@ export function OrbitMailApp({
                       }}
                       className={cn(
                         "orbit-mail-row mb-0 flex w-full min-w-0 items-center gap-2 rounded-none border-0 border-b border-[#eceef2] px-2 py-2.5 text-left sm:gap-3 sm:px-3",
-                        active ? "bg-[#e8f0fe]" : m.unseen ? "bg-[#f8fafc] hover:bg-[#f1f5fb]" : "bg-white hover:bg-[#f6f8fc]",
+                        active
+                          ? "bg-[#e8f0fe]"
+                          : m.unseen
+                            ? "bg-[#e8f0fe]/55 hover:bg-[#e8f0fe]"
+                            : "bg-white hover:bg-[#f6f8fc]",
                       )}
                     >
                       <input
@@ -1440,7 +1502,7 @@ export function OrbitMailApp({
                       <span
                         className={cn(
                           "flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold",
-                          m.unseen ? "bg-[#1a73e8] text-white" : "bg-[#dadce0] text-[#5f6368]",
+                          m.unseen ? "bg-[#1a73e8] text-white ring-2 ring-[#1a73e8]/25" : "bg-[#e8eaed] text-[#80868b]",
                         )}
                       >
                         {initials(m.from || m.fromEmail)}
@@ -1451,14 +1513,14 @@ export function OrbitMailApp({
                             <span
                               className={cn(
                                 "size-1.5 shrink-0 rounded-full",
-                                m.unseen ? "bg-[#1a73e8]" : "bg-transparent",
+                                m.unseen ? "size-2 bg-[#1a73e8]" : "size-1.5 bg-transparent",
                               )}
                               aria-hidden
                             />
                             <span
                               className={cn(
                                 "min-w-0 truncate text-[13px] leading-5",
-                                m.unseen ? "font-bold text-[#202124]" : "font-normal text-[#5f6368]",
+                                m.unseen ? "font-extrabold text-black" : "font-normal text-[#5f6368]",
                               )}
                               title={m.from || m.fromEmail}
                             >
@@ -1468,7 +1530,7 @@ export function OrbitMailApp({
                           <span
                             className={cn(
                               "mt-0.5 block truncate pl-3.5 text-[13px] leading-5",
-                              m.unseen ? "font-bold text-[#202124]" : "font-normal text-[#5f6368]",
+                              m.unseen ? "font-extrabold text-black" : "font-normal text-[#5f6368]",
                             )}
                             title={m.subject || "(no subject)"}
                           >
@@ -1485,7 +1547,7 @@ export function OrbitMailApp({
                           <span
                             className={cn(
                               "text-[11px] tabular-nums",
-                              m.unseen ? "font-bold text-[#1a73e8]" : "font-normal text-[#80868b]",
+                              m.unseen ? "font-extrabold text-[#1a73e8]" : "font-normal text-[#80868b]",
                             )}
                           >
                             {formatWhen(m.date)}
