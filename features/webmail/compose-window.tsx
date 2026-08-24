@@ -1005,7 +1005,7 @@ export function ComposeWindow({
         }
         className={cn(
           "relative flex flex-col overflow-hidden border border-[#dadce0] bg-white text-[#202124] shadow-2xl",
-          mobile ? "h-[92dvh] w-full rounded-t-2xl" : "rounded-2xl",
+          mobile ? "h-[100dvh] w-full rounded-none pb-[env(safe-area-inset-bottom)]" : "rounded-2xl",
           !mobile && minimized && "fixed bottom-4 right-4 z-50",
         )}
       >
@@ -1230,7 +1230,7 @@ export function ComposeWindow({
           </div>
         ) : null}
 
-        <div className="flex items-center justify-between gap-2 border-t border-[#e5e7eb] bg-white px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[#e5e7eb] bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <input
               ref={fileRef}

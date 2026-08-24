@@ -72,6 +72,7 @@ import {
   formatWhen,
   initials,
   webmailApi,
+  WebmailApiError,
   type Folder,
   type Me,
   type MessageDetail,
@@ -287,15 +288,18 @@ export function OrbitMailApp({
     queryKey: ["webmail", "me"],
     queryFn: () => webmailApi<Me>("/api/webmail/auth/me"),
     staleTime: 60_000,
-    retry: 1,
+    retry: (count, err) => {
+      if (err instanceof WebmailApiError && err.status === 401) return false;
+      return count < 2;
+    },
   });
 
   React.useEffect(() => {
-    if (meQuery.isError) {
-      toast.error("Session expired");
-      router.replace(webmailRoutes.home);
-    }
-  }, [meQuery.isError, router]);
+    const err = meQuery.error;
+    if (!(err instanceof WebmailApiError) || err.status !== 401) return;
+    toast.error("Session expired");
+    router.replace(webmailRoutes.home);
+  }, [meQuery.error, router]);
 
   const foldersQuery = useQuery({
     queryKey: ["webmail", "folders"],
@@ -303,9 +307,9 @@ export function OrbitMailApp({
       const data = await webmailApi<{ folders: Folder[] }>("/api/webmail/folders");
       return data.folders;
     },
-    staleTime: 20_000,
+    staleTime: 12_000,
     refetchInterval: () =>
-      typeof document !== "undefined" && document.visibilityState === "hidden" ? false : 45_000,
+      typeof document !== "undefined" && document.visibilityState === "hidden" ? false : 20_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     enabled: !!meQuery.data,
@@ -352,9 +356,9 @@ export function OrbitMailApp({
         `/api/webmail/messages?folder=${encodeURIComponent(folder)}&page=${page}&pageSize=${PAGE_SIZE}`,
       );
     },
-    staleTime: 8_000,
+    staleTime: 5_000,
     refetchInterval: () =>
-      typeof document !== "undefined" && document.visibilityState === "hidden" ? false : 18_000,
+      typeof document !== "undefined" && document.visibilityState === "hidden" ? false : 12_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     placeholderData: keepPreviousData,
@@ -413,7 +417,6 @@ export function OrbitMailApp({
         messagesQuery.refetch(),
         foldersQuery.refetch(),
       ]);
-      void meQuery.refetch();
       if (notifOpen) void unreadNotifQuery.refetch();
       if (mailRes.error || folderRes.error) {
         toast.error("Unable to refresh mailbox. Please try again.");
@@ -980,7 +983,7 @@ export function OrbitMailApp({
   }
 
   const topBar = (
-    <header className="relative z-20 flex h-16 min-w-0 shrink-0 items-center gap-2 border-b border-[#dadce0] bg-white px-3 sm:gap-3 sm:px-5">
+    <header className="relative z-20 flex h-14 min-w-0 shrink-0 items-center gap-1 overflow-x-hidden border-b border-[#dadce0] bg-white px-2 sm:h-16 sm:gap-3 sm:px-5">
       <button
         type="button"
         onClick={() => setDrawerOpen(true)}
@@ -1447,7 +1450,7 @@ export function OrbitMailApp({
       </div>
 
       <div className="orbit-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [content-visibility:auto]">
-        {messagesQuery.isError && messages.length > 0 ? (
+        {messagesQuery.isError ? (
           <div className="flex items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
             <span>Unable to refresh mailbox. Please try again.</span>
             <button type="button" className="font-semibold underline" onClick={() => void refreshMailbox()}>
@@ -1464,7 +1467,7 @@ export function OrbitMailApp({
                 )}
               />
             ))
-          : messages.length === 0
+          : messages.length === 0 && !messagesQuery.isError
             ? (
                 <div className="orbit-empty-state">
                   <div className="orbit-empty-state__icon">
@@ -1507,7 +1510,7 @@ export function OrbitMailApp({
                         }
                       }}
                       className={cn(
-                        "orbit-mail-row mb-0 flex w-full min-w-0 items-center gap-2 rounded-none border-0 border-b border-[#eceef2] px-2 py-2.5 text-left sm:gap-3 sm:px-3",
+                        "orbit-mail-row mb-0 flex w-full min-w-0 items-center gap-2 rounded-none border-0 border-b border-[#eceef2] px-2 py-3 text-left sm:gap-3 sm:px-3 sm:py-2.5",
                         active
                           ? "bg-[#e8f0fe]"
                           : m.unseen
@@ -1570,7 +1573,7 @@ export function OrbitMailApp({
                         <span className="flex shrink-0 flex-col items-end gap-1 pt-0.5">
                           <span
                             className={cn(
-                              "text-[11px] tabular-nums",
+                              "whitespace-nowrap text-[11px] tabular-nums",
                               m.unseen ? "font-extrabold text-[#1a73e8]" : "font-normal text-[#80868b]",
                             )}
                           >

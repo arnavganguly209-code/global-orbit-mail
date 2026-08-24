@@ -1,3 +1,12 @@
+export class WebmailApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "WebmailApiError";
+    this.status = status;
+  }
+}
+
 export async function webmailApi<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -5,7 +14,7 @@ export async function webmailApi<T>(url: string, init?: RequestInit): Promise<T>
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok || json.success === false) {
-    throw new Error(json.message || `Request failed (${res.status})`);
+    throw new WebmailApiError(json.message || `Request failed (${res.status})`, res.status);
   }
   return json.data as T;
 }

@@ -88,6 +88,8 @@ function buildMailSrcDoc(html: string) {
     margin: 0;
     background: #ffffff;
     color-scheme: light;
+    overflow-x: auto;
+    max-width: 100%;
   }
   body {
     margin: 0;
@@ -100,6 +102,7 @@ function buildMailSrcDoc(html: string) {
     word-wrap: break-word;
     overflow-wrap: anywhere;
     -webkit-text-size-adjust: 100%;
+    max-width: 100%;
   }
   img, video {
     max-width: 100% !important;
@@ -109,7 +112,7 @@ function buildMailSrcDoc(html: string) {
     mix-blend-mode: normal !important;
     -webkit-filter: none !important;
   }
-  table { max-width: 100%; border-collapse: collapse; }
+  table { max-width: 100% !important; border-collapse: collapse; table-layout: auto; }
   td, th { word-break: break-word; color: inherit; }
   pre, code { white-space: pre-wrap; word-break: break-word; }
   a { color: #1558d6; }
