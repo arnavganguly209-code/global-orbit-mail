@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -348,15 +347,17 @@ export function WebmailSettingsPage() {
           <ChangePasswordForm variant="webmail" endpoint="/api/webmail/profile/password" />
         </div>
 
-        <div className="mt-6 flex justify-center opacity-80">
-          <Image
-            src="/brand/logo.png"
-            alt="GLOBAL ORBIT"
-            width={180}
-            height={48}
-            className="h-10 w-auto object-contain"
-          />
-        </div>
+        <p className="mt-8 mb-2 text-center text-sm leading-relaxed">
+          <span className={light ? "text-slate-500" : "text-zinc-500"}>Developed By </span>
+          <a
+            href="https://theglobalorbit.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-[#d4af37] underline-offset-4 transition hover:text-[#e8c98a] hover:underline"
+          >
+            The Global Orbit
+          </a>
+        </p>
       </div>
     </div>
   );

@@ -1175,12 +1175,12 @@ export function OrbitMailApp({
         isWide ? "w-[252px] min-w-[252px] max-w-[252px]" : "fixed inset-y-0 left-0 z-40 w-[min(280px,90vw)] shadow-2xl",
       )}
     >
-      <div className="flex shrink-0 items-center justify-center px-4 pt-3 pb-1">
+      <div className="orbit-sidebar-logo-frame">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={companyLogo}
           alt="GLOBAL ORBIT PVT LTD"
-          className="h-[4.25rem] w-auto max-w-[208px] object-contain object-center sm:h-[4.75rem] sm:max-w-[220px]"
+          className="orbit-sidebar-logo"
           decoding="async"
         />
       </div>
