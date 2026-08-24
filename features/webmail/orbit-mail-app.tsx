@@ -84,7 +84,10 @@ type Pane = "folders" | "list" | "reader";
 const PAGE_SIZE = 50;
 const STARRED_VIRTUAL = "__starred__";
 
-const NAV_ICONS: Record<SystemNavKey, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+const NAV_ICONS: Record<
+  SystemNavKey,
+  React.ComponentType<{ className?: string; style?: React.CSSProperties; strokeWidth?: number }>
+> = {
   inbox: Inbox,
   starred: Star,
   important: CircleAlert,
