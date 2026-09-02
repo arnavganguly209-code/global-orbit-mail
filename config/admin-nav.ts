@@ -23,6 +23,7 @@ import {
   ArrowRightLeft,
   ShieldAlert,
   HeartPulse,
+  Radar,
   type LucideIcon,
 } from "lucide-react";
 
@@ -39,6 +40,7 @@ export const adminNav: AdminNavItem[] = [
   { title: "Domains", href: "/orbit/domains", icon: Globe2 },
   { title: "Mailboxes", href: "/orbit/mailboxes", icon: Inbox },
   { title: "Mail Health", href: "/orbit/mail-health", icon: HeartPulse },
+  { title: "Mail Monitor", href: "/orbit/mail-monitor", icon: Radar },
   { title: "Users", href: "/orbit/users", icon: Users },
   { title: "DNS Manager", href: "/orbit/dns", icon: Network },
   { title: "Logs", href: "/orbit/logs", icon: ScrollText },

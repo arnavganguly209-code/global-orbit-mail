@@ -3,6 +3,7 @@ import { mailboxRepository } from "@/repositories/mailbox.repository";
 import { userRepository } from "@/repositories";
 import { prisma } from "@/lib/db";
 import { systemHealthService } from "@/services/system/health";
+import { mailEngine } from "@/services/provisioning/mail-engine";
 import { getMailTrafficSeries } from "@/lib/mail/daily-stats";
 import type {
   AuditLogEntry,
@@ -22,12 +23,19 @@ function mapHealthStatus(
 
 export const monitoringService = {
   async getSnapshot(): Promise<MonitoringSnapshot> {
-    const report = await systemHealthService.getReport(null, { audit: false });
+    const [report, monitor] = await Promise.all([
+      systemHealthService.getReport(null, { audit: false }),
+      mailEngine.getMonitorSnapshot().catch(() => null),
+    ]);
+    const queueCount =
+      monitor?.ok && typeof monitor.data?.queueCount === "number"
+        ? (monitor.data.queueCount as number)
+        : null;
     return {
       cpuPercent: report.cpuPercent,
       ramPercent: report.ramPercent,
       diskPercent: report.diskPercent,
-      mailQueue: null,
+      mailQueue: queueCount,
       components: report.components.map((c) => ({
         id: c.id,
         name: c.name,

@@ -700,6 +700,92 @@ CREATE TABLE IF NOT EXISTS virtual_aliases (
     fi
     json_ok "{\"scheme\":\"$scheme\",\"vmailBase\":\"$VMAIL_BASE\",\"mysqlDatabase\":\"${MAIL_MYSQL_DATABASE:-mailserver}\",\"phpUploadMax\":\"$upload_php\",\"postfixMessageSizeLimit\":\"$msg_limit\",\"opendkim\":\"$opendkim\",\"smtpdMilters\":\"$milter\",\"inetProtocols\":\"$inet_proto\"}"
     ;;
+  monitor.snapshot)
+    python3 - <<'PY'
+import json, os, re, subprocess, time
+from datetime import datetime
+
+def run(cmd):
+    try:
+        return subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.STDOUT, timeout=15)
+    except Exception as e:
+        return str(e)
+
+def svc(name):
+    out = run(f"systemctl is-active {name} 2>/dev/null").strip()
+    return out if out in ("active","inactive","failed","unknown") else "unknown"
+
+queue_out = run("postqueue -p")
+queue_lines = [l for l in queue_out.splitlines() if re.match(r"^[0-9A-F]", l)]
+queue_count = len(queue_lines)
+
+load = run("cat /proc/loadavg").split()[:3]
+mem = run("free -m")
+mem_used = mem_total = 0
+for line in mem.splitlines():
+    if line.startswith("Mem:"):
+        parts = line.split()
+        mem_total = int(parts[1]) if len(parts) > 1 else 0
+        mem_used = int(parts[2]) if len(parts) > 2 else 0
+ram_pct = round((mem_used / mem_total) * 100, 1) if mem_total else None
+
+disk_line = run("df -P / | tail -1").split()
+disk_pct = int(disk_line[4].rstrip('%')) if len(disk_line) >= 5 else None
+
+cpu_pct = None
+if load:
+    try:
+        import multiprocessing
+        n = multiprocessing.cpu_count() or 1
+        cpu_pct = round(min(100.0, (float(load[0]) / n) * 100), 1)
+    except Exception:
+        cpu_pct = None
+
+log_path = "/var/log/mail.log"
+recent = []
+failures = []
+slow = []
+if os.path.isfile(log_path):
+    with open(log_path, "rb") as f:
+        try:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 400_000))
+            chunk = f.read().decode("utf-8", "replace")
+        except Exception:
+            chunk = ""
+    lines = chunk.splitlines()[-800:]
+    for line in lines:
+        low = line.lower()
+        if any(k in low for k in ("status=bounced", "status=deferred", "reject", "authentication failed", "milter-reject", "warning:", "error", "fatal")):
+            failures.append(line[-280:])
+        m = re.search(r"delay=([0-9.]+)", line)
+        if m and float(m.group(1)) >= 30 and "status=sent" in low:
+            slow.append(line[-280:])
+    recent = lines[-40:]
+
+payload = {
+    "checkedAt": datetime.utcnow().isoformat() + "Z",
+    "queueCount": queue_count,
+    "queueSample": queue_lines[:8],
+    "loadAvg": load,
+    "cpuPercent": cpu_pct,
+    "ramPercent": ram_pct,
+    "diskPercent": disk_pct,
+    "services": {
+        "postfix": svc("postfix"),
+        "dovecot": svc("dovecot"),
+        "opendkim": svc("opendkim"),
+        "rspamd": svc("rspamd"),
+        "nginx": svc("nginx"),
+    },
+    "recentFailures": failures[-25:],
+    "slowDeliveries": slow[-15:],
+    "recentLogTail": recent,
+}
+print(json.dumps({"ok": True, "data": payload}))
+PY
+    ;;
   *)
     json_err "Unknown command: $COMMAND"
     ;;

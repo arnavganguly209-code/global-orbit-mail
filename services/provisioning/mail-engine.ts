@@ -39,7 +39,8 @@ export type AgentCommand =
   | "dkim.sync"
   | "platform.ensure"
   | "storage.usage"
-  | "health.check";
+  | "health.check"
+  | "monitor.snapshot";
 
 export type AgentRequest = {
   command: AgentCommand;
@@ -889,6 +890,10 @@ export const mailEngine = {
       await finishJob(job.id, "FAILED", response.data, response.stderr || "Provision failed");
     }
     return { jobId: job.id, ...response };
+  },
+
+  async getMonitorSnapshot(): Promise<AgentResponse> {
+    return this.execute({ command: "monitor.snapshot", payload: {} });
   },
 };
 
