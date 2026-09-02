@@ -33,9 +33,49 @@ async function fetchMonitor() {
 
 function svcTone(status: string) {
   if (status === "active" || status === "operational") return "success" as const;
-  if (status === "degraded") return "warning" as const;
+  if (status === "degraded" || status === "activating") return "warning" as const;
   if (status === "down" || status === "failed" || status === "inactive") return "danger" as const;
   return "neutral" as const;
+}
+
+const SERVICE_LABELS: Record<string, string> = {
+  postfix: "Postfix",
+  dovecot: "Dovecot",
+  opendkim: "OpenDKIM",
+  rspamd: "Rspamd",
+  nginx: "Nginx",
+  php: "PHP-FPM",
+  webmail: "Orbit Webmail",
+  database: "Database",
+  redis: "Redis",
+  roundcube: "Orbit Webmail",
+};
+
+/** Prefer mail-critical services; hide legacy false names. */
+const SERVICE_ORDER = [
+  "postfix",
+  "dovecot",
+  "opendkim",
+  "rspamd",
+  "nginx",
+  "php",
+  "webmail",
+  "database",
+  "redis",
+];
+
+function orderedServices(services: Record<string, string>) {
+  const cleaned: Record<string, string> = { ...services };
+  // Map old roundcube key into webmail if present
+  if (cleaned.roundcube && !cleaned.webmail) {
+    cleaned.webmail = cleaned.roundcube;
+  }
+  delete cleaned.roundcube;
+  const keys = [
+    ...SERVICE_ORDER.filter((k) => k in cleaned),
+    ...Object.keys(cleaned).filter((k) => !SERVICE_ORDER.includes(k)),
+  ];
+  return keys.map((id) => ({ id, status: cleaned[id], label: SERVICE_LABELS[id] ?? id }));
 }
 
 export function MailServerMonitorPage() {
@@ -140,9 +180,9 @@ export function MailServerMonitorPage() {
                 <Server className="size-5 text-primary" />
                 <h2 className="font-display text-xl font-semibold">Services</h2>
               </div>
-              {Object.entries(data.services).map(([name, status]) => (
-                <div key={name} className="flex items-center justify-between rounded-xl border border-border/60 p-3">
-                  <span className="font-medium capitalize">{name}</span>
+              {orderedServices(data.services).map(({ id, status, label }) => (
+                <div key={id} className="flex items-center justify-between rounded-xl border border-border/60 p-3">
+                  <span className="font-medium">{label}</span>
                   <StatusPill label={status} tone={svcTone(status)} />
                 </div>
               ))}
@@ -174,14 +214,18 @@ export function MailServerMonitorPage() {
             <GlassPanel className="p-5">
               <div className="mb-3 flex items-center gap-2">
                 <AlertTriangle className="size-5 text-red-500" />
-                <h2 className="font-display text-xl font-semibold">Recent Failures / Rejects</h2>
+                <h2 className="font-display text-xl font-semibold">Real Delivery Problems</h2>
               </div>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Only bounces, deferred mail, milter rejects, key errors, and real mailbox auth failures.
+                Config noise and scanner bots are filtered out.
+              </p>
               {data.recentFailures.length ? (
-                <pre className="max-h-72 overflow-auto rounded-lg bg-muted/40 p-3 text-xs leading-relaxed">
+                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted/40 p-3 text-xs leading-relaxed">
                   {data.recentFailures.join("\n")}
                 </pre>
               ) : (
-                <p className="text-sm text-muted-foreground">No recent bounces, rejects, or auth failures in mail.log.</p>
+                <p className="text-sm text-muted-foreground">No real delivery failures detected recently.</p>
               )}
             </GlassPanel>
 

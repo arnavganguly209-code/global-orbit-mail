@@ -684,7 +684,7 @@ CREATE TABLE IF NOT EXISTS virtual_aliases (
     ;;
   health.check)
     scheme="$(detect_scheme)"
-    platform_ensure || true
+    # Read-only snapshot — do NOT run platform_ensure (it reloads Postfix every poll).
     upload_php="$(php -r 'echo ini_get("upload_max_filesize");' 2>/dev/null || echo unknown)"
     msg_limit="unknown"
     milter="missing"
@@ -702,8 +702,8 @@ CREATE TABLE IF NOT EXISTS virtual_aliases (
     ;;
   monitor.snapshot)
     python3 - <<'PY'
-import json, os, re, subprocess, time
-from datetime import datetime
+import json, os, re, subprocess
+from datetime import datetime, timezone
 
 def run(cmd):
     try:
@@ -713,7 +713,30 @@ def run(cmd):
 
 def svc(name):
     out = run(f"systemctl is-active {name} 2>/dev/null").strip()
-    return out if out in ("active","inactive","failed","unknown") else "unknown"
+    return out if out in ("active","inactive","failed","activating","deactivating") else "unknown"
+
+def php_status():
+    for n in ("php8.3-fpm", "php8.2-fpm", "php8.1-fpm", "php-fpm"):
+        if svc(n) == "active":
+            return "active"
+    for sock in ("/run/php/php-fpm.sock", "/run/php/php8.3-fpm.sock", "/run/php/php8.2-fpm.sock"):
+        if os.path.exists(sock):
+            return "active"
+    return "inactive"
+
+def webmail_status():
+    # Orbit Next.js on :3100
+    out = run("curl -s -o /dev/null -w '%{http_code}' -m 3 http://127.0.0.1:3100/api/health 2>/dev/null")
+    code = (out or "").strip()
+    if code.startswith("2") or code == "401" or code == "403":
+        return "active"
+    # PM2 process online
+    pm = run("pm2 jlist 2>/dev/null")
+    if "orbit-webmail" in pm and '"status":"online"' in pm.replace(" ", ""):
+        # weaker signal — still prefer http
+        if '"name":"orbit-webmail"' in pm and "online" in pm:
+            return "active" if code.isdigit() and int(code) < 500 else "degraded"
+    return "down" if code in ("000", "", "7") else "degraded"
 
 queue_out = run("postqueue -p")
 queue_lines = [l for l in queue_out.splitlines() if re.match(r"^[0-9A-F]", l)]
@@ -741,6 +764,41 @@ if load:
     except Exception:
         cpu_pct = None
 
+# Only real delivery / auth problems — ignore config noise and scanner bots
+NOISE_RE = re.compile(
+    r"duplicate master\.cf|"
+    r"does not resolve to address|"
+    r"name or service not known|"
+    r"sasl_username=\(unavailable\)|"
+    r"invalid authentication mechanism|"
+    r"lost connection after |"
+    r"timeout after (connect|helo|ehlo|auth)",
+    re.I,
+)
+
+def is_real_failure(line: str) -> bool:
+    low = line.lower()
+    if NOISE_RE.search(line):
+        return False
+    if "status=bounced" in low or "status=deferred" in low:
+        return True
+    if "milter-reject" in low:
+        return True
+    if "fatal:" in low or " panic:" in low:
+        return True
+    if "noqueue: reject" in low and (
+        "recipient address rejected" in low
+        or "sender address rejected" in low
+        or "relay access denied" in low
+    ):
+        return True
+    # Real mailbox auth failure (username present)
+    if "authentication failed" in low and "sasl_username=" in low and "unavailable" not in low:
+        return True
+    if "opendkim" in low and ("can't load key" in low or "error loading key" in low):
+        return True
+    return False
+
 log_path = "/var/log/mail.log"
 recent = []
 failures = []
@@ -750,22 +808,22 @@ if os.path.isfile(log_path):
         try:
             f.seek(0, os.SEEK_END)
             size = f.tell()
-            f.seek(max(0, size - 400_000))
+            f.seek(max(0, size - 500_000))
             chunk = f.read().decode("utf-8", "replace")
         except Exception:
             chunk = ""
-    lines = chunk.splitlines()[-800:]
+    lines = chunk.splitlines()[-1200:]
     for line in lines:
         low = line.lower()
-        if any(k in low for k in ("status=bounced", "status=deferred", "reject", "authentication failed", "milter-reject", "warning:", "error", "fatal")):
-            failures.append(line[-280:])
+        if is_real_failure(line):
+            failures.append(line[-320:])
         m = re.search(r"delay=([0-9.]+)", line)
         if m and float(m.group(1)) >= 30 and "status=sent" in low:
-            slow.append(line[-280:])
+            slow.append(line[-320:])
     recent = lines[-40:]
 
 payload = {
-    "checkedAt": datetime.utcnow().isoformat() + "Z",
+    "checkedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     "queueCount": queue_count,
     "queueSample": queue_lines[:8],
     "loadAvg": load,
@@ -778,6 +836,8 @@ payload = {
         "opendkim": svc("opendkim"),
         "rspamd": svc("rspamd"),
         "nginx": svc("nginx"),
+        "php": php_status(),
+        "webmail": webmail_status(),
     },
     "recentFailures": failures[-25:],
     "slowDeliveries": slow[-15:],

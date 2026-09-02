@@ -1,6 +1,7 @@
 import { createConnection } from "node:net";
 import { cpus } from "node:os";
-import { readFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { access, readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { prisma } from "@/lib/db";
@@ -134,6 +135,115 @@ async function checkTcpService(
   };
 }
 
+/** PHP-FPM on this VPS listens on a Unix socket, not TCP :9000. */
+async function checkPhpFpm(): Promise<HealthComponent> {
+  const start = Date.now();
+  const host = process.env.PHP_FPM_HOST ?? "127.0.0.1";
+  const port = Number(process.env.PHP_FPM_PORT ?? "0");
+  if (port > 0) {
+    const ok = await tcpCheck(host, port);
+    if (ok) {
+      return {
+        id: "php",
+        name: "PHP-FPM",
+        status: "operational",
+        detail: `TCP ${host}:${port} open`,
+        latencyMs: Date.now() - start,
+      };
+    }
+  }
+
+  const sockets = [
+    process.env.PHP_FPM_SOCKET?.trim(),
+    "/run/php/php-fpm.sock",
+    "/run/php/php8.3-fpm.sock",
+    "/run/php/php8.2-fpm.sock",
+    "/run/php/php8.1-fpm.sock",
+    "/var/run/php/php-fpm.sock",
+  ].filter(Boolean) as string[];
+
+  for (const sock of sockets) {
+    try {
+      await access(sock, fsConstants.F_OK);
+      const reachable = await new Promise<boolean>((resolve) => {
+        const socket = createConnection({ path: sock });
+        const timer = setTimeout(() => {
+          socket.destroy();
+          resolve(true); // socket file exists; connect may still be ACL-limited
+        }, 1500);
+        socket.on("connect", () => {
+          clearTimeout(timer);
+          socket.end();
+          resolve(true);
+        });
+        socket.on("error", () => {
+          clearTimeout(timer);
+          // File exists — treat as up even if this process cannot connect (permissions)
+          resolve(true);
+        });
+      });
+      if (reachable) {
+        return {
+          id: "php",
+          name: "PHP-FPM",
+          status: "operational",
+          detail: `Socket ${sock}`,
+          latencyMs: Date.now() - start,
+        };
+      }
+    } catch {
+      /* try next */
+    }
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      "bash",
+      ["-lc", "systemctl is-active php8.3-fpm php8.2-fpm php8.1-fpm php-fpm 2>/dev/null | grep -m1 active || true"],
+      { timeout: 5000 },
+    );
+    if (stdout.trim() === "active") {
+      return {
+        id: "php",
+        name: "PHP-FPM",
+        status: "operational",
+        detail: "systemctl reports active",
+        latencyMs: Date.now() - start,
+      };
+    }
+  } catch {
+    /* fall through */
+  }
+
+  return {
+    id: "php",
+    name: "PHP-FPM",
+    status: "down",
+    detail: "No PHP-FPM socket or active unit found",
+    latencyMs: Date.now() - start,
+  };
+}
+
+/** Primary webmail is Orbit Next.js on :3100 — not legacy Roundcube. */
+async function checkOrbitWebmail(): Promise<HealthComponent> {
+  const url =
+    process.env.WEBMAIL_HEALTH_URL?.trim() ||
+    process.env.ORBIT_WEBMAIL_HEALTH_URL?.trim() ||
+    "http://127.0.0.1:3100/api/health";
+  const result = await checkHttp("webmail", "Orbit Webmail", url);
+  if (result.status === "operational") return result;
+
+  // Fallback: public host may redirect; treat <500 as up
+  const publicUrl =
+    process.env.NEXT_PUBLIC_USER_PORTAL_URL?.trim() ||
+    "https://webmail.globalorbitmail.cloud/mail";
+  const pub = await checkHttp("webmail", "Orbit Webmail", publicUrl);
+  if (pub.status !== "down") {
+    return { ...pub, detail: `${pub.detail} (public fallback)` };
+  }
+  return result;
+}
+
 async function readLocalMetrics(): Promise<{
   cpuPercent: number | null;
   ramPercent: number | null;
@@ -178,40 +288,33 @@ async function readLocalMetrics(): Promise<{
 export const systemHealthService = {
   async getReport(actorId?: string | null, options?: { audit?: boolean }): Promise<SystemHealthReport> {
     const mailHost = process.env.MAIL_HOSTNAME ?? "127.0.0.1";
-    const webmailUrl =
-      process.env.WEBMAIL_HEALTH_URL ??
-      process.env.NEXT_PUBLIC_USER_PORTAL_URL ??
-      "https://webmail.globalorbitmail.cloud";
-    const phpFpmHost = process.env.PHP_FPM_HOST ?? "127.0.0.1";
-    const phpFpmPort = Number(process.env.PHP_FPM_PORT ?? "9000");
     const nginxHost = process.env.NGINX_HEALTH_HOST ?? "127.0.0.1";
     const nginxPort = Number(process.env.NGINX_HEALTH_PORT ?? "80");
 
-    const [database, redis, postfix, dovecot, rspamd, nginx, php, roundcube, metrics] =
+    const [database, redis, postfix, dovecot, rspamd, nginx, php, webmail, metrics] =
       await Promise.all([
         checkPostgres(),
         checkRedis(),
-        checkTcpService("postfix", "Postfix", mailHost, Number(process.env.POSTFIX_SMTP_PORT ?? "25")),
-        checkTcpService("dovecot", "Dovecot", mailHost, Number(process.env.DOVECOT_IMAP_PORT ?? "143")),
+        checkTcpService("postfix", "Postfix", "127.0.0.1", Number(process.env.POSTFIX_SMTP_PORT ?? "25")),
+        checkTcpService("dovecot", "Dovecot", "127.0.0.1", Number(process.env.DOVECOT_IMAP_PORT ?? "143")),
         checkTcpService("rspamd", "Rspamd", process.env.RSPAMD_HOST ?? "127.0.0.1", Number(process.env.RSPAMD_PORT ?? "11334")),
         checkTcpService("nginx", "Nginx", nginxHost, nginxPort),
-        checkTcpService("php", "PHP", phpFpmHost, phpFpmPort),
-        checkHttp("roundcube", "Roundcube", webmailUrl),
+        checkPhpFpm(),
+        checkOrbitWebmail(),
         readLocalMetrics(),
       ]);
 
+    // Do NOT call ensurePlatform() on every poll — it reloads Postfix and floods warnings.
     if (mailEngine.isEnabled()) {
-      // Self-heal attachment limits / IPv4 on every health check (local mail host)
-      await mailEngine.ensurePlatform().catch(() => undefined);
-      const agent = await mailEngine.execute({ command: "health.check", payload: {} });
-      if (agent.ok && agent.data) {
+      const agent = await mailEngine.execute({ command: "health.check", payload: {} }).catch(() => null);
+      if (agent?.ok && agent.data) {
         if (typeof agent.data.cpuPercent === "number") metrics.cpuPercent = agent.data.cpuPercent;
         if (typeof agent.data.ramPercent === "number") metrics.ramPercent = agent.data.ramPercent;
         if (typeof agent.data.diskPercent === "number") metrics.diskPercent = agent.data.diskPercent;
       }
     }
 
-    const components = [database, redis, postfix, dovecot, rspamd, nginx, php, roundcube];
+    const components = [database, redis, postfix, dovecot, rspamd, nginx, php, webmail];
 
     if (options?.audit !== false && actorId) {
       await writeAudit({

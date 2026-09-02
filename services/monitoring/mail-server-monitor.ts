@@ -88,11 +88,16 @@ export const mailServerMonitorService = {
       diskPercent: agentData.diskPercent ?? systemHealth?.diskPercent ?? null,
       loadAvg: agentData.loadAvg ?? [],
       services: {
+        // Prefer accurate agent mail-stack status; overlay system health for DB/etc.
         ...Object.fromEntries(
-          (systemHealth?.components ?? []).map((c) => [c.id, c.status === "operational" ? "active" : c.status]),
+          (systemHealth?.components ?? []).map((c) => [
+            c.id,
+            c.status === "operational" ? "active" : c.status === "unknown" ? "unknown" : c.status,
+          ]),
         ),
         ...(agentData.services ?? {}),
       },
+      // Prefer agent-filtered real failures (noise already stripped on VPS)
       recentFailures: agentData.recentFailures ?? [],
       slowDeliveries: agentData.slowDeliveries ?? [],
       recentLogTail: agentData.recentLogTail ?? [],
